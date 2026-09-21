@@ -1,0 +1,12 @@
+{
+  "version": "9.0.2",
+  "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+  "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+  "repository": "https://github.com/FFmpeg/FFmpeg",
+  "tag": "n9.0.2",
+  "commit": "946fcce07b6dcd0331c8cc609192aeff5e1924f8",
+  "license": "LGPL-2.1-or-later",
+  "lgpl_sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30",
+  "minimum_ios": "18.0",
+  "source_date_epoch": 0
+}

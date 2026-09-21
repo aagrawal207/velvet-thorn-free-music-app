@@ -1,0 +1,95 @@
+{
+  "manifestVersion": 1,
+  "purpose": "Local release draft, not an App Store Connect API payload. Paths are repository-relative.",
+  "status": "DRAFT_NOT_CREATED",
+  "submissionStatus": "ON_HOLD_CONTENT_RIGHTS",
+  "appName": "Breezy - Stream Music & Chill",
+  "appNameStatus": "PROVISIONAL_OWNER_SELECTION_PENDING",
+  "bundleIdentifier": "com.agraabhi.ganabajana",
+  "appStoreAppId": null,
+  "initialAppVersion": "1.0.0",
+  "localReleaseCandidateBuild": "2",
+  "releaseCandidateVerification": "PENDING",
+  "releaseStatusRecord": "docs/app-store/RELEASE_STATUS.md",
+  "supportUrl": "https://gist.github.com/aagrawal207/95acc71ba167fb754c435de17d256e59#file-support-md",
+  "privacyPolicyUrl": "https://gist.github.com/aagrawal207/95acc71ba167fb754c435de17d256e59#file-privacy-md",
+  "publicPagesStatus": "PUBLISHED_URLS_LOCAL_REVISION_PENDING",
+  "ffmpegDistributionStatus": "PENDING_PUBLIC_CORRESPONDING_SOURCE_AND_RELINK_DELIVERY",
+  "locale": "en-US",
+  "localStoreKitConfiguration": "Resources/TipJar.storekit",
+  "localStoreKitScheme": "GanaBajana",
+  "localStoreKitAction": "Run",
+  "localStoreKitLocale": "en_US",
+  "baseTerritory": "USA",
+  "currency": "USD",
+  "pricingStatus": "INTENDED_BASE_PRICES_NOT_CONFIGURED",
+  "regionalAvailability": null,
+  "regionalPricing": "Resolve actual App Store price points and territory availability during setup; do not hardcode converted prices in the app.",
+  "purchasePolicy": {
+    "type": "CONSUMABLE",
+    "optional": true,
+    "repeatable": true,
+    "oneTimePurchase": true,
+    "subscription": false,
+    "familyShareable": false,
+    "grantsEntitlement": false,
+    "unlocksFeatures": false,
+    "unlocksMusic": false,
+    "displayPriceSource": "StoreKit.Product.displayPrice"
+  },
+  "reviewScreen": "Settings > Support development",
+  "sharedReviewNotes": "Open Breezy and complete the welcome screen if shown. Open Settings, then Support development in About Breezy. All five products appear on this screen. Each is an optional, repeatable one-time consumable tip supporting development. Tips unlock no features or music and are not subscriptions. Product names, descriptions and prices come from StoreKit. The local tip count increases only after a verified transaction has been saved; duplicate deliveries are not counted again. No Breezy account or YouTube sign-in is needed to open the tip screen.",
+  "reviewScreenshot": {
+    "status": "PENDING_CAPTURE",
+    "path": null,
+    "reuseForEveryProduct": true,
+    "requirement": "Capture the real Support development screen with all five loaded products, localized prices and the optional-tip explanation. Use the same actual in-app screen for each product's review evidence. Do not use a mock purchase UI."
+  },
+  "products": [
+    {
+      "productId": "com.agraabhi.ganabajana.tip.small",
+      "referenceName": "Small tip",
+      "displayName": "Small tip",
+      "description": "A little support for Breezy.",
+      "usBasePrice": "3.00",
+      "appStoreIapId": null,
+      "status": "NOT_CREATED"
+    },
+    {
+      "productId": "com.agraabhi.ganabajana.tip.medium",
+      "referenceName": "Generous tip",
+      "displayName": "Generous tip",
+      "description": "A little extra support for development.",
+      "usBasePrice": "5.00",
+      "appStoreIapId": null,
+      "status": "NOT_CREATED"
+    },
+    {
+      "productId": "com.agraabhi.ganabajana.tip.large",
+      "referenceName": "Big tip",
+      "displayName": "Big tip",
+      "description": "Help me keep improving Breezy.",
+      "usBasePrice": "10.00",
+      "appStoreIapId": null,
+      "status": "NOT_CREATED"
+    },
+    {
+      "productId": "com.agraabhi.ganabajana.tip.grand",
+      "referenceName": "Grand tip",
+      "displayName": "Grand tip",
+      "description": "Extra support for future improvements.",
+      "usBasePrice": "25.00",
+      "appStoreIapId": null,
+      "status": "NOT_CREATED"
+    },
+    {
+      "productId": "com.agraabhi.ganabajana.tip.patron",
+      "referenceName": "Patron tip",
+      "displayName": "Patron tip",
+      "description": "A generous boost for development.",
+      "usBasePrice": "50.00",
+      "appStoreIapId": null,
+      "status": "NOT_CREATED"
+    }
+  ]
+}

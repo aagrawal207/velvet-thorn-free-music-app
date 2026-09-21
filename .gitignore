@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+build/
+artifacts/
+*.xcuserstate
+xcuserdata/
+.swiftpm/
+GanaBajana.xcodeproj/

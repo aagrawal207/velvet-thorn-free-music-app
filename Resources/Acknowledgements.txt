@@ -1,0 +1,114 @@
+Breezy acknowledgements
+
+Network providers
+
+Catalog and discovery: YouTube Music
+https://music.youtube.com
+
+Charts: YouTube Charts
+https://charts.youtube.com
+
+Primary lyrics: LRCLIB
+https://lrclib.net
+
+Recording-linked plain lyrics fallback: YouTube Music
+https://music.youtube.com
+LyricFind and Musixmatch are credited when identified by YouTube Music.
+Breezy does not request lyrics directly from either publisher.
+
+Recording/work language metadata, when enabled: MusicBrainz
+https://musicbrainz.org
+
+Optional remote extraction: YouTubeKit remote service
+https://remote-production.youtubekit.dev
+
+Encrypted DNS fallback: Cloudflare DNS over HTTPS
+https://cloudflare-dns.com/dns-query
+
+Music, lyrics, and provider-supplied cover art belong to their respective owners.
+Provider credits do not imply affiliation, endorsement, or content permission.
+
+Original artwork
+
+Breezy's bundled app icons and brand mark were created for this project with
+tools/generate-artwork.swift. No external artwork was used for those assets.
+
+Third-party software
+
+Package: YouTubeKit
+Version: 0.4.9, included as a vendored copy (Vendor/YouTubeKit) with a small
+patch that lets the app add its optional YouTube sign-in to the TV client's
+player requests. The patch is described in Vendor/YouTubeKit/GANABAJANA-PATCH.md.
+Source: https://github.com/alexeichhorn/YouTubeKit
+The following license notice is reproduced verbatim from the package LICENSE.
+
+MIT License
+
+Copyright (c) 2022 Alexander Eichhorn
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+Package: FFmpeg / FFmpegBridge
+FFmpeg version: 9.0.2
+License: GNU Lesser General Public License, version 2.1 or later
+
+FFmpeg is copyright its respective contributors, as identified in its source.
+The FFmpegBridge wrapper, public header, Swift package manifest, build script,
+and package-specific build materials are copyright (C) 2026 Breezy contributors
+and licensed under LGPL-2.1-or-later. This grant does not relicense the app.
+
+This library is free software; you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License as published by the Free
+Software Foundation; either version 2.1 of the License, or (at your option)
+any later version.
+
+This library is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License for details.
+
+The full license accompanies the embedded framework as
+FFmpegBridge.framework/COPYING.LGPLv2.1 and is also available at:
+https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+FFmpeg project and upstream source:
+https://ffmpeg.org/
+https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+
+FFmpegBridge is a Breezy component, not an official FFmpeg binary distribution.
+It is dynamically linked and performs local WebM-to-MP4 Opus packet copy only.
+It does not re-encode, decode, or fetch audio over the network.
+
+The exact corresponding source also includes the wrapper, configure patch,
+licenses, and build recipe. Local project references are:
+Vendor/FFmpegBridge/Source.json
+Vendor/FFmpegBridge/BUILD-PROVENANCE.json
+Vendor/FFmpegBridge/Sources/FFmpegBridge.c
+Vendor/FFmpegBridge/README.md (Build provenance and LGPL rebuilds)
+docs/FFMPEG_DISTRIBUTION.md
+
+The matching archive exists locally under artifacts/FFmpegBuild. Its public
+download URL and recipient rebuild/relink delivery are pending. The private
+app repository and upstream-only URL do not complete that distribution.
+Binary distribution must provide the exact source and required relinking
+materials, retain the notices, and permit the modification/debugging rights
+required by LGPL section 6. Dynamic linkage alone does not establish fulfillment.
+
+Source and license questions:
+https://gist.github.com/aagrawal207/95acc71ba167fb754c435de17d256e59#file-support-md

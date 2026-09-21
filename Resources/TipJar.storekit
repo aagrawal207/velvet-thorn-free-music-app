@@ -1,0 +1,91 @@
+{
+  "identifier": "C41051D9-1D79-4D3A-83AC-7938186C16A7",
+  "nonRenewingSubscriptions": [],
+  "products": [
+    {
+      "displayPrice": "3.00",
+      "familyShareable": false,
+      "internalID": "A48B4101",
+      "localizations": [
+        {
+          "description": "A little support for Breezy.",
+          "displayName": "Small tip",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.agraabhi.ganabajana.tip.small",
+      "referenceName": "Small tip",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "5.00",
+      "familyShareable": false,
+      "internalID": "A48B4102",
+      "localizations": [
+        {
+          "description": "A little extra support for development.",
+          "displayName": "Generous tip",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.agraabhi.ganabajana.tip.medium",
+      "referenceName": "Generous tip",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "10.00",
+      "familyShareable": false,
+      "internalID": "A48B4103",
+      "localizations": [
+        {
+          "description": "Help me keep improving Breezy.",
+          "displayName": "Big tip",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.agraabhi.ganabajana.tip.large",
+      "referenceName": "Big tip",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "25.00",
+      "familyShareable": false,
+      "internalID": "A48B4104",
+      "localizations": [
+        {
+          "description": "Extra support for future improvements.",
+          "displayName": "Grand tip",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.agraabhi.ganabajana.tip.grand",
+      "referenceName": "Grand tip",
+      "type": "Consumable"
+    },
+    {
+      "displayPrice": "50.00",
+      "familyShareable": false,
+      "internalID": "A48B4105",
+      "localizations": [
+        {
+          "description": "A generous boost for development.",
+          "displayName": "Patron tip",
+          "locale": "en_US"
+        }
+      ],
+      "productID": "com.agraabhi.ganabajana.tip.patron",
+      "referenceName": "Patron tip",
+      "type": "Consumable"
+    }
+  ],
+  "settings": {
+    "_failTransactionsEnabled": false,
+    "_locale": "en_US",
+    "_storefront": "USA"
+  },
+  "subscriptionGroups": [],
+  "version": {
+    "major": 3,
+    "minor": 0
+  }
+}

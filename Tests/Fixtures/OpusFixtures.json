@@ -1,0 +1,8 @@
+{
+  "generator": "FFmpeg 9.0.2 libopus, 20 ms CBR packets",
+  "tone": { "frequency": 440, "sampleRate": 48000, "channels": 2, "seconds": 8 },
+  "fixtures": [
+    { "name": "opus-160", "bitRate": 160000, "packetBytes": 400, "packetCount": 401, "packetSHA256": "6cc88d45dc43977917025f1c7660afc40b1d9a486139ec036d7a3d845c04f046" },
+    { "name": "opus-256", "bitRate": 256000, "packetBytes": 640, "packetCount": 401, "packetSHA256": "563d7f5558a8eaeaeb41d69ba10b00e1cf0d3ce094102f7204bd01087fc504f5" }
+  ]
+}
