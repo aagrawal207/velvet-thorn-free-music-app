@@ -1,7 +1,13 @@
 name: GanaBajana
+configs:
+  Debug: debug
+  Release: release
+  Debug-CarPlay: debug
+  Release-CarPlay: release
 options:
   deploymentTarget:
     iOS: "18.0"
+    watchOS: "11.0"
   createIntermediateGroups: true
 settings:
   base:
@@ -11,7 +17,7 @@ settings:
     DEVELOPMENT_TEAM: W2NS9DM63G
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "2"
+    CURRENT_PROJECT_VERSION: "6"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 packages:
   YouTubeKit:
@@ -19,6 +25,33 @@ packages:
   FFmpegBridge:
     path: Vendor/FFmpegBridge
 schemes:
+  GanaBajanaCarPlay:
+    build:
+      targets:
+        GanaBajana: all
+    run:
+      config: Debug-CarPlay
+    test:
+      config: Debug-CarPlay
+      targets:
+        - GanaBajanaTests
+    archive:
+      config: Release-CarPlay
+  GanaBajanaWatch:
+    build:
+      targets:
+        GanaBajanaWatch: all
+        GanaBajana: all
+    run:
+      config: Debug
+      executable: GanaBajanaWatch
+    test:
+      config: Debug
+      targets:
+        - GanaBajanaWatchTests
+        - GanaBajanaWatchUITests
+    archive:
+      config: Release
   GanaBajana:
     build:
       targets:
@@ -62,20 +95,34 @@ targets:
     sources:
       - path: Sources
       - path: Resources
+      - path: WatchApp/Sources/Connectivity
     dependencies:
       - package: YouTubeKit
       - package: FFmpegBridge
+      - target: BreezyWidgets
+        embed: true
+        link: false
+      - target: GanaBajanaWatch
+        embed: true
+        link: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.agraabhi.ganabajana
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
-        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-Beat AppIcon-Dhol AppIcon-Notes AppIcon-Headphones AppIcon-Vinyl AppIcon-Boombox AppIcon-Cassette AppIcon-Speaker AppIcon-Waves AppIcon-Peacock AppIcon-Mic AppIcon-Tabla AppIcon-Sargam AppIcon-Bansuri"
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-Beat AppIcon-Notes AppIcon-Boombox AppIcon-Speaker AppIcon-Waves AppIcon-Thorn AppIcon-Sonnet"
         ENABLE_DEBUG_DYLIB: NO
+        CODE_SIGN_ENTITLEMENTS: Signing/iCloud.entitlements
       configs:
         Release:
+          EXCLUDED_SOURCE_FILE_NAMES: TipJar.storekit
+        Debug-CarPlay:
+          CODE_SIGN_ENTITLEMENTS: Signing/CarPlay.entitlements
+        Release-CarPlay:
+          CODE_SIGN_ENTITLEMENTS: Signing/CarPlay.entitlements
           EXCLUDED_SOURCE_FILE_NAMES: TipJar.storekit
     info:
       path: build/GanaBajana-Info.plist
@@ -87,15 +134,109 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes: [audio, fetch]
         BGTaskSchedulerPermittedIdentifiers: [com.agraabhi.ganabajana.releases]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            CPTemplateApplicationSceneSessionRoleApplication:
+              - UISceneConfigurationName: CarPlay
+                UISceneClassName: CPTemplateApplicationScene
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).CarPlaySceneDelegate
         UILaunchScreen:
           UIColorName: LaunchBackground
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         CFBundleURLTypes:
           - CFBundleURLName: com.agraabhi.ganabajana
             CFBundleURLSchemes: [ganabajana]
+  BreezyWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: WidgetExtension
+      - path: Sources/Core/Widgets
+      - path: Sources/Core/MusicModels.swift
+      - path: Sources/Core/AlbumDescription.swift
+      - path: Sources/Core/AppAccent.swift
+      - path: Sources/Core/GeneratedPlaylist.swift
+      - path: Sources/UI/AppPalette.swift
+      - path: Sources/Widgets/Presentation
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.agraabhi.ganabajana.widgets
+        TARGETED_DEVICE_FAMILY: "1,2"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_ENTITLEMENTS: Signing/Widgets.entitlements
+        SKIP_INSTALL: YES
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
+    info:
+      path: build/BreezyWidgets-Info.plist
+      properties:
+        CFBundleDisplayName: Breezy
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+  GanaBajanaWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: WatchApp/Sources
+      - path: WatchApp/Resources
+      - path: Sources/Core/Companion
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.agraabhi.ganabajana.watchkitapp
+        TARGETED_DEVICE_FAMILY: "4"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SKIP_INSTALL: YES
+    info:
+      path: build/GanaBajanaWatch-Info.plist
+      properties:
+        CFBundleDisplayName: Breezy
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.agraabhi.ganabajana
+        WKRunsIndependentlyOfCompanionApp: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+  GanaBajanaWatchTests:
+    type: bundle.unit-test
+    platform: watchOS
+    sources:
+      - path: WatchTests
+      - path: Tests/WatchTestSupport.swift
+      - path: Tests/CompanionProtocolTests.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.agraabhi.ganabajana.watchkitapp.tests
+    dependencies:
+      - target: GanaBajanaWatch
+  GanaBajanaWatchUITests:
+    type: bundle.ui-testing
+    platform: watchOS
+    sources:
+      - path: WatchUITests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: true
+        PRODUCT_BUNDLE_IDENTIFIER: com.agraabhi.ganabajana.watchkitapp.uitests
+        TARGETED_DEVICE_FAMILY: "4"
+        TEST_TARGET_NAME: GanaBajanaWatch
+    dependencies:
+      - target: GanaBajanaWatch
   GanaBajanaTests:
     type: bundle.unit-test
     platform: iOS
@@ -116,6 +257,7 @@ targets:
     platform: iOS
     sources:
       - path: UITests
+      - path: Sources/UI/PlayerProgressTrail.swift
       - path: Resources/TipJar.storekit
         buildPhase: resources
     settings:

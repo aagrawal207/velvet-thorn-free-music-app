@@ -6,15 +6,39 @@ import XCTest
 final class ExperienceRadioEngineTests: XCTestCase {
     func testStationDefinitionsHaveDistinctIntentsAndTheRequestedMusicalAnchors() throws {
         let stations = RadioExperience.stations
-        XCTAssertEqual(stations.map(\.id), ["melancholy", "hindi-gym", "late-night-hindi", "punjabi-drive",
-                                             "indian-indie", "alt-rock", "easy-morning", "left-field-rap", "hindi-classics", "english-golden-oldies"])
+        XCTAssertEqual(stations.filter { $0.group == .moods }.map(\.id), [
+            "melancholy", "hindi-gym", "late-night-hindi", "easy-morning", "feel-good", "focus", "party", "romance",
+            "heartbreak", "punjabi-drive", "rainy-day", "devotional",
+        ])
+        XCTAssertEqual(stations.filter { $0.group == .genres }.map(\.id), [
+            "left-field-rap", "rock", "alt-rock", "indian-indie", "pop", "rnb-soul", "dance-edm", "lofi", "acoustic", "jazz",
+            "classical", "folk", "sufi", "ghazal", "qawwali", "punjabi-hits", "hindi-classics", "english-golden-oldies",
+            "metal", "country", "reggae", "nineties",
+        ])
+        XCTAssertEqual(stations.count, 34)
+        XCTAssertEqual(Set(stations.map(\.id)).count, stations.count, "Ids are stable keys")
+        XCTAssertEqual(Set(stations.map(\.title)).count, stations.count, "Titles are distinct tiles")
+        XCTAssertEqual(Set(stations.map(\.symbol)).count, stations.count, "Symbols are distinct tiles")
+        XCTAssertTrue(stations.allSatisfy { !$0.description.isEmpty && !$0.description.contains("—") })
+        XCTAssertTrue(stations.allSatisfy { $0.id == $0.id.lowercased() && !$0.id.contains(" ") })
+        let renamed = ["hindi-gym": "Workout", "late-night-hindi": "Late night", "punjabi-drive": "Road trip", "indian-indie": "Indie",
+                       "left-field-rap": "Rap and hip hop", "hindi-classics": "Bollywood classics", "english-golden-oldies": "Golden oldies"]
+        for (id, title) in renamed {
+            XCTAssertEqual(stations.first { $0.id == id }?.title, title)
+        }
+        XCTAssertEqual(stations.filter { $0.defaultEra == .older }.map(\.id), ["hindi-classics", "english-golden-oldies"])
         let melancholy = try XCTUnwrap(stations.first { $0.id == "melancholy" })
         XCTAssertEqual(Array(melancholy.seeds.prefix(2)).map(\.artist.name), ["Cigarettes After Sex", "Pixies"])
+        XCTAssertEqual(melancholy.cueLanguages, [.english])
         let gym = try XCTUnwrap(stations.first { $0.id == "hindi-gym" })
         XCTAssertTrue(gym.seeds.contains { $0.title == "Zinda" && $0.album == "Bhaag Milkha Bhaag" })
         XCTAssertTrue(gym.seeds.contains { $0.artist.name == "Diljit Dosanjh" })
         XCTAssertTrue(gym.seeds.contains { $0.artist.name == "AP Dhillon" })
+        XCTAssertEqual(gym.cueLanguages, [.hindi])
         XCTAssertTrue(stations.flatMap(\.seeds).allSatisfy { $0.artist.id == nil }, "Seed intents carry no invented catalog identifiers")
+        let discovery = RadioExperience.discoveryStations
+        XCTAssertEqual(Array(discovery.prefix(2)).map(\.id), ["melancholy", "hindi-gym"])
+        XCTAssertEqual(discovery.map(\.id), stations.filter { $0.group == .moods }.map(\.id) + stations.filter { $0.group == .genres }.map(\.id))
     }
 
     func testSeedMatchingRequiresBothArtistAndTitleAndVerifiedAudio() throws {

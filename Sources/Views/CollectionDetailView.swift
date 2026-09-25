@@ -15,13 +15,17 @@ struct CollectionDetailView: View {
     @State private var credits: [ArtistCredit] = []
     @State private var artistArtworkURL: URL?
     @State private var artistPage: ArtistPage?
+    @State private var artistSpotlight: ArtistSpotlightLoader?
     @State private var catalogTitle: String?
-    @State private var loadedCollectionID: String?
+    @State private var loadedCollection: MusicCollection?
+    @State private var albumDescription = AlbumDescriptionLoader()
+    @State private var isVisible = false
     @State private var hasLoaded = false
     @State private var loadingRequest: UUID?
     @State private var errorMessage: String?
     @State private var providerHasMore = false
     @State private var visibleTrackCount = 30
+    @State private var visibleFeaturedCount = 15
     @State private var visibleCollectionCount = 12
     @State private var isPlaylistSheetPresented = false
 
@@ -36,8 +40,14 @@ struct CollectionDetailView: View {
             let width = geometry.size.width.isFinite ? min(max(0, geometry.size.width), 760) : 0
 
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 24) {
-                    header(width: width)
+                // Plain stacks throughout: lazy measurement of these few large children oscillated during playback
+                // once the collaborations section joined the page, pinning the main thread. Row counts are capped.
+                VStack(alignment: .leading, spacing: 24) {
+                    header(width: width, viewportHeight: geometry.size.height)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("collection.header")
+
+                    albumDescriptionSection
 
                     if isLoading {
                         ProgressView()
@@ -51,8 +61,8 @@ struct CollectionDetailView: View {
                         loadError(errorMessage)
                     }
 
-                    if let artistPage {
-                        ArtistSpotlightCard(artist: artistPage)
+                    if let artistSpotlight {
+                        ArtistSpotlightCard(loader: artistSpotlight)
                     }
 
                     if let spotlight {
@@ -60,7 +70,7 @@ struct CollectionDetailView: View {
                     }
 
                     if !tracks.isEmpty {
-                        LazyVStack(alignment: .leading, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 4) {
                             if isArtist {
                                 SectionHeader(title: "Top songs")
                                     .padding(.bottom, 8)
@@ -69,7 +79,7 @@ struct CollectionDetailView: View {
                                 if let spotlight {
                                     ArtistSpotlightSongRow(track: track, tracks: tracks, loader: spotlight)
                                 } else {
-                                    TrackRow(track: track, tracks: tracks)
+                                    TrackRow(track: track, tracks: tracks, showsDuration: !isArtist)
                                 }
                             }
                         }
@@ -87,6 +97,23 @@ struct CollectionDetailView: View {
                             .foregroundStyle(AppTheme.accent)
                             .accessibilityIdentifier("collection.loadMore")
                         }
+                    } else if let spotlight, !spotlight.tracks.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("No songs in \(spotlight.filter.title)")
+                                .appFont(.headline)
+                                .accessibilityIdentifier("artist.spotlight.emptyFilter")
+                            Button { spotlight.filter = .all } label: {
+                                Text("Show all songs").appFont(.subheadline, weight: .semibold)
+                                    .frame(minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .accessibilityIdentifier("artist.spotlight.showAll")
+                        }
+                    }
+
+                    // Appears only once a collaboration is known, so the layout never reserves space or spins.
+                    if let artistSpotlight, !artistSpotlight.featuredTracks.isEmpty {
+                        featuringSection(artistSpotlight.featuredTracks)
                     }
 
                     if isArtist {
@@ -110,8 +137,16 @@ struct CollectionDetailView: View {
                     if providerHasMore && visibleTrackCount >= tracks.count {
                         Text("Showing the songs and releases currently provided by the catalog.")
                             .appFont(.footnote)
-                            .foregroundStyle(AppTheme.secondaryText)
+                            .foregroundStyle(AppTheme.artworkSecondaryText)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    if !isArtist && !tracks.isEmpty {
+                        Text(Self.trackSummary(for: tracks, hasMore: providerHasMore))
+                            .appFont(.caption)
+                            .foregroundStyle(AppTheme.artworkSecondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("collection.summary")
                     }
                 }
                 .padding(.horizontal, 20)
@@ -120,30 +155,29 @@ struct CollectionDetailView: View {
                 .frame(maxWidth: 760)
                 .frame(maxWidth: .infinity)
             }
-            .background {
-                AppTheme.background
-                    .overlay(alignment: .top) {
-                        LinearGradient(colors: [collectionColor.opacity(0.14), .clear],
-                                       startPoint: .top, endPoint: .bottom)
-                            .frame(height: 430)
-                    }
-                    .ignoresSafeArea()
-            }
+            .environment(\.secondaryTextColor, AppTheme.artworkSecondaryText)
+        }
+        .background {
+            ArtworkBackdrop(url: headerArtworkURL, fallbackTint: collectionColor)
         }
         .foregroundStyle(AppTheme.primaryText)
         .tint(AppTheme.accent)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 collectionMenu
             }
         }
-        .task(id: collection.id) {
+        .task(id: collection) {
+            isVisible = true
             guard spotlight == nil else { return }
-            if loadedCollectionID != collection.id {
-                loadedCollectionID = collection.id
+            if loadedCollection != collection {
+                loadedCollection = collection
+                loadingRequest = nil
+                albumDescription.reset(for: collection)
                 catalogTracks = uniqueTracks(collection.tracks)
                 relatedCollections = []
                 releases = []
@@ -151,8 +185,10 @@ struct CollectionDetailView: View {
                 credits = []
                 artistArtworkURL = nil
                 artistPage = nil
+                artistSpotlight = nil
                 catalogTitle = nil
                 visibleTrackCount = 30
+                visibleFeaturedCount = 15
                 visibleCollectionCount = 12
                 // Artist pages always fetch: releases and related artists never travel with the collection.
                 hasLoaded = !tracks.isEmpty && !isArtist
@@ -160,27 +196,75 @@ struct CollectionDetailView: View {
                 errorMessage = nil
             }
             if !hasLoaded { await loadCatalog() }
+            // A no-op while the shared load runs or has finished; it only resumes after a failed attempt.
+            artistSpotlight?.startLoadingSongs(catalog: model.catalog, library: model.library)
+            await loadAlbumDescription()
+        }
+        .onDisappear {
+            isVisible = false
+            loadingRequest = nil
+            albumDescription.cancel()
         }
         .onChange(of: spotlight?.filter) { _, _ in visibleTrackCount = 30 }
         .sheet(isPresented: AppNavigationIntent.binding($isPlaylistSheetPresented, in: model)) {
             NavigationStack {
                 CollectionPlaylistSheet(tracks: tracks, suggestedName: title)
             }
-            .presentationDragIndicator(.visible)
+            .appSheetChrome()
         }
     }
 
     @ViewBuilder
-    private func header(width: CGFloat) -> some View {
-        if width >= 540 && !dynamicTypeSize.isAccessibilitySize {
+    private var albumDescriptionSection: some View {
+        if collection.kind == .album, albumDescription.collection == collection {
+            switch albumDescription.state {
+            case .loaded(let description):
+                AlbumDescriptionView(description: description)
+                    .id(collection)
+            case .loading:
+                ProgressView("Loading album details")
+                    .appFont(.caption)
+                    .foregroundStyle(AppTheme.artworkSecondaryText)
+                    .accessibilityIdentifier("album.description.loading")
+            case .failed:
+                HStack(spacing: 12) {
+                    Text("Album details couldn't load.")
+                        .appFont(.caption)
+                        .foregroundStyle(AppTheme.artworkSecondaryText)
+                    Spacer(minLength: 0)
+                    Button {
+                        Task { await loadAlbumDescription(retry: true) }
+                    } label: {
+                        Text("Retry")
+                            .appFont(.subheadline, weight: .semibold)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Retry album description")
+                    .accessibilityIdentifier("album.description.retry")
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("album.description.error")
+            case .idle, .unavailable:
+                EmptyView()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func header(width: CGFloat, viewportHeight: CGFloat) -> some View {
+        let layout = CollectionHeaderLayout(width: width, viewportHeight: viewportHeight,
+                                            dynamicTypeSize: dynamicTypeSize, isArtist: isArtist)
+        if layout.isHorizontal {
             HStack(alignment: .center, spacing: 28) {
-                artwork(size: min(220, width * 0.32))
+                artwork(size: layout.artworkSide)
                 headerDetails
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         } else {
             VStack(alignment: .leading, spacing: 24) {
-                artwork(size: max(0, min(260, width - 80)))
+                artwork(size: layout.artworkSide)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
                 headerDetails
@@ -189,9 +273,9 @@ struct CollectionDetailView: View {
     }
 
     private func artwork(size: CGFloat) -> some View {
-        let side = size.isFinite ? max(120, size) : 120
+        let side = size.isFinite ? max(0, size) : 0
         return ArtworkView(url: headerArtworkURL, title: title,
-                           size: side, cornerRadius: isArtist ? side / 2 : 10)
+                           size: side, cornerRadius: isArtist ? side / 2 : AppCorner.compact)
             .shadow(color: .black.opacity(0.18), radius: 22, y: 12)
             .accessibilityHidden(true)
     }
@@ -216,10 +300,11 @@ struct CollectionDetailView: View {
             Text(title)
                 .appFont(.largeTitle, weight: .bold)
                 .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("collection.title")
             if isArtist, let artistPage {
                 Text(artistPage.monthlyAudience?.label ?? "Monthly audience unavailable")
                     .appFont(.subheadline)
-                    .foregroundStyle(AppTheme.secondaryText)
+                    .foregroundStyle(AppTheme.artworkSecondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("collection.monthlyAudience")
             }
@@ -228,15 +313,10 @@ struct CollectionDetailView: View {
             } else if let headerSubtitle {
                 Text(headerSubtitle)
                     .appFont(.subheadline)
-                    .foregroundStyle(AppTheme.secondaryText)
+                    .foregroundStyle(AppTheme.artworkSecondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !tracks.isEmpty {
-                if !isArtist {
-                    Text(trackSummary)
-                        .appFont(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                }
                 playbackActions
                     .padding(.top, 6)
             }
@@ -260,7 +340,7 @@ struct CollectionDetailView: View {
                 if index > 0 {
                     Text(",")
                         .appFont(.subheadline)
-                        .foregroundStyle(AppTheme.secondaryText)
+                        .foregroundStyle(AppTheme.artworkSecondaryText)
                         .padding(.trailing, 5)
                 }
                 Button {
@@ -412,6 +492,33 @@ struct CollectionDetailView: View {
         }
     }
 
+    /// Collaborations the provider's listing leaves out; rows play within this list so the queue stays on topic.
+    private func featuringSection(_ featured: [Track]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            SectionHeader(title: "Featuring \(title)", subtitle: ArtistSpotlight.countProvenance)
+                .padding(.bottom, 8)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("artist.featuring.header")
+            ForEach(featured.prefix(visibleFeaturedCount)) { track in
+                TrackRow(track: track, tracks: featured)
+            }
+            if visibleFeaturedCount < featured.count {
+                Button {
+                    visibleFeaturedCount = min(visibleFeaturedCount + 15, featured.count)
+                } label: {
+                    Label("Show more", systemImage: "chevron.down")
+                        .appFont(.subheadline, weight: .semibold)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .background(AppTheme.surface, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(AppTheme.accent)
+                .padding(.top, 8)
+                .accessibilityIdentifier("artist.featuring.more")
+            }
+        }
+    }
+
     private func relatedReleases(width: CGFloat) -> some View {
         let size = cardSize(for: width)
         return VStack(alignment: .leading, spacing: 16) {
@@ -442,7 +549,10 @@ struct CollectionDetailView: View {
                 .appFont(.subheadline)
                 .foregroundStyle(AppTheme.secondaryText)
             Button("Try again", systemImage: "arrow.clockwise") {
-                Task { await loadCatalog() }
+                Task {
+                    await loadCatalog()
+                    await loadAlbumDescription(retry: true)
+                }
             }
             .appFont(.body)
             .buttonStyle(.bordered)
@@ -454,6 +564,7 @@ struct CollectionDetailView: View {
     }
 
     private func loadCatalog() async {
+        guard isVisible, loadedCollection == collection, !Task.isCancelled else { return }
         let requestID = UUID()
         let collectionID = collection.id
         loadingRequest = requestID
@@ -466,8 +577,7 @@ struct CollectionDetailView: View {
             if isArtist {
                 let page = try await model.catalog.artist(id: collectionID)
                 try Task.checkCancellation()
-                guard loadingRequest == requestID, collection.id == collectionID else { return }
-                catalogTracks = uniqueTracks(page.topSongs)
+                guard isVisible, loadingRequest == requestID, loadedCollection == collection else { return }
                 releases = uniqueCollections(page.releases, excluding: collectionID)
                 relatedArtists = uniqueCollections(page.relatedArtists, excluding: collectionID)
                 artistArtworkURL = page.artworkURL
@@ -475,23 +585,37 @@ struct CollectionDetailView: View {
                 var spotlightPage = page
                 spotlightPage.name = CatalogText.clean(page.name) ?? collection.title
                 artistPage = spotlightPage
+                let loader = ArtistSpotlightLoader(artist: spotlightPage, languageService: model.recordingLanguageService,
+                                                   library: model.library)
+                catalogTracks = loader.listedTracks
+                artistSpotlight = loader
+                loader.startLoadingSongs(catalog: model.catalog, library: model.library)
                 providerHasMore = false
             } else {
                 let page = try await model.catalog.browse(id: collectionID)
                 try Task.checkCancellation()
-                guard loadingRequest == requestID, collection.id == collectionID else { return }
+                guard isVisible, loadingRequest == requestID, loadedCollection == collection else { return }
                 catalogTracks = uniqueTracks(page.tracks)
                 relatedCollections = uniqueCollections(page.collections, excluding: collectionID)
                 credits = page.credits
                 catalogTitle = page.title
                 providerHasMore = page.continuation != nil
+                if collection.kind == .album, let description = page.albumDescription {
+                    albumDescription.accept(description, for: collection)
+                }
             }
             hasLoaded = true
         } catch is CancellationError {
         } catch {
-            guard !Task.isCancelled, loadingRequest == requestID else { return }
+            guard isVisible, !Task.isCancelled, loadingRequest == requestID, loadedCollection == collection else { return }
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func loadAlbumDescription(retry: Bool = false) async {
+        guard isVisible, collection.kind == .album, loadedCollection == collection, !Task.isCancelled, !tracks.isEmpty else { return }
+        if case .loaded = albumDescription.state, albumDescription.collection == collection { return }
+        await albumDescription.load(for: collection, using: model.catalog as? any AlbumDescriptionProviding, retry: retry)
     }
 
     private func uniqueTracks(_ values: [Track]) -> [Track] {
@@ -513,7 +637,11 @@ struct CollectionDetailView: View {
 
     private var isArtist: Bool { collection.kind == .artist }
 
-    private var tracks: [Track] { spotlight?.visibleTracks ?? catalogTracks }
+    private var tracks: [Track] {
+        if let spotlight { return spotlight.visibleTracks }
+        if isArtist, let artistSpotlight { return artistSpotlight.listedTracks }
+        return catalogTracks
+    }
 
     private var isLoading: Bool { loadingRequest != nil }
 
@@ -527,11 +655,33 @@ struct CollectionDetailView: View {
         }
     }
 
-    private var trackSummary: String {
+    static func trackSummary(for tracks: [Track], hasMore: Bool = false) -> String {
         let count = "\(tracks.count) \(tracks.count == 1 ? "song" : "songs")"
-        let durations = tracks.compactMap(\.duration).filter { $0.isFinite && $0 > 0 }
-        guard durations.count == tracks.count else { return count }
-        return "\(count) · \(TimeText.duration(durations.reduce(0, +)))"
+        guard !hasMore else { return "\(count) loaded" }
+        let durations = tracks.compactMap(\.duration)
+        guard !tracks.isEmpty, durations.count == tracks.count,
+              durations.allSatisfy({ $0.isFinite && $0 >= 1 }) else { return count }
+        let total = durations.reduce(0, +)
+        // TimeText caps at 99:59:59; an incomplete or unrepresentable total must not look exact.
+        guard total.isFinite, total < 360_000 else { return count }
+        return "\(count) · \(TimeText.duration(total))"
+    }
+}
+
+struct CollectionHeaderLayout {
+    let isHorizontal: Bool
+    let artworkSide: CGFloat
+
+    init(width: CGFloat, viewportHeight: CGFloat, dynamicTypeSize: DynamicTypeSize, isArtist: Bool = false) {
+        let width = width.isFinite ? max(0, width) : 0
+        isHorizontal = width >= 540 && !dynamicTypeSize.isAccessibilitySize
+        // Leave the controls a usable column; accessibility text needs the full width below the cover.
+        let available = isHorizontal ? width - 40 - 28 - 260 : width - 48
+        var side = min(360, max(0, available))
+        if viewportHeight.isFinite, viewportHeight > 0, viewportHeight < width {
+            side = min(side, max(0, viewportHeight - 24))
+        }
+        artworkSide = side * (isArtist ? 0.9 : 1)
     }
 }
 
@@ -610,12 +760,7 @@ private struct CollectionPlaylistSheet: View {
         .tint(AppTheme.accent)
         .navigationTitle("Add to a playlist")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Done") { AppNavigationIntent.perform(in: model) { dismiss() } }
-                    .appFont(.body)
-            }
-        }
+        .appSheetDoneButton(id: "collection.playlistSheet.done") { AppNavigationIntent.perform(in: model) { dismiss() } }
         .onAppear {
             if playlistName.isEmpty { playlistName = suggestedName }
         }

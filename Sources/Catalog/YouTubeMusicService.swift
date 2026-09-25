@@ -1,10 +1,11 @@
 import Foundation
 import OSLog
 
-actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding {
+actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding, AlbumDescriptionProviding {
     private static let logger = Logger(subsystem: "com.agraabhi.ganabajana", category: "Catalog")
     private let transport: CatalogTransport
     private let configuration: WebRemixConfiguration
+    private let albumDescriptionTimeout: TimeInterval
     private let maximumBrowsePages = 8
     private static let artistEnrichmentTimeout: TimeInterval = 2
 
@@ -14,10 +15,12 @@ actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding {
         let page: ArtistPage?
     }
 
-    init(session: URLSession = CatalogTransport.anonymousSession(), now: @escaping @Sendable () -> Date = { Date() }) {
+    init(session: URLSession = CatalogTransport.anonymousSession(), now: @escaping @Sendable () -> Date = { Date() },
+         albumDescriptionTimeout: TimeInterval = 5) {
         let transport = CatalogTransport(session: session, now: now)
         self.transport = transport
         self.configuration = WebRemixConfiguration(transport: transport, now: now)
+        self.albumDescriptionTimeout = albumDescriptionTimeout.isFinite ? min(5, max(0.01, albumDescriptionTimeout)) : 5
     }
 
     func search(query: String, filter: SearchFilter, continuation: String?) async throws -> CatalogPage {
@@ -38,6 +41,19 @@ actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding {
     func browse(id: String) async throws -> CatalogPage {
         try Task.checkCancellation()
         return try await browseAll(id: try Self.browseID(id)).page
+    }
+
+    func albumDescription(id: String) async throws -> AlbumDescription? {
+        try Task.checkCancellation()
+        guard let id = AlbumDescriptionIdentity.albumID(id) else { return nil }
+        // Description-only reads need the first header, not pagination or recording enrichment.
+        let response = try await PlaybackDeadline.run(seconds: albumDescriptionTimeout) {
+            try await self.request("browse", payload: ["browseId": .string(id)], ttl: 10 * 60,
+                                   cacheIf: { CatalogAlbumDescriptionParser.hasReadableHeader($0) })
+        }
+        try Task.checkCancellation()
+        guard CatalogAlbumDescriptionParser.hasReadableHeader(response.json) else { throw MusicServiceError.invalidResponse }
+        return CatalogAlbumDescriptionParser.parse(response.json, id: id)
     }
 
     func artist(id: String) async throws -> ArtistPage {
@@ -216,6 +232,7 @@ actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding {
                 Self.logger.warning("Search audio validation failed; unconfirmed song rows remain excluded.")
             }
         }
+        page.tracks = Self.preservingPlayCounts(page.tracks, from: response.json)
         return (page, response)
     }
 
@@ -295,7 +312,16 @@ actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding {
                 Self.logger.warning("Album-audio counterpart validation failed; explicit video rows remain excluded.")
             }
         }
+        page.tracks = Self.preservingPlayCounts(page.tracks, from: response.json)
         return (try CatalogContinuation.attach(to: page, response: response, previous: cursor, scope: scope), response)
+    }
+
+    private static func preservingPlayCounts(_ tracks: [Track], from json: CatalogJSON) -> [Track] {
+        let enriched = CatalogParser.enrichPlayCounts(tracks, from: json)
+        let updated = zip(tracks, enriched).filter { $0.0.playCount != $0.1.playCount }.count
+        let missing = enriched.filter { $0.playCount == nil }.count
+        logger.debug("providerPlayCountUpdated=\(updated) providerPlayCountMissing=\(missing)")
+        return enriched
     }
 
     /// Page rows win over get_queue rows for the same recording; the queue only fills in a missing play count.

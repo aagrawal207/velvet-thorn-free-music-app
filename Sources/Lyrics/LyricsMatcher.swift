@@ -55,7 +55,7 @@ enum LyricsMatcher {
         let allowsTiming: Bool
     }
 
-    struct RecordingKey: Hashable, Sendable {
+    struct RecordingKey: Codable, Hashable, Sendable {
         let title: String
         let artists: [String]
         let allowsPartialArtistCredit: Bool

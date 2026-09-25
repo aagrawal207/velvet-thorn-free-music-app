@@ -34,7 +34,7 @@ extension LyricsDocument {
 }
 
 // A lyrics-tab link belongs to one provider ID, even when two dubbed recordings share metadata.
-struct LyricsRequestKey: Hashable, Sendable {
+struct LyricsRequestKey: Codable, Hashable, Sendable {
     let id: String
     let recording: LyricsMatcher.RecordingKey
 

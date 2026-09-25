@@ -135,15 +135,15 @@ final class CatalogParsingTests: XCTestCase {
         XCTAssertEqual(album.tracks.first?.artists, [], "The plays column never becomes an unlinked artist")
 
         let radio = try CatalogParser.radio(CatalogFixtures.json(CatalogFixtures.radio([
-            CatalogFixtures.radioTrack(id: CatalogFixtures.hindiID, title: "Tum Hi Ho", artist: "Arijit Singh", album: "Aashiqui 2", views: "12M views"),
-            CatalogFixtures.radioTrack(id: CatalogFixtures.englishID, title: "STAY", artist: "Justin Bieber", views: "845K views"),
+            CatalogFixtures.radioTrack(id: CatalogFixtures.hindiID, title: "Tum Hi Ho", artist: "Arijit Singh", album: "Aashiqui 2", views: "12M plays"),
+            CatalogFixtures.radioTrack(id: CatalogFixtures.englishID, title: "STAY", artist: "Justin Bieber", views: "845K plays"),
         ])))
         XCTAssertEqual(radio.map(\.playCount), [12_000_000, 845_000])
         XCTAssertEqual(radio.map(\.artists), [["Arijit Singh"], ["Justin Bieber"]])
         XCTAssertEqual(radio.first?.albumTitle, "Aashiqui 2")
 
         let queue = try CatalogParser.queue(CatalogFixtures.json(CatalogFixtures.queue([
-            CatalogFixtures.radioTrack(id: CatalogFixtures.hindiID, title: "Tum Hi Ho", artist: "Arijit Singh", views: "1.2B views"),
+            CatalogFixtures.radioTrack(id: CatalogFixtures.hindiID, title: "Tum Hi Ho", artist: "Arijit Singh", views: "1.2B plays"),
         ])))
         XCTAssertEqual(queue.first?.playCount, 1_200_000_000)
 

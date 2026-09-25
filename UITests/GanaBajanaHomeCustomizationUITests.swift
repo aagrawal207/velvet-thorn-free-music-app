@@ -50,7 +50,7 @@ final class GanaBajanaHomeCustomizationUITests: XCTestCase {
         try expectFirstHomeSection("recentlyPlayed", in: ui)
     }
 
-    func testAllHiddenHomeOffersCustomizationAndKeepsSavedMusic() throws {
+    func testAllHiddenHomeKeepsSettingsCustomizationAndSavedMusicAvailable() throws {
         let ui = makeDriver()
         try ui.launch()
         try openCustomization(ui)
@@ -59,16 +59,18 @@ final class GanaBajanaHomeCustomizationUITests: XCTestCase {
         }
         try returnHome(ui)
         let emptyState = ui.element("home.empty.customized")
-        let customize = emptyState.buttons["home.customize.empty"]
-        try ui.requireHittable(customize)
-        XCTAssertEqual(ui.app.buttons.matching(identifier: "home.customize.empty").count, 1)
-        XCTAssertFalse(ui.app.buttons["home.empty.customized"].exists, "The container identifier must not replace its action's identifier")
-        XCTAssertGreaterThanOrEqual(customize.frame.height, 44)
+        try ui.reveal(emptyState)
+        XCTAssertTrue(emptyState.exists)
+        XCTAssertFalse(ui.app.buttons["home.customize.empty"].exists)
+        XCTAssertFalse(ui.app.buttons["home.customize"].exists)
+        let settings = ui.app.buttons["home.settings"]
+        try ui.requireHittable(settings)
+        XCTAssertGreaterThanOrEqual(settings.frame.height + 1e-6, 44)
         XCTAssertFalse(homeSections(in: ui).firstMatch.exists)
         ui.capture("home-all-sections-hidden-iphone17pro")
         try ui.relaunch()
-        try ui.tap(customize)
-        try ui.wait("The empty Home action must open its editor after relaunch") { ui.app.navigationBars["Customize Home"].exists }
+        try ui.wait("The saved all-hidden layout must survive relaunch") { emptyState.exists && !self.homeSections(in: ui).firstMatch.exists }
+        try openCustomization(ui)
         try ui.expectSwitch("home.customization.show.recentlyPlayed", isOn: false)
         try ui.setSwitch("home.customization.show.recentlyPlayed", to: true)
         try returnHome(ui)
@@ -121,14 +123,12 @@ final class GanaBajanaHomeCustomizationUITests: XCTestCase {
     }
 
     private func openCustomization(_ ui: AppUITestDriver) throws {
-        try ui.reveal(ui.app.buttons["home.customize"], direction: .down)
-        try ui.tap(ui.app.buttons["home.customize"])
-        try ui.wait("The Home editor must open") { ui.app.navigationBars["Customize Home"].exists }
+        try ui.openHomeCustomization()
     }
 
     private func returnHome(_ ui: AppUITestDriver) throws {
-        try ui.tap(ui.app.navigationBars["Customize Home"].buttons.firstMatch)
-        try ui.requireHittable(ui.app.buttons["home.customize"])
+        try ui.closeHomeCustomization()
+        XCTAssertFalse(ui.app.buttons["home.customize"].exists)
     }
 
     private func homeSections(in ui: AppUITestDriver) -> XCUIElementQuery {

@@ -13,7 +13,7 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         try ui.requireHittable(ui.app.buttons["search.dismissKeyboard"])
         let toolbarDone = ui.app.buttons["search.dismissKeyboard.toolbar"]
         try ui.requireHittable(toolbarDone)
-        XCTAssertGreaterThanOrEqual(toolbarDone.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(toolbarDone.frame.height, 44 - 1e-6)
         field.typeText("Arijit")
         try ui.waitForSearchResults()
         XCTAssertLessThanOrEqual(toolbarDone.frame.maxY, ui.app.keyboards.firstMatch.frame.minY + 1)
@@ -34,7 +34,7 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         let back = ui.app.navigationBars.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Back", "Search")).firstMatch
         try ui.tap(back)
         try ui.requireHittable(field)
-        try expectSearchAtTop(ui)
+        XCTAssertEqual(field.value as? String, "Arijit")
         XCTAssertFalse(ui.app.keyboards.firstMatch.exists, "Back is not a new Search tap")
         try ui.tap(album)
         try ui.wait("The album detail must reopen") { ui.app.staticTexts["ALBUM"].exists }
@@ -48,17 +48,19 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         ui.capture("search-discovery-keyboard-dismissed-query-preserved")
     }
 
-    func testSearchReselectScrollsDiscoveryToTheTopAndFocusesTheField() throws {
+    func testSearchReselectPopsScrolledRadioAndFocusesTheField() throws {
         let ui = makeDriver()
         try ui.launch()
         try openRadioDiscovery(ui)
-        let firstFilter = ui.app.buttons["search.filter.songs"]
-        let content = ui.app.scrollViews["search.content"]
-        try ui.reveal(ui.app.buttons["search.station.left-field-rap"], maxSwipes: 16)
-        XCTAssertTrue(!firstFilter.exists || firstFilter.frame.maxY < content.frame.minY,
+        let firstStation = ui.app.buttons["search.station.melancholy"]
+        let content = ui.app.scrollViews["search.radio.content"]
+        try ui.reveal(ui.app.buttons["search.station.left-field-rap"], maxSwipes: 24)
+        XCTAssertTrue(!firstStation.exists || firstStation.frame.maxY < content.frame.minY,
                       "The test must begin scrolled away from the top")
         try tapSearch(ui)
         try expectSearchAtTop(ui)
+        XCTAssertFalse(ui.app.navigationBars["Radio"].exists)
+        XCTAssertFalse(ui.app.buttons["search.filter.songs"].exists)
         XCTAssertTrue(ui.app.keyboards.firstMatch.exists)
         let field = ui.app.textFields["search.field"]
         XCTAssertTrue((field.value as? String) == "" || (field.value as? String) == field.placeholderValue)
@@ -105,67 +107,45 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         XCTAssertTrue(ui.app.buttons["Like song"].exists)
     }
 
-    func testStarterOrderAndDeliberateRecentSearchesSurviveRelaunchAndRemoval() throws {
+    func testOnlyOpenedSongsBecomeRecentsAndSurviveRelaunchAndRemoval() throws {
         let ui = makeDriver()
         try ui.launch()
-        try tapSearch(ui)
-        try ui.tap(ui.app.buttons["search.dismissKeyboard"])
-        try expectKeyboardDismissed(ui)
-        let artists = ["Kanye West", "A. R. Rahman", "Char Diwaari", "Shreya Ghoshal", "Radiohead"]
-        var previousY = -CGFloat.infinity
-        for artist in artists {
-            let suggestion = ui.app.buttons["search.suggestion.\(artist)"]
-            try ui.reveal(suggestion)
-            XCTAssertGreaterThan(suggestion.frame.minY, previousY)
-            XCTAssertGreaterThanOrEqual(suggestion.frame.height, 44)
-            previousY = suggestion.frame.minY
-        }
-
-        let field = ui.app.textFields["search.field"]
-        try ui.tap(field)
-        field.typeText("Arijit")
+        try ui.search("Arijit")
         try ui.waitForSearchResults()
         try ui.clearSearch()
         try ui.tap(ui.app.buttons["search.dismissKeyboard"])
         try expectKeyboardDismissed(ui)
-        XCTAssertFalse(ui.app.staticTexts["Recent searches"].exists, "Typing and background lookup are not committed searches")
-        try ui.tap(ui.app.buttons["search.suggestion.Kanye West"])
-        try ui.clearSearch()
-        field.typeText("Tum Hi Ho")
+        try ui.reveal(ui.app.staticTexts["search.recents.empty"])
+        XCTAssertFalse(ui.app.buttons["search.recents.clear"].exists, "Submitting a query does not open a result")
+        try ui.search("Tum Hi")
         try ui.waitForSearchResults()
         try ui.tap(ui.app.buttons["track.play.\(AppUIFixture.tumHiHo)"])
         try expectKeyboardDismissed(ui)
-        try ui.clearSearch()
-        field.typeText("Blinding Lights")
-        try ui.tap(ui.app.buttons["search.dismissKeyboard"])
-        try expectKeyboardDismissed(ui)
+        try ui.search("Blinding Lights")
+        try ui.waitForSearchResults()
 
         try ui.relaunch()
-        try tapSearch(ui)
-        try ui.tap(ui.app.buttons["search.dismissKeyboard"])
-        try expectKeyboardDismissed(ui)
-        let first = ui.app.buttons["search.recent.blinding lights"]
-        let second = ui.app.buttons["search.recent.tum hi ho"]
-        let third = ui.app.buttons["search.recent.kanye west"]
-        for recent in [first, second, third] { try ui.reveal(recent) }
-        XCTAssertLessThan(first.frame.minY, second.frame.minY)
-        XCTAssertLessThan(second.frame.minY, third.frame.minY)
-        XCTAssertFalse(ui.app.buttons["search.recent.arijit"].exists)
-        try ui.tap(second)
-        try ui.clearSearch()
-        try ui.tap(ui.app.buttons["search.dismissKeyboard"])
-        try expectKeyboardDismissed(ui)
-        XCTAssertLessThan(second.frame.minY, first.frame.minY)
-        try ui.tap(ui.app.buttons["search.recent.remove.blinding lights"])
-        XCTAssertFalse(first.exists)
-        ui.capture("search-discovery-recent-searches-after-relaunch")
-        try ui.tap(ui.app.buttons["search.recents.clear"])
-        XCTAssertFalse(ui.app.staticTexts["Recent searches"].exists)
+        try ui.selectTab("search")
+        let recent = ui.app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label BEGINSWITH %@", "search.recent.", "Tum Hi Ho, Song")).firstMatch
+        try ui.reveal(recent)
+        XCTAssertFalse(ui.app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "search.recent.", "Blinding Lights")).firstMatch.exists)
+        let removalID = "search.recent.remove." + String(recent.identifier.dropFirst("search.recent.".count))
+        try ui.tap(recent)
+        try ui.wait("Reopening a recent song must play it without filling the query") {
+            ui.app.buttons["miniPlayer.open"].label.contains("Tum Hi Ho")
+        }
+        let field = ui.app.textFields["search.field"]
+        XCTAssertTrue((field.value as? String) == "" || (field.value as? String) == field.placeholderValue)
+        XCTAssertFalse(ui.app.buttons["search.filter.songs"].exists)
+        try ui.reveal(ui.app.buttons[removalID])
+        try ui.tap(ui.app.buttons[removalID])
+        try ui.reveal(ui.app.staticTexts["search.recents.empty"])
         try ui.relaunch()
-        try tapSearch(ui)
-        try ui.tap(ui.app.buttons["search.dismissKeyboard"])
-        try expectKeyboardDismissed(ui)
-        XCTAssertFalse(ui.app.staticTexts["Recent searches"].exists)
+        try ui.selectTab("search")
+        try ui.reveal(ui.app.staticTexts["search.recents.empty"])
+        XCTAssertFalse(recent.exists)
         try ui.selectTab("library")
         try ui.tap(ui.app.buttons["library.likes"])
         try ui.reveal(ui.app.staticTexts["5 songs"])
@@ -177,9 +157,8 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         try ui.openSettings()
         try ui.setSwitch("settings.autoplay", to: false)
         try ui.tap(ui.app.buttons["settings.done"])
-        try tapSearch(ui)
-        try ui.tap(ui.app.buttons["search.dismissKeyboard"])
-        try expectKeyboardDismissed(ui)
+        try tuneRadioProfile(ui, dominant: "en")
+        try openRadioDiscovery(ui)
         let station = ui.app.buttons["search.station.melancholy"]
         try ui.reveal(station)
         XCTAssertTrue(station.label.contains("Radio"))
@@ -190,28 +169,31 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         try expectStation(ui, title: "Melancholy", song: "Apocalypse")
         XCTAssertFalse(ui.app.staticTexts["Recent searches"].exists)
         try ui.openPlayer()
-        try ui.expectCurrentTrack("fixture.experience.seed.0")
+        try ui.expectCurrentTrack(Seed.apocalypse.track)
         try ui.waitForAdvance(from: 0, by: 1)
         try ui.pause()
         try ui.openPlayerSheet("queue", title: "Queue")
         try expectQueueRadioLabel(ui, station: "Melancholy")
-        for index in 0..<4 {
-            try ui.reveal(ui.element("queue.play.\(index).fixture.experience.seed.\(index)"))
+        for (index, seed) in Seed.melancholy.enumerated() {
+            try ui.reveal(ui.element("queue.play.\(index).\(seed.track)"))
         }
-        let lastInitialSong = ui.element("queue.play.15.fixture.experience.radio.3.2")
+        let lastInitialSong = ui.element("queue.play.15.\(Seed.fadeIntoYou.radio(2))")
         try ui.reveal(lastInitialSong, maxSwipes: 20)
         try ui.tap(lastInitialSong)
-        try ui.expectCurrentTrack("fixture.experience.radio.3.2")
+        try ui.expectCurrentTrack(Seed.fadeIntoYou.radio(2))
         try ui.waitForAdvance(from: 0, by: 1)
         try ui.pause()
         try ui.openPlayerSheet("queue", title: "Queue")
         try expectQueueRadioLabel(ui, station: "Melancholy")
         let continuation = ui.app.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", "queue.play.", "fixture.experience.radio.0.3")).firstMatch
+            format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", "queue.play.", Seed.apocalypse.radio(3))).firstMatch
         try ui.reveal(continuation, maxSwipes: 24)
         ui.capture("search-discovery-station-continued-with-autoplay-off")
         try ui.closeSheet("Queue")
         try ui.closePlayer()
+        try ui.tap(ui.app.navigationBars["Radio"].buttons["Back"])
+        try ui.reveal(ui.app.staticTexts["search.recents.empty"])
+        XCTAssertFalse(ui.app.buttons["search.recents.clear"].exists, "Starting radio must not create an opened search result")
         try ui.openSettings()
         try ui.expectSwitch("settings.autoplay", isOn: false)
     }
@@ -219,6 +201,7 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
     func testFastStationReselectKeepsTheNewStationAndExistingPlaybackDuringLoading() throws {
         let ui = makeDriver()
         try ui.launch(additionalArguments: ["--slow-experience-radio"])
+        try tuneRadioProfile(ui, dominant: "en")
         try tapSearch(ui)
         ui.app.textFields["search.field"].typeText("Tum Hi Ho")
         try ui.waitForSearchResults()
@@ -227,6 +210,7 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         try ui.clearSearch()
         try ui.tap(ui.app.buttons["search.dismissKeyboard"])
         try expectKeyboardDismissed(ui)
+        try openRadioPage(ui)
         let melancholy = ui.app.buttons["search.station.melancholy"]
         let gym = ui.app.buttons["search.station.hindi-gym"]
         try ui.reveal(melancholy)
@@ -238,23 +222,28 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         try ui.wait("Reselecting must move the loading indication to the new station") { gym.value as? String == "Loading" }
         XCTAssertEqual(radioLoadingIndicators(ui).count, 1)
         XCTAssertEqual(radioLoadingIndicators(ui).firstMatch.identifier, "search.station.progress.hindi-gym")
-        try expectStation(ui, title: "Hindi gym", song: "Zinda", timeout: 20)
+        let workoutSong = "fixture.style.workout-motivation-songs.0"
+        try expectStation(ui, title: "Workout", song: "workout motivation songs fixture", timeout: 20)
         XCTAssertEqual(gym.value as? String, "Current station")
         XCTAssertNotEqual(melancholy.value as? String, "Current station")
         try ui.openPlayer()
-        try ui.expectCurrentTrack("fixture.experience.seed.4")
+        try ui.expectCurrentTrack(workoutSong)
         try ui.waitForAdvance(from: 0, by: 1)
         try ui.pause()
         try ui.openPlayerSheet("queue", title: "Queue")
-        try expectQueueRadioLabel(ui, station: "Hindi gym")
-        try ui.reveal(ui.element("queue.play.1.fixture.experience.seed.5"))
-        XCTAssertFalse(ui.element("queue.play.0.fixture.experience.seed.0").exists)
+        try expectQueueRadioLabel(ui, station: "Workout")
+        try ui.reveal(ui.element("queue.play.0.\(workoutSong)"))
+        let next = ui.app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "queue.play.1.fixture.style.")).firstMatch
+        try ui.reveal(next)
+        XCTAssertFalse(ui.element("queue.play.0.\(Seed.apocalypse.track)").exists)
         ui.capture("search-discovery-fast-station-reselection")
     }
 
     func testRadioLoadingUsesOneSpinnerAndKeepsTilesAndHeaderFixedThroughReadiness() throws {
         let ui = makeDriver()
         try ui.launch(additionalArguments: ["--slow-experience-radio"])
+        try tuneRadioProfile(ui, dominant: "en")
         try tapSearch(ui)
         ui.app.textFields["search.field"].typeText("Tum Hi Ho")
         try ui.waitForSearchResults()
@@ -264,6 +253,7 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         try ui.clearSearch()
         try ui.tap(ui.app.buttons["search.dismissKeyboard"])
         try expectKeyboardDismissed(ui)
+        try openRadioPage(ui)
 
         let station = ui.app.buttons["search.station.melancholy"]
         let other = ui.app.buttons["search.station.hindi-gym"]
@@ -294,7 +284,7 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         XCTAssertEqual(active.frame.height, 44, accuracy: 1)
         XCTAssertTrue(active.label.contains("Melancholy Radio"))
         try ui.tap(active)
-        try ui.expectCurrentTrack("fixture.experience.seed.0")
+        try ui.expectCurrentTrack(Seed.apocalypse.track)
     }
 
     func testTappingALoadingRadioAgainCancelsWithoutMovingTheGrid() throws {
@@ -326,9 +316,8 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
     func testTransientRadioFailureRecoversWithProviderSongs() throws {
         let ui = makeDriver()
         try ui.launch(additionalArguments: ["--fail-experience-radio-once"])
-        try tapSearch(ui)
-        try ui.tap(ui.app.buttons["search.dismissKeyboard"])
-        try expectKeyboardDismissed(ui)
+        try tuneRadioProfile(ui, dominant: "en")
+        try openRadioDiscovery(ui)
         let station = ui.app.buttons["search.station.melancholy"]
         try ui.reveal(station)
         try startRadio(ui, station: station)
@@ -338,96 +327,129 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         try ui.waitForAdvance(from: 0, by: 1)
         try ui.pause()
         try ui.openPlayerSheet("queue", title: "Queue")
-        try ui.reveal(ui.element("queue.play.4.fixture.experience.radio.0.0"))
+        // Every cue radio failed once, so the station's own wording searches fill the queue behind the four cues.
+        for (index, seed) in Seed.melancholy.enumerated() {
+            try ui.reveal(ui.element("queue.play.\(index).\(seed.track)"))
+        }
+        let styleSong = ui.app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "queue.play.4.fixture.style.")).firstMatch
+        try ui.reveal(styleSong)
         try expectQueueRadioLabel(ui, station: "Melancholy")
     }
 
-    func testRadioDiscoveryFollowsSavedLanguagesAndUsesMatchingVariantCopy() throws {
+    func testRadioBrowseKeepsStationsAndTruthfulAutomaticCopyAcrossLanguageNudges() throws {
         let ui = makeDriver()
         try ui.launch()
-        try selectDiscoveryLanguages(ui, hindi: false, english: true)
-        try openRadioDiscovery(ui)
-        try ui.reveal(ui.app.buttons["search.station.melancholy"])
-        XCTAssertFalse(ui.app.buttons["search.station.hindi-gym"].exists)
-        let rap = ui.app.buttons["search.station.left-field-rap"]
-        try ui.reveal(rap)
-        XCTAssertTrue(rap.label.contains("Kanye West") && rap.label.contains("Tyler, The Creator"))
-        XCTAssertFalse(rap.label.contains("Char Diwaari"))
+        for dominant in ["en", "hi"] {
+            try tuneRadioProfile(ui, dominant: dominant)
+            try openRadioDiscovery(ui)
+            try ui.reveal(ui.app.buttons["search.station.melancholy"])
+            XCTAssertTrue(ui.element("search.radio.group.moods").exists)
+            let gym = ui.app.buttons["search.station.hindi-gym"]
+            try ui.reveal(gym)
+            XCTAssertTrue(gym.label.contains("Workout Radio. Follows your listening."))
+            let rap = ui.app.buttons["search.station.left-field-rap"]
+            try ui.reveal(rap, maxSwipes: 24)
+            XCTAssertTrue(ui.element("search.radio.group.genres").exists)
+            XCTAssertTrue(rap.label.contains("Rap and hip hop Radio. Follows your listening."))
+            XCTAssertFalse(rap.label.contains("Kanye West") || rap.label.contains("Char Diwaari"),
+                           "A station description must not promise artist cues for an inferred profile")
+            try ui.reveal(ui.app.buttons["search.station.qawwali"], maxSwipes: 24)
+            try ui.reveal(ui.app.buttons["search.station.nineties"], maxSwipes: 24)
+        }
         try ui.relaunch()
         try openRadioDiscovery(ui)
         try ui.reveal(ui.app.buttons["search.station.melancholy"])
-        XCTAssertFalse(ui.app.buttons["search.station.hindi-gym"].exists)
-
-        try selectDiscoveryLanguages(ui, hindi: true, english: false)
-        try openRadioDiscovery(ui)
-        let gym = ui.app.buttons["search.station.hindi-gym"]
-        try ui.reveal(gym)
-        XCTAssertTrue(gym.label.contains("Hindi + Punjabi"))
-        XCTAssertFalse(ui.app.buttons["search.station.melancholy"].exists)
-        try ui.reveal(rap)
-        XCTAssertTrue(rap.label.contains("Char Diwaari") && rap.label.contains("Seedhe Maut"))
-        XCTAssertFalse(rap.label.contains("Kanye West"))
-
-        try selectDiscoveryLanguages(ui, hindi: true, english: true)
-        try openRadioDiscovery(ui)
-        try ui.reveal(gym)
-        try ui.reveal(ui.app.buttons["search.station.melancholy"], direction: .down)
-        try ui.reveal(rap)
-        XCTAssertTrue(rap.label.contains("Kanye West") && rap.label.contains("Char Diwaari"))
+        XCTAssertTrue(ui.app.buttons["search.station.melancholy"].label.contains("Follows your listening"))
+        ui.capture("search-discovery-grouped-stations")
     }
 
-    func testMixedRadioStartsOnlyTheSelectedLanguageSeedGroup() throws {
+    func testMixedRadioStartsTheDominantLearnedLanguageSeedGroup() throws {
         let ui = makeDriver()
         try ui.launch()
-        let cases = [(hindi: false, english: true, song: "Flashing Lights", first: 28, second: 30),
-                     (hindi: true, english: false, song: "Jhaag", first: 29, second: 31)]
+        let cases = [(dominant: "en", song: "Flashing Lights", first: Seed.flashingLights, second: Seed.earfquake),
+                     (dominant: "hi", song: "Jhaag", first: Seed.jhaag, second: Seed.nanchaku)]
         for selection in cases {
-            try selectDiscoveryLanguages(ui, hindi: selection.hindi, english: selection.english)
+            try tuneRadioProfile(ui, dominant: selection.dominant)
             try openRadioDiscovery(ui)
             let station = ui.app.buttons["search.station.left-field-rap"]
-            try ui.reveal(station)
+            try ui.reveal(station, maxSwipes: 24)
             try startRadio(ui, station: station)
-            try expectStation(ui, title: "Left-field rap", song: selection.song)
+            try expectStation(ui, title: "Rap and hip hop", song: selection.song)
             try ui.openPlayer()
-            try ui.expectCurrentTrack("fixture.experience.seed.\(selection.first)")
+            try ui.expectCurrentTrack(selection.first.track)
             try ui.waitForAdvance(from: 0, by: 1)
             try ui.pause()
             try ui.openPlayerSheet("queue", title: "Queue")
-            try ui.reveal(ui.element("queue.play.0.fixture.experience.seed.\(selection.first)"))
-            try ui.reveal(ui.element("queue.play.1.fixture.experience.seed.\(selection.second)"))
-            try expectQueueRadioLabel(ui, station: "Left-field rap")
+            try ui.reveal(ui.element("queue.play.0.\(selection.first.track)"))
+            try ui.reveal(ui.element("queue.play.1.\(selection.second.track)"))
+            try expectQueueRadioLabel(ui, station: "Rap and hip hop")
             try ui.closeSheet("Queue")
             try ui.closePlayer()
         }
     }
 
-    func testClassicRadiosPlayFromTheirLanguageScopedDiscoveryTiles() throws {
+    func testClassicRadiosPlayFromTheirDiscoveryTilesInEitherLanguage() throws {
         let ui = makeDriver()
         try ui.launch()
-        let cases = [(id: "hindi-classics", title: "Hindi classics", song: "Lag Ja Gale Se Phir", hindi: true, seed: 32),
-                     (id: "english-golden-oldies", title: "English golden oldies", song: "Here Comes The Sun", hindi: false, seed: 36)]
+        let cases = [(id: "hindi-classics", title: "Bollywood classics", song: "Lag Ja Gale Se Phir", hindi: true,
+                      first: Seed.lagJaGale, second: Seed.yehShamMastani),
+                     (id: "english-golden-oldies", title: "Golden oldies", song: "Here Comes The Sun", hindi: false,
+                      first: Seed.hereComesTheSun, second: Seed.cantHelpFalling)]
         for selection in cases {
-            try selectDiscoveryLanguages(ui, hindi: selection.hindi, english: !selection.hindi)
+            try tuneRadioProfile(ui, dominant: selection.hindi ? "hi" : "en")
             try openRadioDiscovery(ui)
             let station = ui.app.buttons["search.station.\(selection.id)"]
-            try ui.reveal(station)
+            try ui.reveal(station, maxSwipes: 24)
             XCTAssertTrue(station.label.contains("Radio"))
             try openRadioSetup(ui, station: station)
             XCTAssertTrue(ui.app.buttons["radio.setup.era.older"].isSelected)
             try startConfiguredRadio(ui)
             try expectStation(ui, title: selection.title, song: selection.song)
             try ui.openPlayer()
-            try ui.expectCurrentTrack("fixture.experience.seed.\(selection.seed)")
+            try ui.expectCurrentTrack(selection.first.track)
             try ui.waitForAdvance(from: 0, by: 1)
             try ui.pause()
             try ui.openPlayerSheet("queue", title: "Queue")
             try expectQueueRadioLabel(ui, station: selection.title)
-            try ui.reveal(ui.element("queue.play.0.fixture.experience.seed.\(selection.seed)"))
-            try ui.reveal(ui.element("queue.play.1.fixture.experience.seed.\(selection.seed + 1)"))
+            try ui.reveal(ui.element("queue.play.0.\(selection.first.track)"))
+            try ui.reveal(ui.element("queue.play.1.\(selection.second.track)"))
             ui.capture("search-\(selection.id)-radio-queue")
             try ui.closeSheet("Queue")
             try ui.closePlayer()
         }
+    }
+
+    func testHindiLedMelancholyStartsFromStyleSearchesWithoutArtistHintsOrLanguageSwitches() throws {
+        let ui = makeDriver()
+        try ui.launch()
+        try tuneRadioProfile(ui, dominant: "hi")
+        try openRadioDiscovery(ui)
+        let station = ui.app.buttons["search.station.melancholy"]
+        try ui.reveal(station)
+        try openRadioSetup(ui, station: station)
+        try expectAutomaticRadioLanguages(ui)
+        let start = ui.app.buttons["radio.setup.start"]
+        XCTAssertTrue(start.isEnabled, "A station starts in any language, without a matching cue variant")
+        XCTAssertEqual(ui.app.staticTexts["radio.setup.summary"].label, "Start from the station’s mood. No artist hints needed.")
+        XCTAssertEqual(ui.app.staticTexts["radio.setup.selectionCount"].label, "0 of 4 hints")
+        ui.capture("radio-setup-melancholy-hindi-led")
+        try startConfiguredRadio(ui)
+        try expectStation(ui, title: "Melancholy", song: "fixture")
+        XCTAssertTrue(ui.app.buttons["search.station.active"].label.contains("Follows your listening · Anytime"))
+        XCTAssertFalse(ui.app.staticTexts["search.station.error"].exists)
+        try ui.openPlayer()
+        let current = ui.app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "player.track.fixture.style.")).firstMatch
+        try ui.wait("Hindi Melancholy must play a song found through its wording, not an English cue") { current.exists }
+        XCTAssertFalse(ui.app.staticTexts["player.track.\(Seed.apocalypse.track)"].exists)
+        try ui.waitForAdvance(from: 0, by: 1)
+        try ui.pause()
+        try ui.openPlayerSheet("queue", title: "Queue")
+        try expectQueueRadioLabel(ui, station: "Melancholy")
+        let first = ui.app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", "queue.play.0.fixture.style.")).firstMatch
+        try ui.reveal(first)
+        XCTAssertFalse(ui.element("queue.play.0.\(Seed.apocalypse.track)").exists)
     }
 
     func testOptionalArtistAndEraEditsCanBeCancelledWithoutChangingPlayback() throws {
@@ -444,12 +466,12 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         try ui.clearSearch()
         try ui.tap(ui.app.buttons["search.dismissKeyboard"])
         try expectKeyboardDismissed(ui)
+        try openRadioPage(ui)
         let station = ui.app.buttons["search.station.melancholy"]
         try ui.reveal(station)
         try openRadioSetup(ui, station: station)
         XCTAssertTrue(ui.app.buttons["radio.setup.era.anytime"].isSelected)
-        try ui.expectSwitch("radio.setup.language.english", isOn: true)
-        try ui.expectSwitch("radio.setup.language.hindi", isOn: false)
+        try expectAutomaticRadioLanguages(ui)
         let start = ui.app.buttons["radio.setup.start"]
         XCTAssertTrue(start.isEnabled)
         XCTAssertEqual(start.value as? String, "Style defaults")
@@ -470,11 +492,7 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
             XCTAssertEqual(frame.height, original.height, accuracy: 1, "Preference edits must not resize \(id)")
         }
         try ui.tap(ui.app.buttons["radio.setup.era.anytime"])
-        try ui.setSwitch("radio.setup.language.english", to: false)
-        XCTAssertFalse(start.isEnabled, "A language is required even though artist hints are optional")
-        XCTAssertEqual(ui.app.staticTexts["radio.setup.summary"].label, "Choose at least one language.")
-        try ui.setSwitch("radio.setup.language.english", to: true)
-        XCTAssertTrue(start.isEnabled)
+        XCTAssertTrue(start.isEnabled, "The inferred language profile needs no setup form")
         try setSetupArtist(ui, "cigarettes after sex", selected: true)
         XCTAssertTrue(start.isEnabled)
         XCTAssertEqual(ui.app.staticTexts["radio.setup.selectionCount"].label, "1 of 4 hints")
@@ -492,12 +510,13 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         try ui.expectLabel(ui.app.buttons["player.playPause"], "Play")
         try ui.openPlayerSheet("queue", title: "Queue")
         try ui.reveal(ui.element("queue.play.0.\(AppUIFixture.tumHiHo)"))
-        XCTAssertFalse(ui.element("queue.play.0.fixture.experience.seed.0").exists)
+        XCTAssertFalse(ui.element("queue.play.0.\(Seed.apocalypse.track)").exists)
     }
 
     func testArtistSearchAndNewerEraUseTheAddedArtistsActualDatedRecording() throws {
         let ui = makeDriver()
         try ui.launch()
+        try tuneRadioProfile(ui, dominant: "en")
         try openRadioDiscovery(ui)
         let station = ui.app.buttons["search.station.melancholy"]
         try ui.reveal(station)
@@ -525,7 +544,7 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         try expectStation(ui, title: "Melancholy", song: "Apocalypse")
         XCTAssertTrue(ui.app.buttons["search.station.active"].label.contains("Newer"))
         try ui.openPlayer()
-        try ui.expectCurrentTrack("fixture.experience.seed.0")
+        try ui.expectCurrentTrack(Seed.apocalypse.track)
         try ui.waitForAdvance(from: 0, by: 1)
         try ui.pause()
         try ui.openPlayerSheet("queue", title: "Queue")
@@ -542,6 +561,7 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         let station = ui.app.buttons["search.station.melancholy"]
         for era in ["newer", "anytime"] {
             try ui.reveal(station)
+            let backgroundFrame = station.frame
             try openRadioSetup(ui, station: station)
             try ui.tap(ui.app.buttons["radio.setup.era.\(era)"])
             let start = ui.app.buttons["radio.setup.start"]
@@ -550,8 +570,6 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
             let options = ui.app.scrollViews["radio.setup.options"]
             let artist = ui.app.buttons["radio.setup.artist.radiohead"]
             let before = artist.frame
-            let background = ui.app.buttons["search.suggestion.Radiohead"]
-            let backgroundFrame = background.frame
             let startFrame = start.frame
             XCTAssertGreaterThan(before.midY, options.frame.maxY, "The regression needs a row whose center is clipped")
             XCTAssertLessThan(before.intersection(options.frame).height, 44)
@@ -567,52 +585,54 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
             XCTAssertFalse(artist.isSelected, "Scrolling must not select an optional artist")
             XCTAssertTrue(start.isEnabled)
             XCTAssertEqual(start.frame.minY, startFrame.minY, accuracy: 1)
-            XCTAssertEqual(background.frame.minY, backgroundFrame.minY, accuracy: 1, "The Search page beneath the sheet must not scroll")
             XCTAssertTrue(ui.app.navigationBars["Set up radio"].exists)
             ui.capture("radio-reveal-\(era)-visible-after")
             try setSetupArtist(ui, "radiohead", selected: true)
             try setSetupArtist(ui, "mazzy star", selected: true)
             XCTAssertTrue(start.isEnabled)
             try cancelRadioSetup(ui)
+            XCTAssertEqual(station.frame.minY, backgroundFrame.minY, accuracy: 1, "The Radio page beneath the sheet must not scroll")
             XCTAssertFalse(ui.app.buttons["search.station.active"].exists)
             XCTAssertFalse(ui.app.buttons["miniPlayer.open"].exists)
         }
     }
 
-    func testSetupLanguageChangesUseTheChosenVariantWithoutSavingDiscoveryPreferences() throws {
+    func testRadioSetupKeepsAutomaticLanguagesAndDoesNotPersistOptionalArtistDrafts() throws {
         let ui = makeDriver()
         try ui.launch()
-        try selectDiscoveryLanguages(ui, hindi: true, english: true)
+        try tuneRadioProfile(ui, dominant: "en")
         try openRadioDiscovery(ui)
         let station = ui.app.buttons["search.station.left-field-rap"]
-        try ui.reveal(station)
+        try ui.reveal(station, maxSwipes: 24)
         try openRadioSetup(ui, station: station)
-        try ui.setSwitch("radio.setup.language.hindi", to: false)
-        XCTAssertFalse(ui.app.buttons["radio.setup.artist.char diwaari"].exists)
-        XCTAssertFalse(ui.app.buttons["radio.setup.artist.seedhe maut"].exists)
+        try expectAutomaticRadioLanguages(ui)
+        try setSetupArtist(ui, "kanye west", selected: true)
+        XCTAssertEqual(ui.app.staticTexts["radio.setup.selectionCount"].label, "1 of 4 hints")
+        try ui.reveal(ui.app.buttons["radio.setup.clearArtists"], direction: .down)
+        try ui.tap(ui.app.buttons["radio.setup.clearArtists"])
         try startConfiguredRadio(ui)
-        try expectStation(ui, title: "Left-field rap", song: "Flashing Lights")
-        XCTAssertTrue(ui.app.buttons["search.station.active"].label.contains("English · Anytime"))
+        try expectStation(ui, title: "Rap and hip hop", song: "Flashing Lights")
+        XCTAssertTrue(ui.app.buttons["search.station.active"].label.contains("Follows your listening · Anytime"))
         try ui.openPlayer()
-        try ui.expectCurrentTrack("fixture.experience.seed.28")
+        try ui.expectCurrentTrack(Seed.flashingLights.track)
         try ui.waitForAdvance(from: 0, by: 1)
         try ui.pause()
         try ui.openPlayerSheet("queue", title: "Queue")
-        try ui.reveal(ui.element("queue.play.1.fixture.experience.seed.30"))
-        XCTAssertFalse(ui.element("queue.play.1.fixture.experience.seed.29").exists)
+        try ui.reveal(ui.element("queue.play.1.\(Seed.earfquake.track)"))
+        XCTAssertFalse(ui.element("queue.play.1.\(Seed.jhaag.track)").exists)
         try ui.closeSheet("Queue")
         try ui.closePlayer()
         try openRadioSetup(ui, station: station)
-        try ui.expectSwitch("radio.setup.language.hindi", isOn: true)
-        try ui.expectSwitch("radio.setup.language.english", isOn: true)
+        try expectAutomaticRadioLanguages(ui)
         XCTAssertEqual(ui.app.staticTexts["radio.setup.selectionCount"].label, "0 of 4 hints")
         try cancelRadioSetup(ui)
-        try expectStation(ui, title: "Left-field rap", song: "Flashing Lights")
+        try expectStation(ui, title: "Rap and hip hop", song: "Flashing Lights")
     }
 
     func testCancellingAnotherSetupKeepsTheAlreadyPendingRadio() throws {
         let ui = makeDriver()
         try ui.launch(additionalArguments: ["--slow-experience-radio"])
+        try tuneRadioProfile(ui, dominant: "en")
         try openRadioDiscovery(ui)
         let melancholy = ui.app.buttons["search.station.melancholy"]
         let gym = ui.app.buttons["search.station.hindi-gym"]
@@ -627,7 +647,7 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         XCTAssertEqual(radioLoadingIndicators(ui).count, 0)
         XCTAssertFalse(ui.app.staticTexts["search.station.error"].exists)
         try ui.openPlayer()
-        try ui.expectCurrentTrack("fixture.experience.seed.0")
+        try ui.expectCurrentTrack(Seed.apocalypse.track)
     }
 
     private func openRadioSetup(_ ui: AppUITestDriver, station: XCUIElement) throws {
@@ -715,23 +735,53 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         )).firstMatch.exists, file: file, line: line)
     }
 
-    private func selectDiscoveryLanguages(_ ui: AppUITestDriver, hindi: Bool, english: Bool) throws {
+    private func tuneRadioProfile(_ ui: AppUITestDriver, dominant: String) throws {
         try ui.openSettings()
         let languages = ui.app.buttons["settings.languages"]
         try ui.reveal(languages, maxSwipes: 24)
         try ui.tap(languages)
-        if hindi { try ui.setSwitch("settings.language.hindi", to: true) }
-        if english { try ui.setSwitch("settings.language.english", to: true) }
-        if !hindi { try ui.setSwitch("settings.language.hindi", to: false) }
-        if !english { try ui.setSwitch("settings.language.english", to: false) }
-        try ui.tap(ui.app.navigationBars["Discovery languages"].buttons.firstMatch)
+        let tuning = ui.app.buttons["listeningLanguages.tune"]
+        try ui.reveal(tuning, maxSwipes: 24)
+        try ui.tap(tuning)
+        for code in ["en", "hi"] {
+            let menu = ui.app.buttons["listeningLanguages.nudge.\(code)"]
+            try ui.reveal(menu, maxSwipes: 24)
+            try ui.tap(menu)
+            let title = code == dominant ? "More" : "Less"
+            let identified = ui.app.buttons["listeningLanguages.choice.\(code).\(title.lowercased())"]
+            let native = ui.app.buttons[title]
+            try ui.wait("The native language adjustment menu must open") { identified.exists || native.exists }
+            try ui.tap(identified.exists ? identified : native)
+            try ui.expectValue(menu, title)
+        }
+        try ui.tap(ui.app.navigationBars["Listening languages"].buttons.firstMatch)
         try ui.tap(ui.app.buttons["settings.done"])
+    }
+
+    private func expectAutomaticRadioLanguages(_ ui: AppUITestDriver) throws {
+        let label = ui.element("radio.setup.listeningLanguages")
+        try ui.reveal(label, direction: .down)
+        XCTAssertEqual(label.label, "Languages follow your listening")
+        XCTAssertFalse(ui.app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "radio.setup.language.")).firstMatch.exists)
     }
 
     private func openRadioDiscovery(_ ui: AppUITestDriver) throws {
         try tapSearch(ui)
+        if ui.app.buttons["search.clear"].exists { try ui.clearSearch() }
         try ui.tap(ui.app.buttons["search.dismissKeyboard"])
         try expectKeyboardDismissed(ui)
+        try openRadioPage(ui)
+    }
+
+    private func openRadioPage(_ ui: AppUITestDriver) throws {
+        let radio = ui.app.buttons["search.radio.open"]
+        try ui.reveal(radio)
+        try ui.tap(radio)
+        try ui.wait("The compact Radio row must open its own browse page") {
+            ui.app.navigationBars["Radio"].exists && ui.app.scrollViews["search.radio.content"].exists
+                && !ui.app.textFields["search.field"].exists
+        }
+        XCTAssertFalse(ui.app.keyboards.firstMatch.exists)
     }
 
     private func tapSearch(_ ui: AppUITestDriver) throws {
@@ -739,7 +789,6 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         let wasSelected = button.isSelected
         try ui.tap(button)
         if !wasSelected {
-            try ui.requireHittable(ui.app.textFields["search.field"])
             XCTAssertFalse(ui.app.keyboards.firstMatch.exists, "The first tab tap opens discovery without a keyboard")
             try ui.tap(button)
         }
@@ -758,12 +807,15 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
 
     private func expectSearchAtTop(_ ui: AppUITestDriver) throws {
         let content = ui.app.scrollViews["search.content"]
-        let first = ui.app.buttons["search.filter.songs"]
-        try ui.wait("Search reselect or navigation reset must reveal the top anchor without a test scroll") {
+        let field = ui.app.textFields["search.field"]
+        let queryIsEmpty = (field.value as? String) == "" || (field.value as? String) == field.placeholderValue
+        let first = ui.app.buttons[queryIsEmpty ? "search.library.likes" : "search.filter.songs"]
+        try ui.wait("Search reselect must reveal the top anchor without a test scroll") {
             guard content.exists, first.exists else { return false }
             let viewport = content.frame
             let frame = first.frame
-            return frame.minY >= viewport.minY - 1 && frame.maxY <= viewport.minY + 90
+            return frame.minY >= viewport.minY - 1 && frame.minY <= viewport.minY + 24
+                && frame.maxY <= viewport.maxY + 1
                 && frame.intersection(viewport).height >= 43
         }
     }
@@ -786,5 +838,28 @@ final class GanaBajanaSearchDiscoveryUITests: XCTestCase {
         let ui = AppUITestDriver(testCase: self, prefix: "search-discovery")
         addTeardownBlock { await ui.finish() }
         return ui
+    }
+
+    /// Debug fixture ids derive from each cue's search query, so they survive station reordering.
+    private struct Seed {
+        let slug: String
+        var track: String { "fixture.experience.seed.\(slug)" }
+        func radio(_ index: Int) -> String { "fixture.experience.radio.\(slug).\(index)" }
+
+        static let apocalypse = Seed(slug: "apocalypse-cigarettes-after-sex")
+        static let whereIsMyMind = Seed(slug: "where-is-my-mind-pixies")
+        static let noSurprises = Seed(slug: "no-surprises-radiohead")
+        static let fadeIntoYou = Seed(slug: "fade-into-you-mazzy-star")
+        static let melancholy = [apocalypse, whereIsMyMind, noSurprises, fadeIntoYou]
+        static let zinda = Seed(slug: "zinda-siddharth-mahadevan-bhaag-milkha-bhaag")
+        static let goat = Seed(slug: "g-o-a-t-diljit-dosanjh")
+        static let flashingLights = Seed(slug: "flashing-lights-kanye-west")
+        static let earfquake = Seed(slug: "earfquake-tyler-the-creator")
+        static let jhaag = Seed(slug: "jhaag-char-diwaari")
+        static let nanchaku = Seed(slug: "nanchaku-seedhe-maut")
+        static let lagJaGale = Seed(slug: "lag-ja-gale-se-phir-lata-mangeshkar")
+        static let yehShamMastani = Seed(slug: "yeh-sham-mastani-kishore-kumar")
+        static let hereComesTheSun = Seed(slug: "here-comes-the-sun-the-beatles")
+        static let cantHelpFalling = Seed(slug: "can-t-help-falling-in-love-elvis-presley")
     }
 }

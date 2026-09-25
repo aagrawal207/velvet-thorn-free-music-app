@@ -2,11 +2,8 @@ import SwiftUI
 
 @MainActor
 struct ArtistSpotlightCard: View {
-    @State private var loader: ArtistSpotlightLoader
-
-    init(artist: ArtistPage) {
-        _loader = State(initialValue: ArtistSpotlightLoader(artist: artist))
-    }
+    /// Owned by the artist page, which starts the shared song load before this card is ever opened.
+    let loader: ArtistSpotlightLoader
 
     var body: some View {
         AppNavigationLink {
@@ -19,7 +16,7 @@ struct ArtistSpotlightCard: View {
                     Text(loader.collection.title)
                         .appFont(.headline, weight: .bold)
                         .foregroundStyle(AppTheme.primaryText)
-                    Text("Popular songs · Explore by language")
+                    Text("Popular songs from YouTube Music")
                         .appFont(.subheadline)
                         .foregroundStyle(AppTheme.secondaryText)
                 }
@@ -47,16 +44,18 @@ struct ArtistSpotlightView: View {
 
     var body: some View {
         CollectionDetailView(collection: loader.collection, spotlight: loader)
+            // requestReload() resets the loader itself; the id change only re-runs this once per Try again.
             .task(id: loader.reloadRequest) {
-                await loader.load(catalog: model.catalog, lyrics: model.lyrics, force: loader.reloadRequest > 0, library: model.library)
+                await loader.load(catalog: model.catalog, lyrics: model.lyrics, library: model.library)
             }
-            .onChange(of: model.library.recordingLanguageOverrides) { _, _ in loader.overridesChanged() }
-            .onDisappear { loader.cancel() }
+            // The song load outlives this screen because the artist page beneath it shows the same tracks.
+            .onDisappear { loader.cancelLanguageChecks() }
     }
 }
 
 @MainActor
 struct ArtistSpotlightControls: View {
+    @Environment(\.secondaryTextColor) private var secondaryText
     let loader: ArtistSpotlightLoader
 
     var body: some View {
@@ -67,12 +66,12 @@ struct ArtistSpotlightControls: View {
                     .accessibilityIdentifier("artist.spotlight.countProvenance")
                 Text("YouTube Music plays for the available recordings, not a complete all-time chart.")
                     .appFont(.caption)
-                    .foregroundStyle(AppTheme.secondaryText)
+                    .foregroundStyle(secondaryText)
                 if loader.missingPlayCounts > 0 {
                     Text(loader.missingPlayCounts == 1 ? "1 song without a play count appears last."
                          : "\(loader.missingPlayCounts) songs without play counts appear last.")
                         .appFont(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
+                        .foregroundStyle(secondaryText)
                 }
             }
 
@@ -81,57 +80,8 @@ struct ArtistSpotlightControls: View {
             }
 
             if !loader.tracks.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(loader.filters) { filter in
-                            languageButton(filter)
-                        }
-                    }
-                }
-                .accessibilityIdentifier("artist.spotlight.languages")
-
-                if loader.isCheckingLanguages {
-                    progress("Checking song languages · \(loader.checkedLanguageCount) of \(loader.tracks.count) checked")
-                }
-                if loader.unclassifiedCount > 0 {
-                    Text("\(loader.unclassifiedCount) \(loader.unclassifiedCount == 1 ? "song is" : "songs are") unclassified and still available in All.")
-                        .appFont(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                        .accessibilityIdentifier("artist.spotlight.unclassified")
-                }
-                if loader.availableLanguages.isEmpty, !loader.isBusy {
-                    Text("Song languages are still unconfirmed. You can set a song's language below.")
-                        .appFont(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                }
-                if loader.hasInferredLanguages {
-                    Text(ArtistSpotlight.lyricsProvenance)
-                        .appFont(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                        .accessibilityIdentifier("artist.spotlight.languageProvenance")
-                }
-                if loader.hasLikelyLanguages {
-                    Text("Likely languages are suggestions and stay in Unclassified until confirmed. Tap a song's language to correct it.")
-                        .appFont(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                }
-                if loader.canCheckMoreLanguages {
-                    Button("Check more song languages", systemImage: "text.magnifyingglass") {
-                        loader.checkMoreLanguages()
-                    }
-                    .appFont(.subheadline, weight: .semibold)
-                    .frame(minHeight: 44)
-                    .disabled(loader.isBusy)
-                    .accessibilityIdentifier("artist.spotlight.checkLanguages")
-                } else if loader.hasFailedLanguageChecks {
-                    Button("Retry language checks", systemImage: "arrow.clockwise") {
-                        loader.checkMoreLanguages(retryFailures: true)
-                    }
-                    .appFont(.subheadline, weight: .semibold)
-                    .frame(minHeight: 44)
-                    .disabled(loader.isBusy)
-                    .accessibilityIdentifier("artist.spotlight.retryLanguages")
-                }
+                languageDisclosure
+                if loader.isBrowsingLanguages { languageBrowser }
             } else if !loader.isLoadingSongs {
                 EmptyStateView(symbol: "music.note.list", title: "No songs available yet",
                                message: "The provider hasn't returned playable songs for this artist.")
@@ -141,13 +91,94 @@ struct ArtistSpotlightControls: View {
                 if loader.hadCatalogFailures {
                     Text("Some songs or play counts couldn't be checked. Showing the available songs.")
                         .appFont(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
+                        .foregroundStyle(secondaryText)
                 }
                 Button("Try again", systemImage: "arrow.clockwise") { loader.requestReload() }
                     .appFont(.subheadline, weight: .semibold)
                     .frame(minHeight: 44)
                     .disabled(loader.isBusy)
                     .accessibilityIdentifier("artist.spotlight.retry")
+            }
+        }
+    }
+
+    private var languageDisclosure: some View {
+        Button { loader.isBrowsingLanguages.toggle() } label: {
+            HStack(spacing: 8) {
+                Label(loader.languageControlTitle, systemImage: "globe")
+                    .appFont(.subheadline, weight: .semibold)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                if loader.filter != .all {
+                    Text(loader.filter.title).appFont(.caption, weight: .semibold).lineLimit(1)
+                } else if loader.hasUsefulLanguageFacets {
+                    Text(loader.availableLanguages.count.formatted()).appFont(.caption).monospacedDigit()
+                }
+                Image(systemName: loader.isBrowsingLanguages ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(secondaryText)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(loader.languageControlTitle)
+        .accessibilityValue("\(loader.isBrowsingLanguages ? "Expanded" : "Collapsed"), \(loader.filter.title), \(loader.availableLanguages.count) confirmed languages")
+        .accessibilityHint("Show filters, check languages, or correct an individual song")
+        .accessibilityIdentifier("artist.spotlight.browseLanguages")
+    }
+
+    private var languageBrowser: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(loader.filters) { filter in languageButton(filter) }
+                }
+            }
+            .accessibilityIdentifier("artist.spotlight.languages")
+
+            if loader.isCheckingLanguages {
+                progress("Checking song languages · \(loader.checkedLanguageCount) of \(loader.tracks.count) checked")
+            }
+            if loader.unclassifiedCount > 0 {
+                Text("\(loader.unclassifiedCount) \(loader.unclassifiedCount == 1 ? "song is" : "songs are") unclassified and still available in All.")
+                    .appFont(.caption)
+                    .foregroundStyle(secondaryText)
+                    .accessibilityIdentifier("artist.spotlight.unclassified")
+            }
+            Text("Tap a song's language below to review its source or correct it.")
+                .appFont(.caption)
+                .foregroundStyle(secondaryText)
+            if loader.hasInferredLanguages {
+                Text(ArtistSpotlight.lyricsProvenance)
+                    .appFont(.caption)
+                    .foregroundStyle(secondaryText)
+                    .accessibilityIdentifier("artist.spotlight.languageProvenance")
+            }
+            if loader.hasLikelyLanguages {
+                Text("Likely languages are suggestions and stay in Unclassified until confirmed.")
+                    .appFont(.caption)
+                    .foregroundStyle(secondaryText)
+            }
+            if loader.canCheckMoreLanguages {
+                Button { loader.checkMoreLanguages() } label: {
+                    Label("Check more song languages", systemImage: "text.magnifyingglass")
+                        .appFont(.subheadline, weight: .semibold)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .disabled(loader.isBusy)
+                .accessibilityIdentifier("artist.spotlight.checkLanguages")
+            }
+            if loader.hasFailedLanguageChecks {
+                Button { loader.checkMoreLanguages(retryFailures: true) } label: {
+                    Label("Retry language checks", systemImage: "arrow.clockwise")
+                        .appFont(.subheadline, weight: .semibold)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .disabled(loader.isBusy)
+                .accessibilityIdentifier("artist.spotlight.retryLanguages")
             }
         }
     }
@@ -175,7 +206,7 @@ struct ArtistSpotlightControls: View {
     private func progress(_ title: String) -> some View {
         HStack(spacing: 8) {
             ProgressView().tint(AppTheme.accent)
-            Text(title).appFont(.caption).foregroundStyle(AppTheme.secondaryText)
+            Text(title).appFont(.caption).foregroundStyle(secondaryText)
         }
         .accessibilityElement(children: .combine)
     }

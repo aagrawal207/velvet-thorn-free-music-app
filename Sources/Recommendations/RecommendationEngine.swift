@@ -21,7 +21,7 @@ struct RecommendationEngine: Sendable {
     /// Mirrors CatalogDiscovery's private list; recommendations must never surface these variants.
     static let excludedVersions = ["karaoke", "slowed", "sped up", "sped-up", "8d audio", "reverb", "full movie", "podcast"]
 
-    private static let log = Logger(subsystem: "com.agraabhi.ganabajana", category: "Recommendations")
+    static let log = Logger(subsystem: "com.agraabhi.ganabajana", category: "Recommendations")
 
     let catalog: any MusicCatalogProviding
     let now: @Sendable () -> Date
@@ -48,124 +48,208 @@ struct RecommendationEngine: Sendable {
 
     // MARK: Playlists
 
-    func discoverWeekly(profile: TasteProfile, languages: Set<MusicLanguage>, periodKey: String) async throws -> GeneratedPlaylist? {
-        guard !profile.isColdStart else { return nil }
-        let seeds = Seeds(profile: profile)
-        let harvest = try await gather(seeds: seeds, languages: languages, profile: profile)
-        let familiarArtists = Set(profile.topArtists(limit: 10).map { TasteProfile.normalizedArtistName($0.name) })
-        let ranked = harvest.candidates.values.filter { candidate in
-            !profile.heardTrackIDs.contains(candidate.track.id) && Self.isRecommendable(candidate.track, languages: languages)
-        }.map { candidate -> Candidate in
-            var candidate = candidate
-            // Discovery favors artists the listener does not already know; the jitter keeps ties fresh each week.
-            if candidate.track.artists.contains(where: { familiarArtists.contains(TasteProfile.normalizedArtistName($0)) }) {
-                candidate.score *= Self.knownArtistPenalty
+    func discoverWeekly(profile: TasteProfile, languages: Set<MusicLanguage>, periodKey: String,
+                        languageProfile: ListeningLanguageProfile? = nil,
+                        familiarity: DiscoveryFamiliarity = .balanced) async throws -> GeneratedPlaylist? {
+        var balance = DiscoveryBalanceMetrics()
+        defer { balance.emit(mode: familiarity, scope: .discoverWeekly) }
+        do {
+            try Task.checkCancellation()
+            guard !profile.isColdStart else { return nil }
+            let scope: Set<MusicLanguage> = languageProfile == nil ? languages : []
+            let seeds = Seeds(profile: profile, languageProfile: languageProfile)
+            let harvest = try await gather(seeds: seeds, languages: scope, profile: profile, languageProfile: languageProfile)
+            let familiarArtists = Set(profile.topArtists(limit: 10).map { TasteProfile.normalizedArtistName($0.name) })
+            // Weekly stays unheard; known-artist multipliers are 1.0 / 0.55 / 0.25, never a hard artist exclusion.
+            let artistMultiplier: Double = switch familiarity {
+            case .familiar: 1
+            case .balanced: Self.knownArtistPenalty
+            case .newMusic: 0.25
             }
-            candidate.score += Self.jitter(periodKey: periodKey, id: candidate.track.id) * Self.jitterRange
-            return candidate
-        }.sorted(by: Candidate.ranks)
-        let picks = Self.select(ranked.map(\.track), limit: Self.discoverWeeklyTarget, artistCap: Self.discoverWeeklyArtistCap)
-        guard picks.count >= Self.minimumPlaylistSize else { return nil }
-        return GeneratedPlaylist(kind: .discoverWeekly, tracks: picks, generatedAt: now(), periodKey: periodKey,
-                                 seedArtists: harvest.seedArtistNames)
+            let ranked = harvest.candidates.values.filter { candidate in
+                !profile.heardTrackIDs.contains(candidate.track.id) && !profile.dislikedTrackIDs.contains(candidate.track.id)
+                    && Self.isRecommendable(candidate.track, languages: scope)
+            }.map { candidate -> Candidate in
+                var candidate = candidate.weighted(by: languageProfile)
+                if candidate.track.artists.contains(where: { familiarArtists.contains(TasteProfile.normalizedArtistName($0)) }) {
+                    candidate.score *= artistMultiplier
+                }
+                candidate.score += Self.jitter(periodKey: periodKey, id: candidate.track.id) * Self.jitterRange
+                return candidate
+            }.sorted(by: Candidate.ranks)
+            let picks = Self.select(ranked.map(\.track), limit: Self.discoverWeeklyTarget, artistCap: Self.discoverWeeklyArtistCap)
+            try Task.checkCancellation()
+            guard picks.count >= Self.minimumPlaylistSize else { return nil }
+            balance.record(picks, profile: profile)
+            return GeneratedPlaylist(kind: .discoverWeekly, tracks: picks, generatedAt: now(), periodKey: periodKey,
+                                     seedArtists: harvest.seedArtistNames)
+        } catch {
+            balance.record(error: error)
+            throw error
+        }
     }
 
-    func dailyMix(profile: TasteProfile, languages: Set<MusicLanguage>, periodKey: String) async throws -> GeneratedPlaylist? {
-        guard !profile.isColdStart else { return nil }
-        let seeds = Seeds(profile: profile)
-        let harvest = try await gather(seeds: seeds, languages: languages, profile: profile)
-        let familiarTarget = Int((Double(Self.dailyMixTarget) * Self.dailyMixFamiliarShare).rounded())
+    func dailyMix(profile: TasteProfile, languages: Set<MusicLanguage>, periodKey: String,
+                  languageProfile: ListeningLanguageProfile? = nil,
+                  familiarity: DiscoveryFamiliarity = .balanced) async throws -> GeneratedPlaylist? {
+        var balance = DiscoveryBalanceMetrics()
+        defer { balance.emit(mode: familiarity, scope: .dailyMix) }
+        do {
+            try Task.checkCancellation()
+            guard !profile.isColdStart else { return nil }
+            let scope: Set<MusicLanguage> = languageProfile == nil ? languages : []
+            let seeds = Seeds(profile: profile, languageProfile: languageProfile)
+            let harvest = try await gather(seeds: seeds, languages: scope, profile: profile, languageProfile: languageProfile)
+            let familiarShare: Double = switch familiarity {
+            case .familiar: 0.7
+            case .balanced: Self.dailyMixFamiliarShare
+            case .newMusic: 0.15
+            }
+            let familiarTarget = Int((Double(Self.dailyMixTarget) * familiarShare).rounded())
 
-        let familiarPool = Self.weightedShuffle(profile.trackAffinity, periodKey: periodKey).compactMap(profile.track(id:))
-            .filter { !profile.dislikedTrackIDs.contains($0.id) && Self.isRecommendable($0, languages: languages) }
-        var artistCounts: [String: Int] = [:]
-        let familiar = Self.select(familiarPool, limit: familiarTarget, artistCap: Self.dailyMixArtistCap, counts: &artistCounts)
+            let weights = Self.trackWeights(profile, languageProfile: languageProfile)
+            var familiarPool = Self.weightedShuffle(weights, periodKey: periodKey).compactMap(profile.track(id:))
+                .filter { !profile.dislikedTrackIDs.contains($0.id) && Self.isRecommendable($0, languages: scope) }
+            let ranked = harvest.candidates.values.filter { candidate in
+                !profile.dislikedTrackIDs.contains(candidate.track.id) && Self.isRecommendable(candidate.track, languages: scope)
+            }.map { candidate -> Candidate in
+                var candidate = candidate.weighted(by: languageProfile)
+                candidate.score += Self.jitter(periodKey: periodKey, id: candidate.track.id) * Self.jitterRange
+                return candidate
+            }.sorted(by: Candidate.ranks).map(\.track)
+            // Provider neighbors can be heard recents without affinity; their source does not make them new.
+            var seen = Set(familiarPool.map(\.id))
+            familiarPool += ranked.filter { profile.heardTrackIDs.contains($0.id) && seen.insert($0.id).inserted }
+            // Unscored heard recordings remain a local fallback without inventing listening affinity.
+            let remainingWeights = Dictionary(uniqueKeysWithValues: profile.heardTrackIDs.subtracting(seen).compactMap { id -> (String, Double)? in
+                guard let track = profile.track(id: id), !profile.dislikedTrackIDs.contains(id),
+                      Self.isRecommendable(track, languages: scope) else { return nil }
+                return (id, languageProfile?.multiplier(for: track) ?? 1)
+            })
+            familiarPool += Self.weightedShuffle(remainingWeights, periodKey: periodKey).compactMap(profile.track(id:))
+            let freshPool = ranked.filter { !profile.heardTrackIDs.contains($0.id) }
 
-        let chosen = Set(familiar.map(\.id))
-        let ranked = harvest.candidates.values.filter { candidate in
-            !chosen.contains(candidate.track.id) && !profile.dislikedTrackIDs.contains(candidate.track.id)
-                && Self.isRecommendable(candidate.track, languages: languages)
-        }.map { candidate -> Candidate in
-            var candidate = candidate
-            candidate.score += Self.jitter(periodKey: periodKey, id: candidate.track.id) * Self.jitterRange
-            return candidate
-        }.sorted(by: Candidate.ranks).map(\.track)
-        let fresh = Self.select(ranked, limit: Self.dailyMixTarget - familiar.count, artistCap: Self.dailyMixArtistCap, counts: &artistCounts)
+            // An early familiar pick must not consume artist slots needed for an achievable unheard quota.
+            let freshArtistCapacity = Dictionary(grouping: freshPool, by: Self.primaryArtistKey)
+                .mapValues { min($0.count, Self.dailyMixArtistCap) }
+            var freshCapacity = freshArtistCapacity.values.reduce(0, +)
+            let reservedFresh = min(Self.dailyMixTarget - familiarTarget, freshCapacity)
+            var artistCounts: [String: Int] = [:]
+            var familiar: [Track] = []
+            for track in familiarPool where familiar.count < familiarTarget {
+                let artist = Self.primaryArtistKey(track)
+                let used = artistCounts[artist, default: 0]
+                guard used < Self.dailyMixArtistCap else { continue }
+                let displacedFresh = freshArtistCapacity[artist, default: 0] >= Self.dailyMixArtistCap - used ? 1 : 0
+                guard freshCapacity - displacedFresh >= reservedFresh else { continue }
+                familiar.append(track)
+                artistCounts[artist] = used + 1
+                freshCapacity -= displacedFresh
+            }
+            if familiar.count < familiarTarget {
+                // When both quotas cannot fit, retain familiar ranking and let shortage top-ups fill available slots.
+                artistCounts.removeAll()
+                familiar = Self.select(familiarPool, limit: familiarTarget, artistCap: Self.dailyMixArtistCap, counts: &artistCounts)
+            }
+            let fresh = Self.select(freshPool, limit: Self.dailyMixTarget - familiar.count,
+                                    artistCap: Self.dailyMixArtistCap, counts: &artistCounts)
 
-        var mix = familiar
-        if mix.count + fresh.count < Self.dailyMixTarget {
-            // Thin provider results are topped up with more familiar songs rather than shipping a short mix.
-            let taken = Set((mix + fresh).map(\.id))
-            mix += Self.select(familiarPool.filter { !taken.contains($0.id) }, limit: Self.dailyMixTarget - mix.count - fresh.count,
-                               artistCap: Self.dailyMixArtistCap, counts: &artistCounts)
+            var mix = familiar
+            if mix.count + fresh.count < Self.dailyMixTarget {
+                // Thin provider results are topped up with more familiar songs rather than shipping a short mix.
+                let taken = Set((mix + fresh).map(\.id))
+                mix += Self.select(familiarPool.filter { !taken.contains($0.id) }, limit: Self.dailyMixTarget - mix.count - fresh.count,
+                                   artistCap: Self.dailyMixArtistCap, counts: &artistCounts)
+            }
+            let tracks = Self.interleave(familiar: mix, fresh: fresh)
+            try Task.checkCancellation()
+            guard tracks.count >= Self.minimumPlaylistSize else { return nil }
+            balance.record(tracks, profile: profile)
+            return GeneratedPlaylist(kind: .dailyMix, tracks: tracks, generatedAt: now(), periodKey: periodKey,
+                                     seedArtists: harvest.seedArtistNames)
+        } catch {
+            balance.record(error: error)
+            throw error
         }
-        let tracks = Self.interleave(familiar: mix, fresh: fresh)
-        guard tracks.count >= Self.minimumPlaylistSize else { return nil }
-        return GeneratedPlaylist(kind: .dailyMix, tracks: tracks, generatedAt: now(), periodKey: periodKey,
-                                 seedArtists: harvest.seedArtistNames)
     }
 
     /// "Because you like …" rows for the strongest artists that have a channel id; nothing is gated on cold start.
-    func becauseYouListen(profile: TasteProfile, languages: Set<MusicLanguage>, limit: Int = 2) async throws -> [DiscoverySection] {
-        let seeds = profile.topArtists(limit: 10).compactMap { artist -> (name: String, id: String)? in
-            guard let id = artist.id else { return nil }
-            return (artist.name, id)
-        }.prefix(max(0, min(limit, 2)))
-        guard !seeds.isEmpty else { return [] }
+    func becauseYouListen(profile: TasteProfile, languages: Set<MusicLanguage>, limit: Int = 2,
+                          languageProfile: ListeningLanguageProfile? = nil,
+                          familiarity: DiscoveryFamiliarity = .balanced) async throws -> [DiscoverySection] {
+        var balance = DiscoveryBalanceMetrics()
+        defer { balance.emit(mode: familiarity, scope: .becauseYouListen) }
+        do {
+            try Task.checkCancellation()
+            let scope: Set<MusicLanguage> = languageProfile == nil ? languages : []
+            let seeds = profile.topArtists(limit: 10).compactMap { artist -> (name: String, id: String)? in
+                guard let id = artist.id else { return nil }
+                return (artist.name, id)
+            }.prefix(max(0, min(limit, 2)))
+            guard !seeds.isEmpty else { return [] }
 
-        let catalog = self.catalog
-        let results = await withTaskGroup(of: (Int, Result<DiscoverySection?, any Error>).self) { group in
-            for (index, seed) in seeds.enumerated() {
-                group.addTask {
-                    do {
-                        let page = try await catalog.artist(id: seed.id)
-                        var candidates: [String: Candidate] = [:]
-                        Self.accumulate(page.topSongs, seedWeight: 1, sourceWeight: Source.seedArtist.weight, into: &candidates)
-                        if let related = page.relatedArtists.first(where: { !$0.id.isEmpty && $0.id != seed.id }) {
-                            do {
-                                let relatedPage = try await catalog.artist(id: related.id)
-                                Self.accumulate(relatedPage.topSongs, seedWeight: 1, sourceWeight: Source.relatedArtist.weight, into: &candidates)
-                            } catch {
-                                if error is CancellationError { throw error }
-                                Self.log.notice("Related artist \(related.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            let catalog = self.catalog
+            let results = await withTaskGroup(of: (Int, Result<DiscoverySection?, any Error>).self) { group in
+                for (index, seed) in seeds.enumerated() {
+                    group.addTask {
+                        do {
+                            try Task.checkCancellation()
+                            let page = try await catalog.artist(id: seed.id)
+                            try Task.checkCancellation()
+                            var candidates: [String: Candidate] = [:]
+                            Self.accumulate(page.topSongs, seedWeight: 1, sourceWeight: Source.seedArtist.weight, into: &candidates)
+                            if let related = page.relatedArtists.first(where: { !$0.id.isEmpty && $0.id != seed.id }) {
+                                do {
+                                    let relatedPage = try await catalog.artist(id: related.id)
+                                    try Task.checkCancellation()
+                                    Self.accumulate(relatedPage.topSongs, seedWeight: 1, sourceWeight: Source.relatedArtist.weight, into: &candidates)
+                                } catch {
+                                    if error is CancellationError { throw error }
+                                    Self.log.notice("Related artist \(related.id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+                                }
                             }
+                            let tracks = Self.select(candidates.values.filter {
+                                !profile.dislikedTrackIDs.contains($0.track.id) && Self.isRecommendable($0.track, languages: scope) }
+                                .map { $0.weighted(by: languageProfile).weighted(by: familiarity, heardTrackIDs: profile.heardTrackIDs) }
+                                .sorted(by: Candidate.ranks).map(\.track), limit: Self.sectionTrackLimit, artistCap: Int.max)
+                            guard !tracks.isEmpty else { return (index, .success(nil)) }
+                            let name = seed.name.isEmpty ? page.name : seed.name
+                            return (index, .success(DiscoverySection(id: "personal.\(seed.id)", title: "Because you like \(name)",
+                                language: languageProfile == nil ? profile.language(forArtist: seed.name) : nil, tracks: tracks)))
+                        } catch {
+                            return (index, .failure(error))
                         }
-                        let tracks = Self.select(candidates.values.filter {
-                            !profile.dislikedTrackIDs.contains($0.track.id) && Self.isRecommendable($0.track, languages: languages) }
-                            .sorted(by: Candidate.ranks).map(\.track), limit: Self.sectionTrackLimit, artistCap: Int.max)
-                        guard !tracks.isEmpty else { return (index, .success(nil)) }
-                        let name = seed.name.isEmpty ? page.name : seed.name
-                        return (index, .success(DiscoverySection(id: "personal.\(seed.id)", title: "Because you like \(name)",
-                                                                 language: profile.language(forArtist: seed.name), tracks: tracks)))
-                    } catch {
-                        return (index, .failure(error))
                     }
                 }
+                var collected: [(Int, Result<DiscoverySection?, any Error>)] = []
+                for await result in group { collected.append(result) }
+                return collected.sorted { $0.0 < $1.0 }
             }
-            var collected: [(Int, Result<DiscoverySection?, any Error>)] = []
-            for await result in group { collected.append(result) }
-            return collected.sorted { $0.0 < $1.0 }
-        }
 
-        var sections: [DiscoverySection] = []
-        var lastError: (any Error)?
-        for (_, result) in results {
-            switch result {
-            case .success(let section):
-                if let section { sections.append(section) }
-            case .failure(let error):
-                if error is CancellationError { throw error }
-                lastError = error
-                Self.log.notice("Personal section failed: \(error.localizedDescription, privacy: .public)")
+            var sections: [DiscoverySection] = []
+            var lastError: (any Error)?
+            for (_, result) in results {
+                switch result {
+                case .success(let section):
+                    if let section { sections.append(section) }
+                case .failure(let error):
+                    if error is CancellationError { throw error }
+                    lastError = error
+                    Self.log.notice("Personal section failed: \(error.localizedDescription, privacy: .public)")
+                }
             }
+            try Task.checkCancellation()
+            let allFailed = results.allSatisfy { result in
+                if case .failure = result.1 { return true }
+                return false
+            }
+            if sections.isEmpty, allFailed, let lastError { throw lastError }
+            balance.record(sections.flatMap(\.tracks), profile: profile)
+            return sections
+        } catch {
+            balance.record(error: error)
+            throw error
         }
-        try Task.checkCancellation()
-        let allFailed = results.allSatisfy { result in
-            if case .failure = result.1 { return true }
-            return false
-        }
-        if sections.isEmpty, allFailed, let lastError { throw lastError }
-        return sections
     }
 
     // MARK: Candidate generation
@@ -186,6 +270,25 @@ struct RecommendationEngine: Sendable {
         var score: Double
         var order: Int
 
+        func weighted(by profile: ListeningLanguageProfile?) -> Candidate {
+            var candidate = self
+            candidate.score *= profile?.multiplier(for: track) ?? 1
+            return candidate
+        }
+
+        func weighted(by familiarity: DiscoveryFamiliarity, heardTrackIDs: Set<String>) -> Candidate {
+            let heard = heardTrackIDs.contains(track.id)
+            // A 1.5× boost keeps both pools eligible and composes with the independent language multiplier.
+            let multiplier: Double = switch familiarity {
+            case .familiar: heard ? 1.5 : 1
+            case .balanced: 1
+            case .newMusic: heard ? 1 : 1.5
+            }
+            var candidate = self
+            candidate.score *= multiplier
+            return candidate
+        }
+
         static func ranks(_ left: Candidate, _ right: Candidate) -> Bool {
             if left.score != right.score { return left.score > right.score }
             if left.order != right.order { return left.order < right.order }
@@ -199,16 +302,49 @@ struct RecommendationEngine: Sendable {
         var artists: [Artist]
 
         // Seed weights are normalized within each pool so the fixed jitter band stays meaningful.
-        init(profile: TasteProfile) {
-            let topTracks = profile.topTracks(limit: RecommendationEngine.seedTrackCount)
-            let trackMax = topTracks.map { profile.trackAffinity[$0.id] ?? 0 }.max() ?? 0
-            tracks = topTracks.map { ($0, trackMax > 0 ? (profile.trackAffinity[$0.id] ?? 0) / trackMax : 1) }
+        init(profile: TasteProfile, languageProfile: ListeningLanguageProfile?) {
+            let weights = RecommendationEngine.trackWeights(profile, languageProfile: languageProfile)
+            let topTracks = Self.selectTracks(profile: profile, languageProfile: languageProfile, weights: weights)
+            let trackMax = topTracks.map { weights[$0.id] ?? 0 }.max() ?? 0
+            tracks = topTracks.map { ($0, trackMax > 0 ? (weights[$0.id] ?? 0) / trackMax : 1) }
             let topArtists = profile.topArtists(limit: 10).compactMap { artist -> Artist? in
                 guard let id = artist.id, !id.isEmpty else { return nil }
                 return Artist(name: artist.name, id: id, weight: artist.weight)
             }.prefix(RecommendationEngine.seedArtistCount)
             let artistMax = topArtists.map(\.weight).max() ?? 0
             artists = topArtists.map { Artist(name: $0.name, id: $0.id, weight: artistMax > 0 ? $0.weight / artistMax : 1) }
+        }
+
+        private static func selectTracks(profile: TasteProfile, languageProfile: ListeningLanguageProfile?,
+                                         weights: [String: Double]) -> [Track] {
+            let limit = RecommendationEngine.seedTrackCount
+            guard let languageProfile else { return profile.topTracks(limit: limit) }
+            let ranked = profile.topTracks(limit: profile.trackAffinity.count).filter {
+                !profile.dislikedTrackIDs.contains($0.id) && RecommendationEngine.isRecommendable($0, languages: [])
+            }.sorted {
+                let left = weights[$0.id] ?? 0
+                let right = weights[$1.id] ?? 0
+                return left == right ? $0.id < $1.id : left > right
+            }
+            var selected: [Track] = []
+            var ids = Set<String>()
+            for language in languageProfile.scheduledLanguages(count: limit).prefix(limit) {
+                if let track = ranked.first(where: { !ids.contains($0.id) && languageProfile.language(for: $0) == language }) {
+                    selected.append(track)
+                    ids.insert(track.id)
+                }
+            }
+            // A small seed budget still leaves one opening for a less frequent known language.
+            let represented = Set(selected.compactMap { languageProfile.language(for: $0) })
+            if let language = languageProfile.orderedLanguages.first(where: { language in
+                !represented.contains(language) && ranked.contains { languageProfile.language(for: $0) == language }
+            }), let track = ranked.first(where: { languageProfile.language(for: $0) == language }) {
+                if selected.count == limit { ids.remove(selected.removeLast().id) }
+                selected.append(track)
+                ids.insert(track.id)
+            }
+            for track in ranked where selected.count < limit && ids.insert(track.id).inserted { selected.append(track) }
+            return selected
         }
     }
 
@@ -224,7 +360,9 @@ struct RecommendationEngine: Sendable {
         case failure(any Error)
     }
 
-    private func gather(seeds: Seeds, languages: Set<MusicLanguage>, profile: TasteProfile) async throws -> Harvest {
+    private func gather(seeds: Seeds, languages: Set<MusicLanguage>, profile: TasteProfile,
+                        languageProfile: ListeningLanguageProfile?) async throws -> Harvest {
+        try Task.checkCancellation()
         let catalog = self.catalog
         let fallbackLanguage = Self.preferredLanguage(languages, profile: profile)
         var harvest = Harvest()
@@ -237,7 +375,11 @@ struct RecommendationEngine: Sendable {
             for (index, seed) in seeds.tracks.enumerated() {
                 group.addTask {
                     do {
-                        let tracks = try await catalog.recommendations(seed: seed.track, language: seed.track.language ?? fallbackLanguage)
+                        try Task.checkCancellation()
+                        let tracks: [Track]
+                        if languageProfile != nil { tracks = try await catalog.radio(seed: seed.track) }
+                        else { tracks = try await catalog.recommendations(seed: seed.track, language: seed.track.language ?? fallbackLanguage) }
+                        try Task.checkCancellation()
                         return (index, .radio(seed: seed.track, weight: seed.weight, tracks: tracks))
                     } catch { return (index, .failure(error)) }
                 }
@@ -245,8 +387,10 @@ struct RecommendationEngine: Sendable {
             for (offset, seed) in seeds.artists.enumerated() {
                 let index = seeds.tracks.count + offset
                 group.addTask {
-                    do { return (index, .artist(seed: seed, page: try await catalog.artist(id: seed.id))) }
-                    catch { return (index, .failure(error)) }
+                    do {
+                        try Task.checkCancellation()
+                        return (index, .artist(seed: seed, page: try await catalog.artist(id: seed.id)))
+                    } catch { return (index, .failure(error)) }
                 }
             }
             return await Self.ordered(&group)
@@ -284,8 +428,10 @@ struct RecommendationEngine: Sendable {
             let second = await withTaskGroup(of: (Int, Fetch).self) { group in
                 for (index, item) in related.enumerated() {
                     group.addTask {
-                        do { return (index, .related(seedWeight: item.weight, page: try await catalog.artist(id: item.id))) }
-                        catch { return (index, .failure(error)) }
+                        do {
+                            try Task.checkCancellation()
+                            return (index, .related(seedWeight: item.weight, page: try await catalog.artist(id: item.id)))
+                        } catch { return (index, .failure(error)) }
                     }
                 }
                 return await Self.ordered(&group)
@@ -359,7 +505,51 @@ struct RecommendationEngine: Sendable {
         return track
     }
 
+    struct DiscoveryBalanceMetrics {
+        enum Scope: String {
+            case discoverWeekly = "discover_weekly"
+            case dailyMix = "daily_mix"
+            case becauseYouListen = "because_you_listen"
+            case languageDiscovery = "language_discovery"
+        }
+
+        private enum Outcome { case success, empty, failure, cancelled }
+        private var outcome = Outcome.empty
+        private var familiarCount = 0
+        private var newCount = 0
+        var success: Int { outcome == .success ? 1 : 0 }
+        var empty: Int { outcome == .empty ? 1 : 0 }
+        var failure: Int { outcome == .failure ? 1 : 0 }
+        var cancelled: Int { outcome == .cancelled ? 1 : 0 }
+
+        mutating func record(_ tracks: [Track], profile: TasteProfile) {
+            familiarCount = tracks.filter { profile.heardTrackIDs.contains($0.id) }.count
+            newCount = tracks.count - familiarCount
+            outcome = tracks.isEmpty ? .empty : .success
+        }
+
+        mutating func record(error: any Error) {
+            outcome = error is CancellationError || Task.isCancelled ? .cancelled : .failure
+        }
+
+        func emit(mode: DiscoveryFamiliarity, scope: Scope) {
+            let modeName = switch mode {
+            case .familiar: "familiar"
+            case .balanced: "balanced"
+            case .newMusic: "newMusic"
+            }
+            RecommendationEngine.log.info("event=discovery_balance mode=\(modeName, privacy: .public) scope=\(scope.rawValue, privacy: .public) familiarCount=\(familiarCount) newCount=\(newCount) success=\(success) empty=\(empty) failure=\(failure) cancelled=\(cancelled)")
+        }
+    }
+
     // MARK: Filtering and ordering
+
+    private static func trackWeights(_ profile: TasteProfile, languageProfile: ListeningLanguageProfile?) -> [String: Double] {
+        guard let languageProfile else { return profile.trackAffinity }
+        return Dictionary(uniqueKeysWithValues: profile.trackAffinity.map { id, weight in
+            (id, weight * (profile.track(id: id).map { languageProfile.multiplier(for: $0) } ?? 1))
+        })
+    }
 
     static func isRecommendable(_ track: Track, languages: Set<MusicLanguage>) -> Bool {
         guard track.isAudioRecording != false, !track.id.isEmpty else { return false }

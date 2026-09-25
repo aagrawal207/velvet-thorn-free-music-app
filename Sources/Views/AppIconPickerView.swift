@@ -5,62 +5,85 @@ import SwiftUI
 struct AppIconPickerView: View {
     @Environment(MusicAppModel.self) private var model
     @Environment(AppIconController.self) private var icons
-    @State private var pending: AppIconOption?
+
+    private var selectedID: String {
+        let saved = model.library.preferences.appIconID
+        return saved.isEmpty ? icons.current.id : AppIcons.option(named: "AppIcon-\(saved)").id
+    }
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: 3), spacing: 22) {
-                ForEach(AppIcons.all) { option in
-                    Button {
-                        select(option)
-                    } label: {
-                        VStack(spacing: 8) {
-                            Image(option.previewImageName)
-                                .resizable()
-                                .frame(width: 72, height: 72)
-                                .clipShape(RoundedRectangle(cornerRadius: 16))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 16)
-                                        .strokeBorder(option == icons.current ? AppTheme.accent : AppTheme.secondaryText.opacity(0.25),
-                                                      lineWidth: option == icons.current ? 3 : 1)
-                                }
-                                .overlay(alignment: .topTrailing) {
-                                    if option == icons.current {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.title3)
-                                            .foregroundStyle(AppTheme.onAccent, AppTheme.accent)
-                                            .offset(x: 8, y: -8)
+            VStack(spacing: 20) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: 3), spacing: 22) {
+                    ForEach(AppIcons.all) { option in
+                        Button {
+                            model.selectAppIcon(option)
+                        } label: {
+                            VStack(spacing: 8) {
+                                Image(option.previewImageName)
+                                    .resizable()
+                                    .frame(width: 72, height: 72)
+                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 16)
+                                            .strokeBorder(option.id == selectedID ? AppTheme.accent : AppTheme.secondaryText.opacity(0.25),
+                                                          lineWidth: option.id == selectedID ? 3 : 1)
                                     }
-                                }
-                            Text(option.title)
-                                .appFont(.footnote, weight: option == icons.current ? .semibold : .regular)
-                                .foregroundStyle(AppTheme.primaryText)
+                                    .overlay(alignment: .topTrailing) {
+                                        if option.id == selectedID {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.title3)
+                                                .foregroundStyle(AppTheme.onAccent, AppTheme.accent)
+                                                .offset(x: 8, y: -8)
+                                        }
+                                    }
+                                Text(option.title)
+                                    .appFont(.footnote, weight: option.id == selectedID ? .semibold : .regular)
+                                    .foregroundStyle(AppTheme.primaryText)
+                            }
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity)
+                            .contentShape(Rectangle())
                         }
-                        .padding(.vertical, 6)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(option.title)
+                        .accessibilityAddTraits(option.id == selectedID ? .isSelected : [])
+                        .accessibilityIdentifier("settings.icon.\(option.id)")
                     }
-                    .buttonStyle(.plain)
-                    .disabled(pending != nil)
-                    .accessibilityLabel(option.title)
-                    .accessibilityAddTraits(option == icons.current ? .isSelected : [])
-                    .accessibilityIdentifier("settings.icon.\(option.id)")
+                }
+                if icons.isApplying {
+                    ProgressView("Changing app icon…")
+                        .appFont(.footnote)
+                        .tint(AppTheme.accent)
+                        .accessibilityIdentifier("settings.icon.pending")
+                }
+                if let error = icons.errorMessage {
+                    VStack(spacing: 4) {
+                        Text(error)
+                            .appFont(.footnote)
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .multilineTextAlignment(.center)
+                            .accessibilityIdentifier("settings.icon.error")
+                        if let option = AppIcons.all.first(where: { $0.id == selectedID }) {
+                            Button {
+                                model.selectAppIcon(option)
+                            } label: {
+                                Text("Retry")
+                                    .appFont(.body, weight: .semibold)
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .tint(AppTheme.accent)
+                            .accessibilityIdentifier("settings.icon.retry")
+                        }
+                    }
                 }
             }
             .padding(20)
+            .disabled(icons.isApplying || !icons.supportsAlternateIcons)
         }
         .background(AppTheme.background)
         .navigationTitle("App icon")
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func select(_ option: AppIconOption) {
-        guard pending == nil, option != icons.current else { return }
-        pending = option
-        Task {
-            defer { pending = nil }
-            do { try await icons.select(option) }
-            catch { model.showToast(error.localizedDescription) }
-        }
     }
 }

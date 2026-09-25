@@ -1,0 +1,38 @@
+{
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [{
+        "tabRenderer": {
+          "content": {
+            "sectionListRenderer": {
+              "contents": [{
+                "musicResponsiveHeaderRenderer": {
+                  "title": {"runs": [{"text": "Aashiqui 2"}]},
+                  "subtitle": {"runs": [{"text": "Album"}, {"text": " • "}, {"text": "2013"}]},
+                  "straplineTextOne": {"runs": [
+                    {"text": "Jeet Gannguli", "navigationEndpoint": {"browseEndpoint": {"browseId": "UC00SotJE71x-1F3ia2T3cvA"}}},
+                    {"text": ", "},
+                    {"text": "Ankit Tiwari", "navigationEndpoint": {"browseEndpoint": {"browseId": "UC3xhOiFwndOYc57JV1iHCuw"}}},
+                    {"text": " & "},
+                    {"text": "Mithoon", "navigationEndpoint": {"browseEndpoint": {"browseId": "UCHxwQajTiv8div1Fe-yvWpA"}}}
+                  ]},
+                  "description": {
+                    "musicDescriptionShelfRenderer": {
+                      "description": {"runs": [
+                        {"text": "Aashiqui 2 is the soundtrack to the 2013 Indian Hindi-language romantic musical drama film of the same name, directed by Mohit Suri and starring Aditya Roy Kapoor and Shraddha Kapoor in the lead roles. The album was produced by Bhushan Kumar under the T-Series label. The enormous success of multi composer setup has been followed in many films.\nThe songs of the film were mostly composed by Jeet Gannguli, although Mithoon and Ankit Tiwari composed two songs each as guest composers. Irshad Kamil wrote lyrics for most of songs on the album. Sandeep Nath wrote both versions of \"Sunn Raha Hai\", while Mithoon wrote \"Tum Hi Ho\" and Sanjay Masoom wrote \"Bhula Dena\". Arijit Singh sang six of the songs on the album. Jeet Gannguli reused the tune from his own Bengali composition \"Mon Hariye Beghorey\" for \"Milne Hai Mujhse Aayi\" and \"Aaj Tomai Niye Shuru Holo Notun Jibon\" for \"Hum Mar Jayenge\".\n\nFrom Wikipedia ("},
+                        {"text": "https://en.wikipedia.org/wiki/Aashiqu...", "navigationEndpoint": {"urlEndpoint": {"url": "https://en.wikipedia.org/wiki/Aashiqui_2_(soundtrack)"}}},
+                        {"text": ") under Creative Commons Attribution CC-BY-SA 3.0 ("},
+                        {"text": "https://creativecommons.org/licenses/...", "navigationEndpoint": {"urlEndpoint": {"url": "https://creativecommons.org/licenses/by-sa/3.0/legalcode"}}},
+                        {"text": ")"}
+                      ]}
+                    }
+                  }
+                }
+              }]
+            }
+          }
+        }
+      }]
+    }
+  }
+}

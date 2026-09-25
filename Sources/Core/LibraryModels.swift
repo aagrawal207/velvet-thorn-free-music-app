@@ -6,6 +6,29 @@ enum AppAppearance: String, CaseIterable, Codable, Sendable, Identifiable {
     var title: String { rawValue.capitalized }
 }
 
+enum ShuffleStyle: String, CaseIterable, Codable, Sendable, Identifiable {
+    case random, fewerRepeats
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .random: "Random"
+        case .fewerRepeats: "Fewer repeats"
+        }
+    }
+}
+
+enum DiscoveryFamiliarity: String, CaseIterable, Codable, Sendable, Identifiable {
+    case familiar, balanced, newMusic
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .familiar: "More familiar"
+        case .balanced: "Balanced"
+        case .newMusic: "More new"
+        }
+    }
+}
+
 enum HomeSectionKind: String, CaseIterable, Hashable, Sendable, Identifiable {
     case recentlyPlayed, madeForYou, newReleases, becauseYouLike, charts, discovery
 
@@ -87,18 +110,24 @@ struct HomeLayoutPreferences: Codable, Equatable, Sendable {
 struct UserPreferences: Codable, Equatable, Sendable {
     static let crossfadeRange: ClosedRange<TimeInterval> = 0...12
 
+    // Older sync journals address this field; only cold starts may use it as a language hint.
     var languages: Set<MusicLanguage> = [.hindi, .english]
+    var languageNudges = LanguageRecommendationNudges()
+    var discoveryFamiliarity: DiscoveryFamiliarity = .balanced
     var appearance: AppAppearance = .dark
     var accent: AppAccent = .coral
+    // An empty preference lets an upgraded installation retain its existing Home Screen icon.
+    var appIconID = ""
     var hasCompletedWelcome = false
     var saveListeningHistory = true
     var allowRemoteFallback = false
     var useEncryptedDNS = true
-    /// Seconds of overlap between songs; 0 keeps a clean cut. Off by default like Spotify.
+    /// Seconds of overlap between songs; zero leaves the transition to Gapless and Automix.
     var crossfadeSeconds: TimeInterval = 0
     var gaplessPlayback = true
-    var automix = true
+    var automix = false
     var autoplay = true
+    var shuffleStyle: ShuffleStyle = .random
     var normalizeVolume = true
     var audioCacheLimit: AudioCacheLimit = .defaultLimit
     var newReleaseAlerts = true
@@ -109,15 +138,23 @@ struct UserPreferences: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case languages, appearance, accent, hasCompletedWelcome, saveListeningHistory, allowRemoteFallback, useEncryptedDNS
         case crossfadeSeconds, gaplessPlayback, automix, autoplay, normalizeVolume, newReleaseAlerts
-        case homeLayout
+        case homeLayout, appIconID
         case audioCacheLimit
+        case languageNudges
+        case shuffleStyle, discoveryFamiliarity
     }
 
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         languages = try values.decodeIfPresent(Set<MusicLanguage>.self, forKey: .languages) ?? [.hindi, .english]
+        languageNudges = try values.decodeIfPresent(LanguageRecommendationNudges.self, forKey: .languageNudges) ?? .init()
+        // Only absence is a legacy default; a present null or unknown choice must block file replacement.
+        if values.contains(.discoveryFamiliarity) {
+            discoveryFamiliarity = try values.decode(DiscoveryFamiliarity.self, forKey: .discoveryFamiliarity)
+        }
         appearance = try values.decodeIfPresent(AppAppearance.self, forKey: .appearance) ?? .dark
         accent = try values.decodeIfPresent(AppAccent.self, forKey: .accent) ?? .coral
+        appIconID = try values.decodeIfPresent(String.self, forKey: .appIconID) ?? ""
         hasCompletedWelcome = try values.decodeIfPresent(Bool.self, forKey: .hasCompletedWelcome) ?? false
         saveListeningHistory = try values.decodeIfPresent(Bool.self, forKey: .saveListeningHistory) ?? true
         allowRemoteFallback = try values.decodeIfPresent(Bool.self, forKey: .allowRemoteFallback) ?? false
@@ -125,8 +162,11 @@ struct UserPreferences: Codable, Equatable, Sendable {
         let crossfade = try values.decodeIfPresent(TimeInterval.self, forKey: .crossfadeSeconds) ?? 0
         crossfadeSeconds = crossfade.isFinite ? min(max(crossfade, Self.crossfadeRange.lowerBound), Self.crossfadeRange.upperBound) : 0
         gaplessPlayback = try values.decodeIfPresent(Bool.self, forKey: .gaplessPlayback) ?? true
-        automix = try values.decodeIfPresent(Bool.self, forKey: .automix) ?? true
+        automix = try values.decodeIfPresent(Bool.self, forKey: .automix) ?? false
         autoplay = try values.decodeIfPresent(Bool.self, forKey: .autoplay) ?? true
+        if values.contains(.shuffleStyle) {
+            shuffleStyle = try values.decode(ShuffleStyle.self, forKey: .shuffleStyle)
+        }
         normalizeVolume = try values.decodeIfPresent(Bool.self, forKey: .normalizeVolume) ?? true
         audioCacheLimit = try values.decodeIfPresent(AudioCacheLimit.self, forKey: .audioCacheLimit) ?? .defaultLimit
         newReleaseAlerts = try values.decodeIfPresent(Bool.self, forKey: .newReleaseAlerts) ?? true
@@ -138,7 +178,7 @@ struct UserPreferences: Codable, Equatable, Sendable {
 struct PlaybackTransitionSettings: Equatable, Sendable {
     var crossfadeSeconds: TimeInterval = 0
     var gapless = true
-    var automix = true
+    var automix = false
     var autoplay = true
     var normalizeVolume = true
 
@@ -206,29 +246,6 @@ struct ArtistRelease: Codable, Hashable, Identifiable, Sendable {
     var notificationIdentifier: String { "release.\(id)" }
 }
 
-enum GeneratedPlaylistKind: String, Codable, CaseIterable, Sendable {
-    case discoverWeekly, dailyMix
-
-    var title: String {
-        switch self {
-        case .discoverWeekly: "Discover Weekly"
-        case .dailyMix: "Your Daily Mix"
-        }
-    }
-}
-
-/// A playlist the on-device recommendation engine produced. Stored so it stays stable between launches.
-struct GeneratedPlaylist: Codable, Hashable, Identifiable, Sendable {
-    var kind: GeneratedPlaylistKind
-    var tracks: [Track]
-    var generatedAt: Date
-    /// Refresh key: ISO week (e.g. "2026-W38") for weekly mixes, calendar day ("2026-09-19") for daily ones.
-    var periodKey: String
-    /// Artist names that seeded this mix, for "Based on …" captions.
-    var seedArtists: [String]
-    var id: String { kind.rawValue }
-}
-
 enum RepeatMode: String, Codable, CaseIterable, Sendable {
     case off, all, one
     var next: RepeatMode { switch self { case .off: .all; case .all: .one; case .one: .off } }
@@ -241,6 +258,8 @@ struct PlaybackSnapshot: Codable, Sendable {
     var shuffleEnabled = false
     var repeatMode: RepeatMode = .off
     var originalQueue: [Track]? = nil
+    /// Index in originalQueue for each queue occurrence; equal Track values cannot distinguish duplicate occurrences.
+    var originalQueueIndices: [Int]? = nil
 }
 
 struct UserPlaylist: Codable, Hashable, Identifiable, Sendable {

@@ -73,14 +73,18 @@ actor ArtistSpotlightMusicBrainz {
         try Task.checkCancellation()
         guard contactIsValid else { return nil }
         let key = LyricsRequestKey(track)
-        if let entry = cache[key], entry.expires > now() { return entry.result }
+        if let entry = cache[key], entry.expires > now() {
+            ArtistSpotlightDiagnostics.logger.debug("musicBrainzCacheHit=1 musicBrainzCacheMiss=0")
+            return entry.result
+        }
+        ArtistSpotlightDiagnostics.logger.debug("musicBrainzCacheHit=0 musicBrainzCacheMiss=1")
         let artists = Array(LyricsMatcher.artistParts(track.artists).prefix(3))
-        guard CatalogText.videoID(track.id) != nil,
+        guard CatalogText.videoID(track.id) != nil, track.isAudioRecording != false,
               let duration = LyricsMatcher.validDuration(track.duration), duration <= 3_600,
               !artists.isEmpty, artists.allSatisfy({ $0.utf8.count <= 256 }) else { return nil }
         let deadline = now().addingTimeInterval(6)
         let title = LyricsMatcher.cleanTitle(track.title, artists: track.artists)
-        guard title.utf8.count <= 512 else { return nil }
+        guard CatalogText.clean(title) != nil, title.utf8.count <= 512 else { return nil }
         let milliseconds = Int((duration * 1_000).rounded())
         let credits = artists.map { "artist:\(Self.quoted($0))" }.joined(separator: " OR ")
         let query = "recording:\(Self.quoted(title)) AND (\(credits)) AND dur:[\(max(0, milliseconds - 2_000)) TO \(milliseconds + 2_000)]"
@@ -95,39 +99,89 @@ actor ArtistSpotlightMusicBrainz {
         if let search, let id = Self.matchedRecording(in: search, for: track),
            let recording = try await request(path: "recording/\(id)", items: [URLQueryItem(name: "inc", value: "artist-credits+work-rels")], deadline: deadline) {
             guard recording["id"].string == id else { throw LyricsLookupError.recordingMismatch }
-            result = Self.workLanguage(in: recording, recordingID: id, for: track)
+            result = try await resolveWork(in: recording, recordingID: id, for: track, deadline: deadline)
         }
         try Task.checkCancellation()
         cache = cache.filter { $0.value.expires > now() }
         order.removeAll { cache[$0] == nil || $0 == key }
         order.append(key)
-        cache[key] = Entry(result: result, expires: now().addingTimeInterval(result == nil ? 15 * 60 : 24 * 60 * 60))
+        cache[key] = Entry(result: result, expires: now().addingTimeInterval(result?.language == nil ? 15 * 60 : 24 * 60 * 60))
         while order.count > 128 { cache.removeValue(forKey: order.removeFirst()) }
-        ArtistSpotlightDiagnostics.logger.debug("musicBrainzMatched=\(result == nil ? 0 : 1) musicBrainzUnknown=\(result == nil ? 1 : 0)")
+        ArtistSpotlightDiagnostics.logger.debug("musicBrainzMatched=\(result?.language == nil ? 0 : 1) musicBrainzUnknown=\(result?.language == nil ? 1 : 0) musicBrainzConflict=\(result?.hasConflictingEvidence == true ? 1 : 0)")
         return result
+    }
+
+    private func resolveWork(in recording: CatalogJSON, recordingID: String, for track: Track,
+                             deadline: Date) async throws -> ArtistSongLanguageResult? {
+        guard let linked = Self.linkedWork(in: recording, recordingID: recordingID, for: track),
+              let workID = Self.validID(linked["id"].string) else {
+            ArtistSpotlightDiagnostics.logger.debug("musicBrainzWorkFetch=0")
+            return nil
+        }
+        let codes = try Self.languageCodes(in: linked)
+        guard codes.isEmpty else {
+            ArtistSpotlightDiagnostics.logger.debug("musicBrainzWorkFetch=0")
+            return Self.workLanguage(in: recording, recordingID: recordingID, for: track)
+        }
+        // Follow only this recording's compatible performance link; never search for a similarly named work.
+        ArtistSpotlightDiagnostics.logger.debug("musicBrainzWorkFetch=1")
+        guard let work = try await request(path: "work/\(workID)", items: [], deadline: deadline) else { return nil }
+        guard work["id"].string == workID else { throw LyricsLookupError.recordingMismatch }
+        _ = try Self.languageCodes(in: work)
+        try Task.checkCancellation()
+        return Self.workLanguage(in: recording, recordingID: recordingID, for: track, fetchedWork: work)
     }
 
     static func matchedRecording(in root: CatalogJSON, for track: Track) -> String? {
         let recordings = root["recordings"].array
-        guard let count = root["count"].int, count >= 0, count <= recordings.count, recordings.count <= 20 else { return nil }
+        guard let count = root["count"].int, count == recordings.count, recordings.count <= 20 else { return nil }
         let ids = Set(recordings.filter { matches($0, track: track) }.compactMap { validID($0["id"].string) })
         return ids.count == 1 ? ids.first : nil
     }
 
-    static func workLanguage(in recording: CatalogJSON, recordingID: String, for track: Track) -> ArtistSongLanguageResult? {
+    static func workLanguage(in recording: CatalogJSON, recordingID: String, for track: Track,
+                             fetchedWork: CatalogJSON? = nil) -> ArtistSongLanguageResult? {
+        guard let linked = linkedWork(in: recording, recordingID: recordingID, for: track) else { return nil }
+        let work = fetchedWork ?? linked
+        guard let workID = validID(work["id"].string), workID == linked["id"].string, work["type"].string == "Song",
+              LyricsRecordingIdentity.sameTitle(work["title"].text, recording["title"].text, artists: track.artists),
+              let workCodes = try? languageCodes(in: work), let linkedCodes = try? languageCodes(in: linked) else { return nil }
+        let codes = workCodes.union(linkedCodes)
+        guard !codes.isEmpty else { return nil }
+        if codes.count > 1 || codes.contains("mul") { return .unclassified(.conflictingEvidence) }
+        guard let code = codes.first,
+              let language = ["eng": ArtistSongLanguage.english, "hin": .hindi, "tam": .tamil, "tel": .telugu, "ben": .bengali][code] else {
+            return .unclassified(.uncertainLanguage)
+        }
+        return .identified(language, source: .musicBrainzWork(recordingID: recordingID, workID: workID))
+    }
+
+    private static func linkedWork(in recording: CatalogJSON, recordingID: String, for track: Track) -> CatalogJSON? {
         guard validID(recordingID) != nil, recording["id"].string == recordingID, matches(recording, track: track) else { return nil }
+        guard case .array = recording["relations"] else { return nil }
         let relations = recording["relations"].array.filter { $0["target-type"].string == "work" && $0["type"].string == "performance" }
         guard relations.count == 1, let relation = relations.first, relation["direction"].string == "forward",
               case .array(let attributes) = relation["attributes"], attributes.isEmpty else { return nil }
         let work = relation["work"]
-        guard let workID = validID(work["id"].string), work["type"].string == "Song",
+        guard validID(work["id"].string) != nil, work["type"].string == "Song",
               LyricsRecordingIdentity.sameTitle(work["title"].text, recording["title"].text, artists: track.artists) else { return nil }
-        let languages = work["languages"].array.compactMap(\.string)
-        if work["languages"] != .null, languages.isEmpty || languages.count != work["languages"].array.count { return nil }
-        let codes = Set(languages + [work["language"].string].compactMap { $0 })
-        guard codes.count == 1, let code = codes.first,
-              let language = ["eng": ArtistSongLanguage.english, "hin": .hindi, "tam": .tamil, "tel": .telugu, "ben": .bengali][code] else { return nil }
-        return .identified(language, source: .musicBrainzWork(recordingID: recordingID, workID: workID))
+        return work
+    }
+
+    private static func languageCodes(in work: CatalogJSON) throws -> Set<String> {
+        var values: [CatalogJSON] = []
+        if work["languages"] != .null {
+            guard case .array(let languages) = work["languages"] else { throw MusicServiceError.invalidResponse }
+            values = languages
+        }
+        if work["language"] != .null { values.append(work["language"]) }
+        var codes = Set<String>()
+        for value in values {
+            guard let code = value.string, code.utf8.count == 3,
+                  code.utf8.allSatisfy({ (97...122).contains($0) }) else { throw MusicServiceError.invalidResponse }
+            codes.insert(code)
+        }
+        return codes
     }
 
     private static func matches(_ recording: CatalogJSON, track: Track) -> Bool {

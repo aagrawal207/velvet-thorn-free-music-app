@@ -310,41 +310,55 @@ final class AppModelTests: XCTestCase {
         let context = try makeContext(languages: [.hindi, .english])
         let seed = context.seedListener(primary: AppModelFixtures.track("hindi-seed", language: .hindi), language: .hindi)
         let task = context.start { await $0.loadHome() }
-        let discovery = try await context.catalog.discoveries.request(at: 0)
+        let discovery = try await context.catalog.autoplayRadios.request(at: 0)
         let artist = try await context.catalog.artists.request(at: 0)
-        let chartRequests = [try await context.charts.charts.request(at: 0), try await context.charts.charts.request(at: 1)]
-        XCTAssertEqual(discovery.input, [.hindi, .english])
+        let chart = try await context.charts.charts.request(at: 0)
+        XCTAssertEqual(discovery.input.id, seed.id)
+        XCTAssertEqual(chart.input, .hindi, "Learned listening selects chart scope ahead of the legacy fallback")
         XCTAssertEqual(artist.input, seed.artistID)
         let personal = AppModelFixtures.track("personal", language: .hindi)
         try await context.catalog.artists.complete(artist, with: .success(context.artistPage(artist.input, songs: [personal])))
         try await AppModelFixtures.eventually { context.model.homeSections.contains { $0.tracks == [personal] } }
         XCTAssertTrue(context.model.isLoadingHome)
 
-        let sections = [AppModelFixtures.section("hindi", language: .hindi), AppModelFixtures.section("english")]
-        try await context.catalog.discoveries.complete(discovery, with: .success(sections))
-        try await AppModelFixtures.eventually { context.model.homeSections.count == 3 }
+        let hindi = RecommendationFixtures.track("hindi", artist: "Hindi performer", language: .hindi)
+        let english = RecommendationFixtures.track("english", artist: "English performer", language: .english)
+        var unknown = AppModelFixtures.track("unknown")
+        unknown.language = nil
+        unknown.artists = ["Unclassified performer"]
+        let unverified = libraryTestTrack("unverified")
+        let blocked = AppModelFixtures.track("late-dislike", language: .hindi)
+        context.model.toggleDislike(blocked)
+        try await context.catalog.autoplayRadios.complete(discovery, with: .success([hindi, english, unknown, unverified, blocked]))
+        try await AppModelFixtures.eventually { context.model.homeSections.count == 2 }
         XCTAssertTrue(context.model.isLoadingHome)
         XCTAssertEqual(context.model.homeSections.first?.tracks, [personal])
+        let discovered = try XCTUnwrap(context.model.homeSections.first { $0.id == "discovery.language.hi" })
+        XCTAssertEqual(Set(discovered.tracks.map(\.id)), [hindi.id, english.id, unknown.id],
+                       "Unknown and less-preferred audio stays eligible; late dislikes and unverified audio do not")
+        XCTAssertNil(discovered.tracks.first { $0.id == unknown.id }?.language)
         let hindiChart = AppModelFixtures.chart("weekly-hindi", language: .hindi)
-        for request in chartRequests {
-            let result: Result<ChartSnapshot, any Error> = request.input == .hindi
-                ? .success(hindiChart) : .failure(MusicServiceError.unavailable("Optional English chart unavailable"))
-            try await context.charts.charts.complete(request, with: result)
-        }
+        try await context.charts.charts.complete(chart, with: .success(hindiChart))
         await task.value
-        XCTAssertEqual(context.model.homeSections.map(\.id), ["personal.UChindi-seed", "hindi", "english"])
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["personal.UChindi-seed", "discovery.language.hi"])
         XCTAssertEqual(context.model.charts.map(\.id), [hindiChart.id])
         XCTAssertEqual(context.model.charts.first?.periodStart, hindiChart.periodStart)
         XCTAssertEqual(context.model.charts.first?.periodEnd, hindiChart.periodEnd)
         XCTAssertEqual(context.model.charts.first?.source, hindiChart.source)
         XCTAssertNil(context.model.homeError)
         XCTAssertFalse(context.model.isLoadingHome)
+        let chartRequests = await context.charts.charts.requests
+        let legacyDiscovery = await context.catalog.discoveries.requests
+        let targetedRadio = await context.catalog.radios.requests
+        XCTAssertEqual(chartRequests.count, 1)
+        XCTAssertTrue(legacyDiscovery.isEmpty && targetedRadio.isEmpty)
     }
 
     func testDiscoveryFailureKeepsSuccessfulChartAndPersonalRadio() async throws {
         let context = try makeContext()
         let seed = context.seedListener(primary: AppModelFixtures.track("seed"))
-        await context.catalog.discoveries.enqueue(.failure(MusicServiceError.unavailable("Discovery failed")))
+        await context.catalog.autoplayRadios.enqueue(.failure(MusicServiceError.unavailable("Discovery failed")))
+        await context.catalog.searches.enqueue(.failure(MusicServiceError.unavailable("Discovery failed")))
         await context.catalog.artists.enqueue(.success(context.artistPage(seed.artistID ?? "", songs: [AppModelFixtures.track("personal")])))
         await context.charts.charts.enqueue(.success(AppModelFixtures.chart("weekly")))
         await context.model.loadHome()
@@ -353,50 +367,93 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(context.model.homeError, "Discovery failed")
         XCTAssertFalse(context.model.isLoadingHome)
 
-        await context.catalog.discoveries.enqueue(.success([AppModelFixtures.section("retry")]))
+        let retry = AppModelFixtures.track("retry")
+        await context.catalog.autoplayRadios.enqueue(.success([retry]))
         await context.catalog.artists.enqueue(.failure(MusicServiceError.unavailable("Artist unavailable")))
         await context.charts.charts.enqueue(.failure(MusicServiceError.unavailable("Chart unavailable")))
         await context.model.loadHome()
-        let discoveries = await context.catalog.discoveries.requests
+        let discoveries = await context.catalog.autoplayRadios.requests
         XCTAssertEqual(discoveries.count, 2, "A failed discovery must remain retryable without force")
-        XCTAssertTrue(context.model.homeSections.contains { $0.id == "retry" })
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["personal.UCseed", "discovery.language.en"])
+        XCTAssertEqual(context.model.homeSections.last?.tracks, [retry])
         XCTAssertEqual(context.model.charts.map(\.id), ["weekly"])
         XCTAssertNil(context.model.homeError)
+        let searches = await context.catalog.searches.requests
+        XCTAssertEqual(searches.map(\.input), [AppModelSearchRequest(query: "English songs", filter: .songs, continuation: nil)])
     }
 
     func testFailedForcedHomeRefreshPreservesPreviouslyLoadedContent() async throws {
         let context = try makeContext()
         let seed = context.seedListener(primary: AppModelFixtures.track("seed"))
-        await context.catalog.discoveries.enqueue(.success([AppModelFixtures.section("cached")]))
+        let cached = AppModelFixtures.track("cached")
+        await context.catalog.autoplayRadios.enqueue(.success([cached]))
         await context.catalog.artists.enqueue(.success(context.artistPage(seed.artistID ?? "", songs: [AppModelFixtures.track("personal")])))
         await context.charts.charts.enqueue(.success(AppModelFixtures.chart("cached-chart")))
         await context.model.loadHome()
-        await context.catalog.discoveries.enqueue(.failure(MusicServiceError.unavailable("Refresh failed")))
+        await context.catalog.autoplayRadios.enqueue(.failure(MusicServiceError.unavailable("Refresh failed")))
+        await context.catalog.searches.enqueue(.failure(MusicServiceError.unavailable("Refresh failed")))
         await context.catalog.artists.enqueue(.failure(MusicServiceError.unavailable("Artist failed")))
         await context.charts.charts.enqueue(.failure(MusicServiceError.unavailable("Chart failed")))
         await context.model.loadHome(force: true)
-        XCTAssertEqual(context.model.homeSections.map(\.id), ["personal.UCseed", "cached"])
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["personal.UCseed", "discovery.language.en"])
+        XCTAssertEqual(context.model.homeSections.last?.tracks, [cached])
         XCTAssertEqual(context.model.charts.map(\.id), ["cached-chart"])
         XCTAssertEqual(context.model.homeError, "Refresh failed")
         XCTAssertFalse(context.model.isLoadingHome)
     }
 
-    func testNewLanguageLoadRejectsEveryOldHomeResponseAndKeepsItsSpinner() async throws {
+    func testPartialLanguageDiscoveryFailureKeepsAvailableUnknownAudioAndItsChart() async throws {
+        let context = try makeContext()
+        context.model.setLanguageNudge(.more, for: .hindi)
+        let task = context.start { await $0.loadHome() }
+        let searches = [try await context.catalog.searches.request(at: 0), try await context.catalog.searches.request(at: 1)]
+        let charts = [try await context.charts.charts.request(at: 0), try await context.charts.charts.request(at: 1)]
+        var unknown = AppModelFixtures.track("unknown-audio")
+        unknown.language = nil
+        for request in searches {
+            XCTAssertEqual(request.input.filter, .songs)
+            XCTAssertNil(request.input.continuation)
+            let result: Result<CatalogPage, any Error> = request.input.query == "English songs"
+                ? .success(CatalogPage(tracks: [unknown, libraryTestTrack("unverified")]))
+                : .failure(MusicServiceError.unavailable("Hindi source failed"))
+            try await context.catalog.searches.complete(request, with: result)
+        }
+        for request in charts {
+            let result: Result<ChartSnapshot, any Error> = request.input == .english
+                ? .success(AppModelFixtures.chart("available-chart")) : .failure(MusicServiceError.unavailable("Optional chart failed"))
+            try await context.charts.charts.complete(request, with: result)
+        }
+        await task.value
+        XCTAssertEqual(Set(searches.map(\.input.query)), ["Hindi songs", "English songs"])
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["discovery.language.en"])
+        XCTAssertEqual(context.model.homeSections.first?.tracks, [unknown])
+        XCTAssertNil(context.model.homeSections.first?.tracks.first?.language)
+        XCTAssertEqual(context.model.charts.map(\.id), ["available-chart"])
+        XCTAssertNil(context.model.homeError)
+        XCTAssertFalse(context.model.isLoadingHome)
+    }
+
+    func testNewNudgeLoadRejectsEveryOldHomeResponseAndKeepsItsSpinner() async throws {
         let context = try makeContext(languages: [.hindi])
-        _ = context.seedListener(primary: AppModelFixtures.track("hindi-seed", language: .hindi), language: .hindi)
+        let seed = context.seedListener(primary: AppModelFixtures.track("hindi-seed", language: .hindi), language: .hindi)
         let oldTask = context.start { await $0.loadHome(force: true) }
-        let oldDiscovery = try await context.catalog.discoveries.request(at: 0)
+        let oldDiscovery = try await context.catalog.autoplayRadios.request(at: 0)
         let oldChart = try await context.charts.charts.request(at: 0)
         let oldArtist = try await context.catalog.artists.request(at: 0)
-        context.library.preferences.languages = [.english]
+        let oldKey = context.model.listeningLanguageProfile.requestKey
+        context.model.setLanguageNudge(.more, for: .english)
+        XCTAssertNotEqual(context.model.listeningLanguageProfile.requestKey, oldKey)
+        XCTAssertEqual(LibraryStore(directory: context.directory).preferences.languageNudges[.english], .more)
         let newTask = context.start { await $0.loadHome(force: true) }
-        let newDiscovery = try await context.catalog.discoveries.request(at: 1)
-        let newChart = try await context.charts.charts.request(at: 1)
+        let newDiscovery = try await context.catalog.autoplayRadios.request(at: 1)
+        let newSearch = try await context.catalog.searches.request(at: 0)
+        let newCharts = [try await context.charts.charts.request(at: 1), try await context.charts.charts.request(at: 2)]
         let newArtist = try await context.catalog.artists.request(at: 1)
-        XCTAssertEqual(newDiscovery.input, [.english])
-        XCTAssertEqual(newChart.input, .english)
+        XCTAssertEqual(newDiscovery.input.id, seed.id)
+        XCTAssertEqual(newSearch.input, AppModelSearchRequest(query: "English songs", filter: .songs, continuation: nil))
+        XCTAssertEqual(Set(newCharts.map(\.input)), [.hindi, .english])
         try await context.catalog.artists.complete(oldArtist, with: .success(context.artistPage(oldArtist.input, songs: [AppModelFixtures.track("old-radio", language: .hindi)])))
-        try await context.catalog.discoveries.complete(oldDiscovery, with: .success([AppModelFixtures.section("old-home", language: .hindi)]))
+        try await context.catalog.autoplayRadios.complete(oldDiscovery, with: .success([AppModelFixtures.track("old-home", language: .hindi)]))
         try await context.charts.charts.complete(oldChart, with: .success(AppModelFixtures.chart("old-chart", language: .hindi)))
         await oldTask.value
         XCTAssertTrue(context.model.homeSections.isEmpty)
@@ -404,24 +461,34 @@ final class AppModelTests: XCTestCase {
         XCTAssertTrue(context.model.isLoadingHome)
         XCTAssertNil(context.model.homeError)
 
-        try await context.catalog.discoveries.complete(newDiscovery, with: .success([AppModelFixtures.section("new-home")]))
-        try await context.charts.charts.complete(newChart, with: .success(AppModelFixtures.chart("new-chart")))
-        // The listener's profile is Hindi, so its personal section stays off an English-only Home.
-        try await context.catalog.artists.complete(newArtist, with: .success(context.artistPage(newArtist.input, songs: [AppModelFixtures.track("new-radio", language: .hindi)])))
+        let hindi = AppModelFixtures.track("new-hindi", language: .hindi)
+        let english = AppModelFixtures.track("new-english")
+        let personal = AppModelFixtures.track("new-personal", language: .hindi)
+        try await context.catalog.autoplayRadios.complete(newDiscovery, with: .success([hindi]))
+        try await context.catalog.searches.complete(newSearch, with: .success(CatalogPage(tracks: [english])))
+        for chart in newCharts {
+            try await context.charts.charts.complete(chart, with: .success(AppModelFixtures.chart("new-\(chart.input.rawValue)", language: chart.input)))
+        }
+        try await context.catalog.artists.complete(newArtist, with: .success(context.artistPage(newArtist.input, songs: [personal])))
         await newTask.value
-        XCTAssertEqual(context.model.homeSections.map(\.id), ["new-home"])
-        XCTAssertEqual(context.model.charts.map(\.id), ["new-chart"])
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["personal.UChindi-seed", "discovery.language.en", "discovery.language.hi"])
+        XCTAssertEqual(Set(context.model.homeSections.flatMap(\.tracks).map(\.id)), [hindi.id, english.id, personal.id])
+        XCTAssertEqual(Set(context.model.charts.map(\.id)), ["new-hindi", "new-english"])
+        XCTAssertNil(context.model.homeError)
         XCTAssertFalse(context.model.isLoadingHome)
     }
 
-    func testLanguageEditBeforeReplacementTaskStartsCannotRestoreOldHome() async throws {
-        let context = try makeContext(languages: [.hindi])
+    func testDirectNudgeEditBeforeReplacementLoadRejectsOldHomeFailure() async throws {
+        let context = try makeContext()
         let task = context.start { await $0.loadHome() }
-        let discovery = try await context.catalog.discoveries.request(at: 0)
+        let discovery = try await context.catalog.searches.request(at: 0)
         let chart = try await context.charts.charts.request(at: 0)
-        context.library.preferences.languages = [.english]
-        try await context.catalog.discoveries.complete(discovery, with: .success([AppModelFixtures.section("old-hindi", language: .hindi)]))
-        try await context.charts.charts.complete(chart, with: .success(AppModelFixtures.chart("old-hindi-chart", language: .hindi)))
+        let oldKey = context.model.listeningLanguageProfile.requestKey
+        context.library.preferences.languageNudges[.hindi] = .more
+        XCTAssertNotEqual(context.model.listeningLanguageProfile.requestKey, oldKey)
+        XCTAssertEqual(LibraryStore(directory: context.directory).preferences.languageNudges[.hindi], .more)
+        try await context.catalog.searches.complete(discovery, with: .failure(MusicServiceError.unavailable("Obsolete failure")))
+        try await context.charts.charts.complete(chart, with: .success(AppModelFixtures.chart("old-chart")))
         await task.value
         XCTAssertTrue(context.model.homeSections.isEmpty, "Preference changes must invalidate responses even before a replacement load starts")
         XCTAssertTrue(context.model.charts.isEmpty)
@@ -429,37 +496,65 @@ final class AppModelTests: XCTestCase {
         XCTAssertFalse(context.model.isLoadingHome)
     }
 
-    func testReturningToCachedLanguagesInvalidatesOppositeLanguageRequest() async throws {
+    func testReturningToTheOriginalNudgeCannotReviveOldHomeWork() async throws {
         let context = try makeContext()
-        await context.catalog.discoveries.enqueue(.success([AppModelFixtures.section("cached-english")]))
+        _ = context.seedListener(primary: AppModelFixtures.track("seed"))
+        let originalKey = context.model.listeningLanguageProfile.requestKey
+        let task = context.start { await $0.loadHome() }
+        let radio = try await context.catalog.autoplayRadios.request(at: 0)
+        let artist = try await context.catalog.artists.request(at: 0)
+        let chart = try await context.charts.charts.request(at: 0)
+        context.model.setLanguageNudge(.less, for: .english)
+        context.model.setLanguageNudge(.automatic, for: .english)
+        XCTAssertEqual(context.model.listeningLanguageProfile.requestKey, originalKey)
+        try await context.catalog.autoplayRadios.complete(radio, with: .success([AppModelFixtures.track("obsolete-discovery")]))
+        try await context.catalog.artists.complete(artist, with: .success(context.artistPage(artist.input, songs: [AppModelFixtures.track("obsolete-personal")])))
+        try await context.charts.charts.complete(chart, with: .success(AppModelFixtures.chart("obsolete-chart")))
+        await task.value
+        XCTAssertTrue(context.model.homeSections.isEmpty)
+        XCTAssertTrue(context.model.charts.isEmpty)
+        XCTAssertNil(context.model.homeError)
+        XCTAssertFalse(context.model.isLoadingHome)
+    }
+
+    func testColdFallbackChangesRejectLateHomeAndRefreshTheRestoredLanguage() async throws {
+        let context = try makeContext()
+        await context.catalog.searches.enqueue(.success(CatalogPage(tracks: [AppModelFixtures.track("cached-english")])))
         await context.charts.charts.enqueue(.success(AppModelFixtures.chart("cached-english-chart")))
         await context.model.loadHome()
+        XCTAssertFalse(context.model.listeningLanguageProfile.isLearned)
         context.library.preferences.languages = [.hindi]
         let oldTask = context.start { await $0.loadHome() }
-        let oldDiscovery = try await context.catalog.discoveries.request(at: 1)
+        let oldDiscovery = try await context.catalog.searches.request(at: 1)
         let oldChart = try await context.charts.charts.request(at: 1)
+        XCTAssertEqual(oldDiscovery.input.query, "Hindi songs")
         context.library.preferences.languages = [.english]
-        await context.catalog.discoveries.enqueue(.success([AppModelFixtures.section("refreshed-english")]))
+        let fresh = AppModelFixtures.track("refreshed-english")
+        await context.catalog.searches.enqueue(.success(CatalogPage(tracks: [fresh])))
         await context.charts.charts.enqueue(.success(AppModelFixtures.chart("refreshed-english-chart")))
         await context.model.loadHome()
-        try await context.catalog.discoveries.complete(oldDiscovery, with: .success([AppModelFixtures.section("late-hindi", language: .hindi)]))
+        try await context.catalog.searches.complete(oldDiscovery, with: .success(CatalogPage(tracks: [AppModelFixtures.track("late-hindi", language: .hindi)])))
         try await context.charts.charts.complete(oldChart, with: .success(AppModelFixtures.chart("late-hindi-chart", language: .hindi)))
         await oldTask.value
-        XCTAssertFalse(context.model.homeSections.isEmpty, "A cache hit must have usable content for its language set")
-        XCTAssertTrue(context.model.homeSections.allSatisfy { $0.language == .english })
-        XCTAssertTrue(context.model.charts.allSatisfy { $0.language == .english })
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["discovery.language.en"])
+        XCTAssertEqual(context.model.homeSections.first?.tracks, [fresh])
+        XCTAssertEqual(context.model.charts.map(\.id), ["refreshed-english-chart"])
         XCTAssertFalse(context.model.isLoadingHome)
+        await context.model.loadHome()
+        let requests = await context.catalog.searches.requests
+        XCTAssertEqual(requests.map(\.input.query), ["English songs", "Hindi songs", "English songs"],
+                       "The final unchanged load reuses only the current fallback's cache")
     }
 
     func testCancelledHomeDropsLateResponsesAndDoesNotMarkThemCached() async throws {
         let context = try makeContext()
         let task = context.start { await $0.loadHome() }
-        let discovery = try await context.catalog.discoveries.request(at: 0)
+        let discovery = try await context.catalog.searches.request(at: 0)
         let chart = try await context.charts.charts.request(at: 0)
         task.cancel()
-        try await AppModelFixtures.eventually { await context.catalog.discoveries.cancellations.contains(discovery.id) }
+        try await AppModelFixtures.eventually { await context.catalog.searches.cancellations.contains(discovery.id) }
         try await AppModelFixtures.eventually { await context.charts.charts.cancellations.contains(chart.id) }
-        try await context.catalog.discoveries.complete(discovery, with: .success([AppModelFixtures.section("cancelled")]))
+        try await context.catalog.searches.complete(discovery, with: .success(CatalogPage(tracks: [AppModelFixtures.track("cancelled")])))
         try await context.charts.charts.complete(chart, with: .failure(MusicServiceError.unavailable("Cancelled chart")))
         await task.value
         XCTAssertTrue(context.model.homeSections.isEmpty)
@@ -467,45 +562,62 @@ final class AppModelTests: XCTestCase {
         XCTAssertNil(context.model.homeError)
         XCTAssertFalse(context.model.isLoadingHome)
 
-        await context.catalog.discoveries.enqueue(.success([AppModelFixtures.section("retry")]))
+        let retry = AppModelFixtures.track("retry")
+        await context.catalog.searches.enqueue(.success(CatalogPage(tracks: [retry])))
         await context.charts.charts.enqueue(.success(AppModelFixtures.chart("retry-chart")))
         await context.model.loadHome()
-        let requests = await context.catalog.discoveries.requests
+        let requests = await context.catalog.searches.requests
         XCTAssertEqual(requests.count, 2)
-        XCTAssertEqual(context.model.homeSections.map(\.id), ["retry"])
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["discovery.language.en"])
+        XCTAssertEqual(context.model.homeSections.first?.tracks, [retry])
     }
 
     func testClearedHistoryCannotBeReintroducedByPendingPersonalRadio() async throws {
         let context = try makeContext()
         _ = context.seedListener(primary: AppModelFixtures.track("forgotten-seed"))
         let task = context.start { await $0.loadHome() }
-        let discovery = try await context.catalog.discoveries.request(at: 0)
+        let discovery = try await context.catalog.autoplayRadios.request(at: 0)
         let chart = try await context.charts.charts.request(at: 0)
         let artist = try await context.catalog.artists.request(at: 0)
         context.player.flushListeningProgress()
         context.library.clearHistory()
         try await context.catalog.artists.complete(artist, with: .success(context.artistPage(artist.input, songs: [AppModelFixtures.track("forgotten-personal-pick")])))
-        try await context.catalog.discoveries.complete(discovery, with: .success([AppModelFixtures.section("public-discovery")]))
+        try await context.catalog.autoplayRadios.complete(discovery, with: .success([AppModelFixtures.track("forgotten-discovery")]))
         try await context.charts.charts.complete(chart, with: .success(AppModelFixtures.chart("weekly")))
         await task.value
         XCTAssertTrue(context.library.events.isEmpty)
-        XCTAssertEqual(context.model.homeSections.map(\.id), ["public-discovery"], "Cleared listening history must not reappear in personal mixes")
-        XCTAssertEqual(context.model.charts.map(\.id), ["weekly"])
+        XCTAssertTrue(context.model.homeSections.isEmpty, "Both discovery and artist sections were derived from the retired history")
+        XCTAssertTrue(context.model.charts.isEmpty)
+        XCTAssertFalse(context.model.hasListeningProfile)
+        XCTAssertFalse(context.model.listeningLanguageProfile.isLearned)
+        let fresh = AppModelFixtures.track("cold-discovery")
+        await context.catalog.searches.enqueue(.success(CatalogPage(tracks: [fresh])))
+        await context.charts.charts.enqueue(.success(AppModelFixtures.chart("fresh-weekly")))
+        await context.model.loadHome()
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["discovery.language.en"])
+        XCTAssertEqual(context.model.homeSections.first?.tracks, [fresh])
+        let artists = await context.catalog.artists.requests
+        let radios = await context.catalog.autoplayRadios.requests
+        XCTAssertEqual(artists.count, 1)
+        XCTAssertEqual(radios.count, 1)
     }
 
     func testHomeRefreshAfterClearingHistoryRemovesCachedPersonalMixes() async throws {
         let context = try makeContext()
         let seed = context.seedListener(primary: AppModelFixtures.track("forgotten-seed"))
-        await context.catalog.discoveries.enqueue(.success([AppModelFixtures.section("public-discovery")]))
+        await context.catalog.autoplayRadios.enqueue(.success([AppModelFixtures.track("public-discovery")]))
         await context.catalog.artists.enqueue(.success(context.artistPage(seed.artistID ?? "", songs: [AppModelFixtures.track("personal-pick")])))
         await context.charts.charts.enqueue(.success(AppModelFixtures.chart("weekly")))
         await context.model.loadHome()
         XCTAssertTrue(context.model.homeSections.contains { $0.id == "personal.UCforgotten-seed" })
         context.library.clearHistory()
-        await context.catalog.discoveries.enqueue(.success([AppModelFixtures.section("refreshed-public")]))
+        XCTAssertTrue(context.model.homeSections.isEmpty, "Clearing history immediately retires cached derived sections")
+        let fresh = AppModelFixtures.track("refreshed-public")
+        await context.catalog.searches.enqueue(.success(CatalogPage(tracks: [fresh])))
         await context.charts.charts.enqueue(.success(AppModelFixtures.chart("weekly")))
         await context.model.loadHome(force: true)
-        XCTAssertEqual(context.model.homeSections.map(\.id), ["refreshed-public"])
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["discovery.language.en"])
+        XCTAssertEqual(context.model.homeSections.first?.tracks, [fresh])
         let artists = await context.catalog.artists.requests
         XCTAssertEqual(artists.count, 1, "No new recommendations should be seeded from cleared history")
     }
@@ -807,6 +919,299 @@ final class AppModelTests: XCTestCase {
         let radioRequests = await context.catalog.radios.requests
         XCTAssertTrue(radioRequests.isEmpty, "Autoplay must not use the language-targeted Home mix")
         XCTAssertEqual(continuation.map(\.id), [neighbor.id], "The seed's own remix is not a continuation")
+        XCTAssertFalse(context.model.isContinuingAutoplay)
+        XCTAssertNil(context.model.autoplayContinuationError, "A thin batch with nothing else to borrow is still a success")
+    }
+
+    func testAutoplayFallbackSeedPrefersRecentListenerChoicesAndSkipsDislikesAndVideos() {
+        let a = AppModelFixtures.track("a")
+        let b = AppModelFixtures.track("b")
+        let c = AppModelFixtures.track("c")
+        let d = AppModelFixtures.track("d")
+        let last = AppModelFixtures.track("last")
+        var video = AppModelFixtures.track("video")
+        video.isAudioRecording = false
+        let queue = [a, b, video, c, d, last]
+        func seed(_ queue: [Track], recents: [String] = [], autoplay: Set<String> = [], disliked: Set<String> = []) -> String? {
+            AutoplayContinuation.fallbackSeed(queue: queue, after: last, recentIDs: recents, autoplayIDs: autoplay, disliked: disliked)?.id
+        }
+        XCTAssertEqual(seed(queue, recents: [last.id, b.id, d.id]), b.id, "The most recently played song other than the ending one wins")
+        XCTAssertEqual(seed(queue), d.id, "Without history the nearest earlier song seeds")
+        XCTAssertEqual(seed(queue, disliked: [d.id]), c.id)
+        XCTAssertEqual(seed(queue, recents: [d.id], autoplay: [c.id, d.id]), b.id, "Autoplay's own additions yield to listener choices")
+        XCTAssertEqual(seed([c, d, last], autoplay: [c.id, d.id]), d.id, "Autoplay additions seed only when nothing else remains")
+        XCTAssertNil(seed([last]))
+        XCTAssertNil(seed([video, last]))
+    }
+
+    func testAutoplayFailureClassesSeparateCooldownsFromOutagesAndExhaustion() {
+        XCTAssertTrue(AutoplayContinuation.allowsFreshRetry(MusicServiceError.network("Offline")))
+        XCTAssertTrue(AutoplayContinuation.allowsFreshRetry(MusicServiceError.unavailable("Down")))
+        XCTAssertTrue(AutoplayContinuation.allowsFreshRetry(URLError(.timedOut)))
+        XCTAssertFalse(AutoplayContinuation.allowsFreshRetry(MusicServiceError.rateLimited))
+        XCTAssertFalse(AutoplayContinuation.allowsFreshRetry(CancellationError()))
+        XCTAssertFalse(AutoplayContinuation.allowsFreshRetry(AppModelTestFailure.timedOut("Unknown")))
+        XCTAssertTrue(AutoplayContinuation.endsAttempts(MusicServiceError.rateLimited))
+        XCTAssertFalse(AutoplayContinuation.endsAttempts(MusicServiceError.unavailable("Down")))
+        XCTAssertEqual(AutoplayContinuation.failure(primarySucceeded: true, errors: []), .empty)
+        XCTAssertEqual(AutoplayContinuation.failure(primarySucceeded: true, errors: [MusicServiceError.network("Offline")]), .empty,
+                       "A borrowed seed failing does not turn exhaustion into an outage")
+        XCTAssertEqual(AutoplayContinuation.failure(primarySucceeded: false, errors: [MusicServiceError.network("Offline")]), .unreachable)
+        XCTAssertEqual(AutoplayContinuation.failure(primarySucceeded: false,
+                                                    errors: [MusicServiceError.network("Offline"), MusicServiceError.rateLimited]), .busy)
+        XCTAssertEqual(AutoplayContinuation.Failure.empty.message, "Couldn’t find more songs to play.")
+        XCTAssertEqual(AutoplayContinuation.Failure.busy.message, "Autoplay paused because the music service is busy. Try again in a moment.")
+    }
+
+    func testThinAutoplayBatchBorrowsTheMostRecentlyPlayedQueueSongAsASecondSeed() async throws {
+        let a = AppModelFixtures.track("a")
+        let b = AppModelFixtures.track("b")
+        let c = AppModelFixtures.track("c")
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [a, b, c], currentIndex: 2))
+        context.library.recordRecent(track: c, position: 0)
+        context.library.recordRecent(track: a, position: 12)
+        let close = AppModelFixtures.track("close")
+        var liveB = AppModelFixtures.track("b-live")
+        liveB.title = "\(b.title) (Live)"
+        let borrowedOne = AppModelFixtures.track("borrowed-one")
+        let borrowedTwo = AppModelFixtures.track("borrowed-two")
+        let continuation = Task { await context.player.onQueueExhausted?(c) ?? [] }
+        let first = try await context.catalog.autoplayRadios.request(at: 0)
+        XCTAssertEqual(first.input.id, c.id)
+        XCTAssertTrue(context.model.isContinuingAutoplay)
+        try await context.catalog.autoplayRadios.complete(first, with: .success([close, liveB, b]))
+        let second = try await context.catalog.autoplayRadios.request(at: 1)
+        XCTAssertEqual(second.input.id, a.id, "The listener's most recently played song other than the ending one seeds the second attempt")
+        try await context.catalog.autoplayRadios.complete(second, with: .success([borrowedOne, close, c, borrowedTwo]))
+        let additions = await continuation.value
+        XCTAssertEqual(additions.map(\.id), [close.id, borrowedOne.id, borrowedTwo.id],
+                       "The ending song's neighbors lead; the borrowed radio fills in without repeating queued or already chosen songs")
+        let refreshes = await context.catalog.radioRefreshRequests
+        XCTAssertEqual(refreshes.map(\.seed.id), [a.id])
+        XCTAssertEqual(refreshes.map(\.forceRefresh), [false], "A borrowed seed may reuse a cached radio")
+        XCTAssertFalse(context.model.isContinuingAutoplay)
+        XCTAssertNil(context.model.autoplayContinuationError)
+    }
+
+    func testAutoplayRefreshesTheEndingSongOnceAfterATransientFailureButNotDuringACooldown() async throws {
+        let seed = AppModelFixtures.track("seed")
+        let neighbor = AppModelFixtures.track("neighbor")
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [seed]))
+        let transient = Task { await context.player.onQueueExhausted?(seed) ?? [] }
+        let first = try await context.catalog.autoplayRadios.request(at: 0)
+        try await context.catalog.autoplayRadios.complete(first, with: .failure(MusicServiceError.network("Offline")))
+        let refresh = try await context.catalog.autoplayRadios.request(at: 1)
+        XCTAssertEqual(refresh.input.id, seed.id, "With nothing to borrow, the ending song itself is asked again")
+        try await context.catalog.autoplayRadios.complete(refresh, with: .success([neighbor]))
+        let additions = await transient.value
+        XCTAssertEqual(additions, [neighbor])
+        XCTAssertNil(context.model.autoplayContinuationError)
+        var refreshes = await context.catalog.radioRefreshRequests
+        XCTAssertEqual(refreshes.map(\.forceRefresh), [true], "The retry bypasses a cached radio, not the provider cooldown")
+
+        let cooling = Task { await context.player.onQueueExhausted?(seed) ?? [] }
+        let limited = try await context.catalog.autoplayRadios.request(at: 2)
+        try await context.catalog.autoplayRadios.complete(limited, with: .failure(MusicServiceError.rateLimited))
+        let nothing = await cooling.value
+        XCTAssertTrue(nothing.isEmpty)
+        XCTAssertEqual(context.model.autoplayContinuationError, "Autoplay paused because the music service is busy. Try again in a moment.")
+        XCTAssertFalse(context.model.isContinuingAutoplay)
+        let requests = await context.catalog.autoplayRadios.requests
+        XCTAssertEqual(requests.count, 3, "A cooldown ends the attempt; a retry would fail on the device before reaching the provider")
+        refreshes = await context.catalog.radioRefreshRequests
+        XCTAssertEqual(refreshes.count, 1)
+    }
+
+    func testAutoplayStopsAfterThreeProviderCallsAndExplainsTheDeadEnd() async throws {
+        let earlier = AppModelFixtures.track("earlier")
+        let ending = AppModelFixtures.track("ending")
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [earlier, ending], currentIndex: 1))
+        let outage = Task { await context.player.onQueueExhausted?(ending) ?? [] }
+        let first = try await context.catalog.autoplayRadios.request(at: 0)
+        XCTAssertEqual(first.input.id, ending.id)
+        try await context.catalog.autoplayRadios.complete(first, with: .failure(MusicServiceError.unavailable("Down")))
+        let borrowed = try await context.catalog.autoplayRadios.request(at: 1)
+        XCTAssertEqual(borrowed.input.id, earlier.id)
+        try await context.catalog.autoplayRadios.complete(borrowed, with: .success([]))
+        let refresh = try await context.catalog.autoplayRadios.request(at: 2)
+        XCTAssertEqual(refresh.input.id, ending.id)
+        try await context.catalog.autoplayRadios.complete(refresh, with: .failure(MusicServiceError.invalidResponse))
+        let unreachable = await outage.value
+        XCTAssertTrue(unreachable.isEmpty)
+        XCTAssertEqual(context.model.autoplayContinuationError, "Autoplay couldn’t load more songs. Check your connection and try again.")
+        XCTAssertFalse(context.model.isContinuingAutoplay)
+        var requests = await context.catalog.autoplayRadios.requests
+        XCTAssertEqual(requests.count, AutoplayContinuation.maximumProviderCalls)
+        let refreshes = await context.catalog.radioRefreshRequests
+        XCTAssertEqual(refreshes.map(\.seed.id), [earlier.id, ending.id])
+        XCTAssertEqual(refreshes.map(\.forceRefresh), [false, true])
+
+        let starved = Task { await context.player.onQueueExhausted?(ending) ?? [] }
+        let repeats = try await context.catalog.autoplayRadios.request(at: 3)
+        try await context.catalog.autoplayRadios.complete(repeats, with: .success([earlier, ending]))
+        let alternative = try await context.catalog.autoplayRadios.request(at: 4)
+        XCTAssertEqual(alternative.input.id, earlier.id)
+        try await context.catalog.autoplayRadios.complete(alternative, with: .success([ending]))
+        let exhausted = await starved.value
+        XCTAssertTrue(exhausted.isEmpty)
+        XCTAssertEqual(context.model.autoplayContinuationError, "Couldn’t find more songs to play.",
+                       "A radio that answers with only queued songs is exhaustion, not an outage, and earns no refresh")
+        requests = await context.catalog.autoplayRadios.requests
+        XCTAssertEqual(requests.count, 5)
+    }
+
+    func testRetryAutoplayContinuationAsksAgainFreshAndClearsTheErrorOnSuccess() async throws {
+        let seed = AppModelFixtures.track("seed")
+        let neighbor = AppModelFixtures.track("neighbor")
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [seed]))
+        let failing = Task { await context.player.onQueueExhausted?(seed) ?? [] }
+        let first = try await context.catalog.autoplayRadios.request(at: 0)
+        try await context.catalog.autoplayRadios.complete(first, with: .failure(MusicServiceError.rateLimited))
+        _ = await failing.value
+        XCTAssertNotNil(context.model.autoplayContinuationError)
+
+        context.model.retryAutoplayContinuation()
+        XCTAssertNil(context.model.autoplayContinuationError)
+        XCTAssertTrue(context.model.isContinuingAutoplay)
+        context.model.retryAutoplayContinuation()
+        let retry = try await context.catalog.autoplayRadios.request(at: 1)
+        XCTAssertEqual(retry.input.id, seed.id)
+        try await context.catalog.autoplayRadios.complete(retry, with: .success([neighbor]))
+        try await AppModelFixtures.eventually { context.player.queue == [seed, neighbor] }
+        XCTAssertEqual(context.player.autoplayTrackIDs, [neighbor.id])
+        XCTAssertNil(context.model.autoplayContinuationError)
+        XCTAssertFalse(context.model.isContinuingAutoplay)
+        XCTAssertEqual(context.library.playback.queue, [seed, neighbor])
+        let requests = await context.catalog.autoplayRadios.requests
+        XCTAssertEqual(requests.count, 2, "A retry while one is in flight is a no-op")
+        let refreshes = await context.catalog.radioRefreshRequests
+        XCTAssertEqual(refreshes.map(\.forceRefresh), [true], "A manual retry bypasses a stale cached radio")
+    }
+
+    func testTurningAutoplayOffOrPlayingSomethingNewClearsContinuationStateAndCancelsTheRequest() async throws {
+        let seed = AppModelFixtures.track("seed")
+        let neighbor = AppModelFixtures.track("neighbor")
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [seed]))
+        context.model.retryAutoplayContinuation()
+        let pending = try await context.catalog.autoplayRadios.request(at: 0)
+        XCTAssertTrue(context.model.isContinuingAutoplay)
+        context.model.updatePreferences { $0.autoplay = false }
+        XCTAssertFalse(context.model.isContinuingAutoplay)
+        XCTAssertNil(context.model.autoplayContinuationError)
+        try await AppModelFixtures.eventually { await context.catalog.autoplayRadios.cancellations.contains(pending.id) }
+        try await context.catalog.autoplayRadios.complete(pending, with: .success([neighbor]))
+        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(context.player.queue, [seed], "A cancelled continuation must not append after Autoplay is off")
+        XCTAssertTrue(context.player.autoplayTrackIDs.isEmpty)
+        context.model.retryAutoplayContinuation()
+        XCTAssertFalse(context.model.isContinuingAutoplay, "Autoplay off makes the retry a no-op")
+        var requests = await context.catalog.autoplayRadios.requests
+        XCTAssertEqual(requests.count, 1)
+
+        context.model.updatePreferences { $0.autoplay = true }
+        let failing = Task { await context.player.onQueueExhausted?(seed) ?? [] }
+        let request = try await context.catalog.autoplayRadios.request(at: 1)
+        try await context.catalog.autoplayRadios.complete(request, with: .failure(MusicServiceError.rateLimited))
+        _ = await failing.value
+        XCTAssertNotNil(context.model.autoplayContinuationError)
+        context.model.play(AppModelFixtures.track("fresh-choice"))
+        XCTAssertNil(context.model.autoplayContinuationError, "A new listener choice starts with a clean queue footer")
+        requests = await context.catalog.autoplayRadios.requests
+        XCTAssertEqual(requests.count, 2)
+    }
+
+    func testManualRetryAtTheEndOfTheQueueAsksFreshAndContinuesIntoTheNewSong() async throws {
+        let url = try PlaybackTestSupport.audioFile(seconds: 2)
+        addTeardownBlock { try FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let context = try makeContext(resolver: PlaybackFileResolver(url: url, duration: 2))
+        context.model.updatePreferences { $0.gaplessPlayback = false; $0.automix = false }
+        let seed = AppModelFixtures.track("seed")
+        let neighbor = AppModelFixtures.track("neighbor")
+        context.model.play(seed)
+        let early = try await context.catalog.autoplayRadios.request(at: 0)
+        XCTAssertEqual(early.input.id, seed.id)
+        try await context.catalog.autoplayRadios.complete(early, with: .failure(MusicServiceError.rateLimited))
+        try await AppModelFixtures.eventually { context.model.autoplayContinuationError != nil }
+        var refreshes = await context.catalog.radioRefreshRequests
+        XCTAssertTrue(refreshes.isEmpty, "The early request may use a cached radio")
+
+        try await PlaybackTestSupport.eventually { await context.catalog.autoplayRadios.requests.count == 2 }
+        let endOfQueue = try await context.catalog.autoplayRadios.request(at: 1)
+        XCTAssertEqual(endOfQueue.input.id, seed.id)
+        XCTAssertTrue(context.player.isLoading, "The ended queue waits for the final answer")
+        XCTAssertTrue(context.model.isContinuingAutoplay)
+        refreshes = await context.catalog.radioRefreshRequests
+        XCTAssertEqual(refreshes.map(\.forceRefresh), [true], "The end-of-queue attempt bypasses the cached radio that already came up empty")
+        try await context.catalog.autoplayRadios.complete(endOfQueue, with: .failure(MusicServiceError.rateLimited))
+        try await PlaybackTestSupport.waitUntil { !context.player.isLoading && !context.model.isContinuingAutoplay }
+        XCTAssertFalse(context.player.isPlaying)
+        XCTAssertEqual(context.player.queue, [seed])
+        XCTAssertGreaterThanOrEqual(context.player.position, 1.99)
+        XCTAssertEqual(context.model.autoplayContinuationError, "Autoplay paused because the music service is busy. Try again in a moment.")
+
+        context.model.retryAutoplayContinuation()
+        let retry = try await context.catalog.autoplayRadios.request(at: 2)
+        XCTAssertEqual(retry.input.id, seed.id)
+        try await context.catalog.autoplayRadios.complete(retry, with: .success([neighbor]))
+        try await PlaybackTestSupport.waitUntil { context.player.currentTrack == neighbor && context.player.isPlaying && context.player.position > 0.2 }
+        XCTAssertEqual(context.player.queue, [seed, neighbor], "The finished song is not replayed; playback continues into the new one")
+        XCTAssertEqual(context.player.currentIndex, 1)
+        XCTAssertEqual(context.player.autoplayTrackIDs, [neighbor.id])
+        XCTAssertNil(context.model.autoplayContinuationError)
+        XCTAssertEqual(context.library.playback.currentIndex, 1)
+        refreshes = await context.catalog.radioRefreshRequests
+        XCTAssertEqual(refreshes.map(\.forceRefresh), [true, true], "The manual retry also asks for a fresh radio")
+
+        // The new song is now the last one, so Autoplay asks for its own continuation the ordinary way.
+        let onward = try await context.catalog.autoplayRadios.request(at: 3)
+        XCTAssertEqual(onward.input.id, neighbor.id)
+        XCTAssertTrue(context.model.isContinuingAutoplay, "The newly last song's request is in flight")
+        refreshes = await context.catalog.radioRefreshRequests
+        XCTAssertEqual(refreshes.count, 2, "An early request for the newly last song may use a cached radio")
+        let more = (1...AutoplayContinuation.minimumBatch).map { AppModelFixtures.track("more-\($0)") }
+        try await context.catalog.autoplayRadios.complete(onward, with: .success(more))
+        try await AppModelFixtures.eventually { context.player.queue == [seed, neighbor] + more }
+        XCTAssertFalse(context.model.isContinuingAutoplay)
+        XCTAssertNil(context.model.autoplayContinuationError)
+        XCTAssertEqual(context.player.currentTrack, neighbor)
+        let requests = await context.catalog.autoplayRadios.requests
+        XCTAssertEqual(requests.count, 4, "A full batch for the newly last song borrows no second seed")
+        context.player.pause()
+    }
+
+    func testRadioContinuationFailuresLeaveOrdinaryAutoplayStateUntouched() async throws {
+        let context = try makeContext()
+        let f = ExperienceRadioFixtures.self
+        let start = context.model.startRadio(f.melancholy)
+        try await f.answerSearches(context, from: 0, with: f.melancholySearches)
+        try await f.answerRadios(context, from: 0, with: f.melancholyRadios)
+        await start.value
+        XCTAssertEqual(context.model.activeRadioExperience, f.melancholy)
+        let queries = Set(f.melancholy.selection(for: context.model.listeningLanguageProfile).styleQueries
+            .prefix(ExperienceRadioEngine.maximumStyleQueries))
+        XCTAssertEqual(queries.count, 3)
+        let continuation = Task { await context.player.onQueueExhausted?(f.alt) ?? [] }
+        defer { continuation.cancel() }
+        try await f.answerRadios(context, from: 2, with: [f.cas.id: [], f.alt.id: []], fail: true)
+        for index in 2..<(2 + queries.count * 2) {
+            let request = try await context.catalog.searches.request(at: index)
+            XCTAssertTrue(queries.contains(request.input.query))
+            XCTAssertTrue(request.input.filter == .songs || request.input.filter == .playlists)
+            XCTAssertNil(request.input.continuation)
+            try await context.catalog.searches.complete(request, with: .success(CatalogPage()))
+        }
+        let additions = await continuation.value
+        XCTAssertTrue(additions.isEmpty)
+        XCTAssertNotNil(context.model.radioContinuationError)
+        XCTAssertNil(context.model.autoplayContinuationError, "Radio keeps its own continuation state")
+        XCTAssertFalse(context.model.isContinuingAutoplay)
+        context.model.retryAutoplayContinuation()
+        XCTAssertFalse(context.model.isContinuingAutoplay, "The ordinary retry is a no-op during a radio session")
+        let requests = await context.catalog.autoplayRadios.requests
+        XCTAssertEqual(requests.count, 4)
+        let fallbackSearches = await context.catalog.searches.requests.dropFirst(2)
+        XCTAssertEqual(fallbackSearches.filter { $0.input.filter == .songs }.count, 3)
+        XCTAssertEqual(fallbackSearches.filter { $0.input.filter == .playlists }.count, 3)
     }
 
     func testOpenArtistUsesTheLinkedPageOrResolvesATitleCreditByName() async throws {

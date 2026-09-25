@@ -95,13 +95,17 @@ enum CatalogParser {
         let header = header(root)
         let title = CatalogText.clean(header["title"].text)
             ?? CatalogText.clean(root["microformat"]["microformatDataRenderer"]["title"].text)
-        let credits = artistRuns(header["straplineTextOne"]["runs"].array + header["straplineText"]["runs"].array
-                                 + header["subtitle"]["runs"].array)
+        let credits = albumHeaderCredits(header)
         let previous = inherited?.albumID == id ? inherited : nil
         let inheritedCredits = previous?.credits ?? []
         return RowContext(albumTitle: previous?.albumTitle ?? title, albumID: id,
                           credits: inheritedCredits.isEmpty ? credits : inheritedCredits,
                           artworkURL: previous?.artworkURL ?? CatalogText.artwork(header))
+    }
+
+    static func albumHeaderCredits(_ header: CatalogJSON) -> [ArtistCredit] {
+        artistRuns(header["straplineTextOne"]["runs"].array + header["straplineText"]["runs"].array
+                   + header["subtitle"]["runs"].array)
     }
 
     static func browse(_ root: CatalogJSON, id: String, inheriting inherited: RowContext? = nil) throws -> CatalogPage {
@@ -111,7 +115,8 @@ enum CatalogParser {
         let title = context.albumTitle ?? CatalogText.clean(header["title"].text)
             ?? CatalogText.clean(root["microformat"]["microformatDataRenderer"]["title"].text)
         let isArtist = id.hasPrefix("UC") || id.hasPrefix("MPAD")
-        var page = CatalogPage(title: title, credits: context.credits)
+        var page = CatalogPage(title: title, credits: context.credits,
+                               albumDescription: CatalogAlbumDescriptionParser.parse(root, id: id))
         for (kind, renderer) in rows(root, includeCarousels: isArtist) {
             if let track = track(renderer, rendererKind: kind, context: context) { page.tracks.append(track) }
             else if let collection = collection(renderer) { page.collections.append(collection) }
@@ -152,6 +157,47 @@ enum CatalogParser {
             }
             return nil
         }.filter { seen.insert($0).inserted }
+    }
+
+    /// A validated audio row may have replaced an album clip; the clip's explicit credits link can carry
+    /// the provider's song total, but a same-title search result or an upload's views cannot.
+    static func enrichPlayCounts(_ tracks: [Track], from root: CatalogJSON) -> [Track] {
+        var byID = Dictionary(tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var matched = Set<String>()
+        for (kind, renderer) in rows(root) {
+            guard isPlayableRow(renderer), !isCollectionRow(renderer, rendererKind: kind),
+                  let title = rowTitle(renderer), let count = playCount(renderer) else { continue }
+            let primaryID = plainVideoID(renderer)
+            let links = Set(renderer.values(for: "browseEndpoint").compactMap { browse -> String? in
+                guard browse["browseEndpointContextSupportedConfigs"]["browseEndpointContextMusicConfig"]["pageType"].string == "MUSIC_PAGE_TYPE_TRACK_CREDITS",
+                      let id = browse["browseId"].string, id.hasPrefix("MPTC") else { return nil }
+                return CatalogText.videoID(String(id.dropFirst(4)))
+            })
+            let ids = [primaryID].compactMap { $0 } + (links.count == 1 ? Array(links) : [])
+            let metadata = Array(flexTexts(renderer).dropFirst()) + [renderer["longBylineText"], renderer["subtitle"]]
+            let credits = artistRuns(metadata.flatMap { $0["runs"].array })
+            for id in ids where !matched.contains(id) {
+                guard var track = byID[id], track.isAudioRecording == true,
+                      countMatches(track, title: title, credits: credits, requiresCredits: id != primaryID) else { continue }
+                track.playCount = count
+                byID[id] = track
+                matched.insert(id)
+            }
+        }
+        return tracks.map { byID[$0.id] ?? $0 }
+    }
+
+    private static func countMatches(_ track: Track, title: String, credits: [ArtistCredit], requiresCredits: Bool) -> Bool {
+        let expected = SearchRelevance.normalize(LyricsMatcher.cleanTitle(title, artists: credits.map(\.name)))
+        guard !expected.isEmpty,
+              expected == SearchRelevance.normalize(LyricsMatcher.cleanTitle(track.title, artists: track.artists)),
+              !requiresCredits || !credits.isEmpty else { return false }
+        return credits.allSatisfy { credit in
+            track.credits.contains { actual in
+                if let left = credit.id, let right = actual.id { return left == right }
+                return SearchRelevance.normalize(credit.name) == SearchRelevance.normalize(actual.name)
+            }
+        }
     }
 
     static func continuation(_ root: CatalogJSON) -> String? {
@@ -259,13 +305,17 @@ enum CatalogParser {
     }
 
     static func artistHeaderRenderer(_ root: CatalogJSON) -> CatalogJSON {
+        pageHeaderRenderer(root)
+    }
+
+    static func pageHeaderRenderer(_ root: CatalogJSON) -> CatalogJSON {
         func directHeader(_ container: CatalogJSON) -> CatalogJSON? {
             for name in headerRenderers where container[name].isObject { return container[name] }
             return nil
         }
         if let header = directHeader(root["header"]) { return header }
         // Responsive headers can be top-level items in the selected tab. Descending into shelves
-        // would mistake a related artist's audience for this page's own statistic.
+        // would attribute a related artist's audience or another album's description to this page.
         for layout in ["singleColumnBrowseResultsRenderer", "twoColumnBrowseResultsRenderer"] {
             let tabs = root["contents"][layout]["tabs"].array
             let tab = tabs.first { $0["tabRenderer"]["selected"].bool == true }
@@ -318,7 +368,7 @@ enum CatalogParser {
         let fixed = renderer["fixedColumns"].array.map { $0["musicResponsiveListItemFixedColumnRenderer"]["text"].text }
         let runTexts = runs.compactMap { $0["text"].string }
         let duration = ([renderer["lengthText"].text] + fixed + runTexts).compactMap(CatalogText.duration).first
-        let playCount = (runTexts + fixed).compactMap(PlayCountText.parse).first
+        let playCount = Self.playCount(renderer)
         let badges = renderer["badges"].values(for: "iconType").compactMap(\.string)
             + renderer["subtitleBadges"].values(for: "iconType").compactMap(\.string)
         let explicit = badges.contains { $0.contains("EXPLICIT") }
@@ -331,6 +381,22 @@ enum CatalogParser {
                         : (CatalogText.artwork(renderer) ?? context.artworkURL ?? CatalogText.artwork(.null, videoID: id)),
                      isExplicit: explicit, isAudioRecording: confirmedAudio ? true : nil,
                      playCount: changedRecording ? nil : playCount)
+    }
+
+    private static func playCount(_ renderer: CatalogJSON) -> Int64? {
+        let fields = Array(flexTexts(renderer).dropFirst()) + [renderer["longBylineText"], renderer["subtitle"]]
+            + renderer["fixedColumns"].array.map { $0["musicResponsiveListItemFixedColumnRenderer"]["text"] }
+        for field in fields {
+            let runs = field["runs"].array
+            // Linked artist/album names are metadata, even when their literal titles look like count labels.
+            let text = runs.isEmpty ? field.text : runs.map { $0["navigationEndpoint"] == .null ? $0["text"].text : " • " }.joined()
+            for part in text.components(separatedBy: CharacterSet(charactersIn: "•·")) {
+                if let count = PlayCountText.parse(part, unit: .plays) { return count }
+            }
+            if CatalogText.clean(text) == nil,
+               let count = PlayCountText.parse(field["accessibility"]["accessibilityData"]["label"].text, unit: .plays) { return count }
+        }
+        return nil
     }
 
     private static func collection(_ renderer: CatalogJSON) -> MusicCollection? {

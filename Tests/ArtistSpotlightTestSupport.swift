@@ -18,17 +18,85 @@ enum ArtistSpotlightTestSupport {
                        matchedTitle: track.title, matchedArtist: track.artistName)
     }
 
-    static func catalogConfiguration(minimum: Int = 0, countSearches: Int = 0) -> ArtistSpotlightCatalogService.Configuration {
+    /// Search pages default to none so language suites stay free of catalog requests; the production default is two.
+    static func catalogConfiguration(minimum: Int = 0, countSearches: Int = 0, searchPages: Int = 0) -> ArtistSpotlightCatalogService.Configuration {
         var configuration = ArtistSpotlightCatalogService.Configuration()
         configuration.minimumSongCount = minimum
         configuration.maximumCountSearches = countSearches
+        configuration.maximumArtistSearchPages = searchPages
         return configuration
+    }
+
+    /// A recording that credits the artist after another performer, as collaborations arrive from search.
+    static func collaboration(_ id: String, title: String? = nil, count: Int64? = nil) -> Track {
+        var recording = track(id, title: title, count: count)
+        recording.credits.insert(ArtistCredit(name: "Another Singer", id: "UCsinger"), at: 0)
+        return recording
+    }
+
+    static func releaseAliases() -> (page: ArtistPage, single: Track, album: Track) {
+        var single = track("listed-single", title: "River Lights", count: 900)
+        single.albumTitle = "River Lights"
+        single.albumID = "MPRE-single"
+        single.artworkURL = URL(string: "https://example.invalid/single.jpg")
+        var album = track("album-release", title: "River Lights", count: 800)
+        album.albumTitle = "First Album"
+        album.albumID = "MPRE-album"
+        album.duration = 241
+        album.isExplicit = true
+        let releases = [MusicCollection(id: "MPRE-album", title: "First Album", subtitle: "Album • 2021", kind: .album),
+                        MusicCollection(id: "MPRE-single", title: "River Lights", subtitle: "Single • 2020", kind: .album)]
+        return (page([single], releases: releases), single, album)
     }
 
     static func originalScriptHypotheses(_ text: String) -> [String: Double] {
         if text.unicodeScalars.contains(where: { (0x0B80...0x0BFF).contains($0.value) }) { return ["ta": 0.99] }
         return ["en": 0.99]
     }
+
+    // Authored lyrical fixtures exercise contractions and fragments without storing published lyrics.
+    static let englishRapText = """
+    [Verse 1: Guest] I'm up past midnight, my rent's late, but I'm still writing.
+    I don't need a crown, I just need my people beside me.
+    My phone keeps buzzing, I've got three missed calls from home.
+    Can't buy back yesterday, so I'll make this moment my own.
+    I'm hauling old speakers up the stairs, my shoes covered in dust.
+    It ain't about a gold chain, it's about the ones I trust.
+    I've been broke, I've been tired, but I won't quit this ride.
+    If my brother needs a hand, he knows I'm on his side.
+    """
+
+    static let englishRockText = """
+    [Verse 1] My hands are cold, but I can feel it coming.
+    It's in my head, it's in the cracks beneath my feet.
+    I can't sleep, I won't let go of what is left.
+    My old radio is broken, but its noise belongs to me.
+    [Chorus]
+    Don't shut me out, don't leave me on my own.
+    I'm not a ghost, I've got a way to get back home.
+    My heart is loud, but I'm too tired to pretend.
+    If it all falls apart, I'll be here at the end.
+    [Outro] Oh oh oh oh oh oh oh oh
+    """
+
+    static let shortEnglishRockText = """
+    I keep my old radio playing
+    You bring the light back home
+    We watch the storm rolling away
+    My hands are warm with yours
+    The morning is ours to keep
+    I hear your voice through walls
+    You hold my heart through winter
+    We leave our troubles far behind
+    """
+
+    static let spanishGuestLine = "No he dejado de pensar en todo nuestro pasado."
+
+    static let romanizedHindiText = """
+    is dil ki baat me chupaye do sapne us raah par chalte hain
+    to phir mere saath aao raat ki khamoshi me nayi kahani sunao
+    subah ki halki hawa hamare chhote ghar ki khidki se andar aati hai
+    """
 }
 
 actor ArtistSpotlightCatalogFixture: MusicCatalogProviding {

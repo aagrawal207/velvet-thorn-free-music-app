@@ -4,16 +4,20 @@ import XCTest
 
 @MainActor
 final class ExperienceRadioLanguageTests: XCTestCase {
-    func testDiscoveryListsFollowEnglishHindiAndCombinedPreferences() throws {
-        let cases: [(Set<MusicLanguage>, [String])] = [
-            ([.english], ["melancholy", "english-golden-oldies", "alt-rock", "easy-morning", "left-field-rap"]),
-            ([.hindi], ["hindi-gym", "hindi-classics", "late-night-hindi", "punjabi-drive", "indian-indie", "left-field-rap"]),
-            ([.hindi, .english], ["melancholy", "hindi-gym", "hindi-classics", "english-golden-oldies", "late-night-hindi", "punjabi-drive", "indian-indie", "alt-rock", "easy-morning", "left-field-rap"]),
-        ]
-        for (languages, expected) in cases {
+    func testDiscoveryListsEveryStationForEveryLanguagePreference() throws {
+        let expected = RadioExperience.discoveryStations.map(\.id)
+        XCTAssertEqual(expected.count, RadioExperience.stations.count)
+        let moods = RadioExperience.stations.filter { $0.group == .moods }.count
+        XCTAssertTrue(RadioExperience.discoveryStations.prefix(moods).allSatisfy { $0.group == .moods })
+        XCTAssertTrue(RadioExperience.discoveryStations.dropFirst(moods).allSatisfy { $0.group == .genres })
+        XCTAssertEqual(Array(expected.prefix(2)), ["melancholy", "hindi-gym"])
+        for languages in [[.english], [.hindi], [.hindi, .english]] as [Set<MusicLanguage>] {
             let context = try AppModelTestContext(languages: languages)
             addTeardownBlock { @MainActor in try await context.close() }
-            XCTAssertEqual(context.model.radioExperiences.map(\.id), expected)
+            XCTAssertEqual(context.model.radioExperiences.map(\.id), expected, "\(languages)")
+            for station in context.model.radioExperiences {
+                XCTAssertNotNil(station.selection(for: languages), "\(station.id) must have a selection for \(languages)")
+            }
         }
     }
 
@@ -27,9 +31,14 @@ final class ExperienceRadioLanguageTests: XCTestCase {
         XCTAssertEqual(combined.seeds.map(\.artist.name), ["Kanye West", "Char Diwaari", "Tyler, The Creator", "Seedhe Maut"])
         XCTAssertEqual(english.contentLabel, "English")
         XCTAssertEqual(hindi.contentLabel, "Hindi")
-        XCTAssertEqual(combined.contentLabel, "English + Hindi")
+        XCTAssertEqual(combined.contentLabel, "Hindi + English")
         XCTAssertFalse(english.description.contains("Char Diwaari"))
         XCTAssertFalse(hindi.description.contains("Kanye West"))
+        XCTAssertEqual(combined.description, station.description)
+        XCTAssertEqual(english.styleQueries, station.styleQueries(for: .english))
+        XCTAssertEqual(hindi.styleQueries, station.styleQueries(for: .hindi))
+        XCTAssertEqual(Array(combined.styleQueries.prefix(3)),
+                       [station.styleQueries(for: .hindi)[0], station.styleQueries(for: .english)[0], station.styleQueries(for: .hindi)[1]])
         XCTAssertNil(station.selection(for: []))
     }
 
@@ -64,19 +73,127 @@ final class ExperienceRadioLanguageTests: XCTestCase {
         }
     }
 
-    func testEnglishOnlyModelRejectsAHiddenHindiStationBeforeAnySeedQuery() async throws {
-        let old = libraryTestTrack("already-playing")
-        let context = try AppModelTestContext(languages: [.english], snapshot: PlaybackSnapshot(queue: [old], position: 25))
-        addTeardownBlock { @MainActor in context.model.cancelPendingRadio(); try await context.close() }
+    func testEnglishOnlyListenerStartsAHindiCuedStationThroughStyleSearchesAlone() async throws {
         let station = try XCTUnwrap(RadioExperience.stations.first { $0.id == "hindi-gym" })
-        await context.model.startRadio(station).value
-        let searches = await context.catalog.searches.requests
-        let radios = await context.catalog.autoplayRadios.requests
-        XCTAssertTrue(searches.isEmpty && radios.isEmpty)
-        XCTAssertEqual(context.player.queue, [old])
-        XCTAssertEqual(context.player.position, 25)
-        XCTAssertFalse(context.model.isLoadingRadio)
-        XCTAssertNotNil(context.model.radioError)
+        let wording: Set<String> = ["workout motivation songs", "gym hip hop english songs", "high energy running songs"]
+        for learned in [false, true] {
+            let old = libraryTestTrack("already-playing")
+            let context = try AppModelTestContext(languages: [.english], snapshot: PlaybackSnapshot(queue: [old], position: 25))
+            addTeardownBlock { @MainActor in context.model.cancelPendingRadio(); try await context.close() }
+            if learned { context.seedHistory(RecommendationFixtures.track("heard-english", language: .english)) }
+            XCTAssertEqual(context.model.listeningLanguageProfile.isLearned, learned)
+            let songs = ExperienceRadioFixtures.styleSongs("workout", language: .english)
+            let task = context.model.startRadio(station)
+            let answered = try await ExperienceRadioFixtures.answerStyleSearches(context, from: 0, count: 6, songs: songs, expecting: wording)
+            XCTAssertEqual(Set(answered.map(\.query)), wording, "Only station wording is searched; Hindi cues stay out")
+            XCTAssertEqual(answered.filter { $0.filter == .songs }.count, 3)
+            XCTAssertEqual(answered.filter { $0.filter == .playlists }.count, 3)
+            XCTAssertEqual(context.player.queue, [old])
+            XCTAssertEqual(context.player.position, 25)
+            let neighbors = Dictionary(uniqueKeysWithValues: songs.map { song in
+                (song.id, [RecommendationFixtures.track("near-\(song.id)", artist: "Near \(song.id)", language: .english)])
+            })
+            for index in 0..<4 {
+                let request = try await context.catalog.autoplayRadios.request(at: index)
+                let tracks = try XCTUnwrap(neighbors[request.input.id], "Style songs anchor the radio lanes")
+                try await context.catalog.autoplayRadios.complete(request, with: .success(tracks))
+            }
+            await task.value
+            XCTAssertNil(context.model.radioError)
+            XCTAssertEqual(context.model.activeRadioExperience, station)
+            XCTAssertEqual(context.model.activeRadioContentLabel, learned ? "Follows your listening" : "Automatic discovery")
+            XCTAssertTrue(context.player.isRadioSession)
+            XCTAssertGreaterThanOrEqual(context.player.queue.count, ExperienceRadioEngine.minimumQueueSize)
+            XCTAssertTrue(Set(songs).isSubset(of: Set(context.player.queue)))
+            XCTAssertFalse(context.player.queue.contains(old))
+            let searches = await context.catalog.searches.requests
+            let radios = await context.catalog.autoplayRadios.requests
+            XCTAssertEqual(searches.count, 6)
+            XCTAssertEqual(radios.count, 4)
+            XCTAssertFalse(searches.contains { request in station.seeds.contains { $0.query == request.input.query } })
+        }
+    }
+
+    func testColdCueOnlyStationUsesAnotherActiveLanguagesCuesAfterEmptyStyleDiscovery() async throws {
+        let f = ExperienceRadioFixtures.self
+        let profile = ListeningLanguageProfile()
+        let wording = ["English fixture gym songs", "Hindi fixture gym songs", "fixture gym English music"]
+        XCTAssertFalse(profile.isLearned)
+        XCTAssertEqual(profile.orderedLanguages.first, .english)
+        XCTAssertTrue(f.gym.styleQueries.isEmpty)
+        XCTAssertTrue(f.gym.selection(for: profile).seeds.isEmpty)
+        var searches = f.gymSearches.mapValues { Result<[Track], any Error>.success([$0]) }
+        for query in wording { searches[query] = .success([]) }
+        let catalog = ExperienceRadioCatalogFixture(searches: searches, radios: f.gymRadios.mapValues { .success($0) },
+            playlistSearches: Dictionary(uniqueKeysWithValues: wording.map { ($0, .success([])) }))
+
+        let batch = try await ExperienceRadioEngine(catalog: catalog).start(f.gym, disliked: [], languages: [], languageProfile: profile)
+        let requested = await catalog.searchRequests
+        let radios = await catalog.radioRequests
+        let peak = await catalog.maximumActiveRequests
+        XCTAssertEqual(requested.count, 8)
+        XCTAssertEqual(Set(requested.prefix(6).map(\.query)), Set(wording))
+        XCTAssertEqual(requested.prefix(6).filter { $0.filter == .songs }.count, 3)
+        XCTAssertEqual(requested.prefix(6).filter { $0.filter == .playlists }.count, 3)
+        XCTAssertEqual(Set(requested.suffix(2).map(\.query)), Set(f.gymSearches.keys))
+        XCTAssertEqual(Set(radios.map(\.id)), [f.zinda.id, f.goat.id])
+        XCTAssertEqual(batch.tracks, [f.zinda, f.goat, f.sultan, f.punjabi])
+        XCTAssertEqual(batch.buckets.map(\.frontier), [f.sultan, f.punjabi])
+        XCTAssertEqual(batch.discoveryTrackIDs, [f.sultan.id, f.punjabi.id])
+        XCTAssertEqual(f.gym.selection(for: profile).contentLabel, "Automatic discovery")
+        XCTAssertNil(batch.tracks.first { $0.id == f.punjabi.id }?.language)
+        XCTAssertLessThanOrEqual(peak, 3)
+    }
+
+    func testColdCueBackupCannotBorrowAnInactiveLanguage() async throws {
+        let f = ExperienceRadioFixtures.self
+        let wording = ["English fixture gym songs", "fixture gym English music", "fixture gym songs in English"]
+        var searches = f.gymSearches.mapValues { Result<[Track], any Error>.success([$0]) }
+        for query in wording { searches[query] = .success([]) }
+        let catalog = ExperienceRadioCatalogFixture(searches: searches, radios: f.gymRadios.mapValues { .success($0) },
+            playlistSearches: Dictionary(uniqueKeysWithValues: wording.map { ($0, .success([])) }))
+        do {
+            _ = try await ExperienceRadioEngine(catalog: catalog).start(f.gym, disliked: [], languages: [],
+                languageProfile: ListeningLanguageProfile(fallback: [.english]))
+            XCTFail("Hindi is not an active fallback target")
+        } catch { XCTAssertEqual(error as? ExperienceRadioError, .noSeeds) }
+        let requested = await catalog.searchRequests
+        let radios = await catalog.radioRequests
+        XCTAssertEqual(requested.count, 6)
+        XCTAssertEqual(Set(requested.map(\.query)), Set(wording))
+        XCTAssertTrue(radios.isEmpty)
+    }
+
+    func testColdBackupCuesShareTheSixSearchBudgetWithUnresolvedDominantCues() async throws {
+        let english = (0..<2).map { RadioExperience.Seed("English cue \($0)", by: "English artist \($0)") }
+        let hindi = (0..<8).map { RadioExperience.Seed("Hindi cue \($0)", by: "Hindi artist \($0)") }
+        let tracks = hindi.enumerated().map {
+            RecommendationFixtures.track("hindi-\($0.offset)", title: $0.element.title, artist: $0.element.artist.name, language: .hindi)
+        }
+        let station = RadioExperience(id: "cold-cue-budget", title: "Cold cue budget", description: "Fixture", symbol: "radio", group: .moods,
+            variants: [.init(id: "english", discoveryLanguages: [.english], contentLabel: "English", seeds: english),
+                       .init(id: "hindi", discoveryLanguages: [.hindi], contentLabel: "Hindi", seeds: hindi)])
+        let wording = ["English cold cue budget songs", "Hindi cold cue budget songs", "cold cue budget English music"]
+        var searches: [String: Result<[Track], any Error>] = Dictionary(uniqueKeysWithValues: zip(hindi, tracks).map { ($0.query, .success([$1])) })
+        for query in english.map(\.query) + wording { searches[query] = .success([]) }
+        let radios: [String: Result<[Track], any Error>] = Dictionary(uniqueKeysWithValues: tracks.map { track in
+            (track.id, .success([RecommendationFixtures.track("near-\(track.id)", artist: "Neighbor \(track.id)")]))
+        })
+        let catalog = ExperienceRadioCatalogFixture(searches: searches, radios: radios,
+            playlistSearches: Dictionary(uniqueKeysWithValues: wording.map { ($0, .success([])) }))
+        let batch = try await ExperienceRadioEngine(catalog: catalog).start(
+            station, disliked: [], languages: [], languageProfile: ListeningLanguageProfile())
+
+        let requested = await catalog.searchRequests
+        let radioRequests = await catalog.radioRequests
+        XCTAssertEqual(requested.count, 12, "Six cue searches and six style requests share one startup budget")
+        XCTAssertEqual(Set(requested.prefix(2).map(\.query)), Set(english.map(\.query)))
+        XCTAssertEqual(Set(requested.dropFirst(2).prefix(6).map(\.query)), Set(wording))
+        XCTAssertEqual(Set(requested.suffix(4).map(\.query)), Set(hindi.prefix(4).map(\.query)))
+        XCTAssertEqual(Set(radioRequests.map(\.id)), Set(tracks.prefix(4).map(\.id)))
+        XCTAssertEqual(batch.buckets.count, 4)
+        XCTAssertEqual(batch.tracks.count, 8)
+        XCTAssertFalse(batch.discoveryTrackIDs.isEmpty)
     }
 
     func testKnownIncompatibleTracksAreFilteredButUnknownLanguageStaysEligible() throws {
@@ -91,10 +208,12 @@ final class ExperienceRadioLanguageTests: XCTestCase {
         let gym = try XCTUnwrap(RadioExperience.stations.first { $0.id == "hindi-gym" })
         let drive = try XCTUnwrap(RadioExperience.stations.first { $0.id == "punjabi-drive" })
         XCTAssertEqual(gym.selection(for: [.hindi])?.contentLabel, "Hindi + Punjabi")
+        XCTAssertEqual(gym.selection(for: [.hindi, .english])?.contentLabel, "Hindi + Punjabi + English")
         XCTAssertEqual(drive.selection(for: [.hindi])?.contentLabel, "Punjabi")
+        XCTAssertEqual(drive.selection(for: [.english])?.contentLabel, "English")
     }
 
-    func testDisjointSetupCannotVendUnclassifiedHindiGymRecordingsAsEnglish() async throws {
+    func testOtherLanguageSetupSearchesWordingOnlyAndNeverRetagsHindiCues() async throws {
         let station = try XCTUnwrap(RadioExperience.stations.first { $0.id == "hindi-gym" })
         let cues = station.seeds.enumerated().map {
             RecommendationFixtures.track("unclassified-cue-\($0.offset)", title: $0.element.title, artist: $0.element.artist.name)
@@ -108,14 +227,16 @@ final class ExperienceRadioLanguageTests: XCTestCase {
         })
         let catalog = ExperienceRadioCatalogFixture(searches: searches, radios: radios)
         let engine = ExperienceRadioEngine(catalog: catalog)
-        let unsupported = RadioConfiguration(station: station, languages: [.english]).experience()
+        let english = RadioConfiguration(station: station, languages: [.english]).experience()
         do {
-            _ = try await engine.start(unsupported, disliked: [], languages: [.english])
-            XCTFail("Unclassified recording metadata must not let a station change its supported audience")
-        } catch { XCTAssertEqual(error as? ExperienceRadioError, .noMatchingLanguages) }
-        let rejectedSearches = await catalog.searchRequests
-        let rejectedRadios = await catalog.radioRequests
-        XCTAssertTrue(rejectedSearches.isEmpty && rejectedRadios.isEmpty)
+            _ = try await engine.start(english, disliked: [], languages: [.english])
+            XCTFail("The fixture answers no English wording, so this start has nothing to anchor")
+        } catch { XCTAssertEqual(error as? ExperienceRadioError, .noSeeds) }
+        let englishSearches = await catalog.searchRequests
+        let englishRadios = await catalog.radioRequests
+        XCTAssertEqual(Set(englishSearches.map(\.query)), Set(station.styleQueries(in: [.english]).prefix(3)),
+                       "Hindi cue recordings are never searched for an English-only session")
+        XCTAssertTrue(englishRadios.isEmpty)
 
         let supported = RadioConfiguration(station: station, languages: [.hindi]).experience()
         let batch = try await engine.start(supported, disliked: [], languages: [.hindi])
@@ -138,5 +259,18 @@ final class ExperienceRadioLanguageTests: XCTestCase {
         XCTAssertEqual(batch.tracks, [nextA, nextB])
         let requests = await catalog.radioRequests
         XCTAssertEqual(Set(requests.map(\.id)), [a.id, b.id])
+    }
+
+    func testEmptyLanguageSetIsTheOnlyRejectedStart() async throws {
+        let station = try XCTUnwrap(RadioExperience.stations.first { $0.id == "melancholy" })
+        let catalog = ExperienceRadioCatalogFixture()
+        do {
+            _ = try await ExperienceRadioEngine(catalog: catalog).start(station, disliked: [], languages: [])
+            XCTFail("An empty language set has no wording to search")
+        } catch { XCTAssertEqual(error as? ExperienceRadioError, .noLanguages) }
+        let searches = await catalog.searchRequests
+        let radios = await catalog.radioRequests
+        XCTAssertTrue(searches.isEmpty && radios.isEmpty)
+        XCTAssertEqual(ExperienceRadioError.noLanguages.errorDescription, "Choose at least one language to start this radio.")
     }
 }

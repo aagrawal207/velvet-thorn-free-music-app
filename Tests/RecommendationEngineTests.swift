@@ -177,9 +177,9 @@ final class RecommendationEngineTests: XCTestCase {
         XCTAssertEqual(mix.tracks.count, 25)
         XCTAssertEqual(Set(mix.tracks.map(\.id)).count, 25)
         XCTAssertTrue(artistCounts(mix.tracks).values.allSatisfy { $0 <= 3 }, "At most three songs per artist")
-        let familiar = mix.tracks.filter { profile.trackAffinity[$0.id] != nil }
-        XCTAssertEqual(familiar.count, 6, "Every listened song fits under the artist cap and is worth replaying")
-        XCTAssertEqual(mix.tracks.count - familiar.count, 19)
+        let familiar = mix.tracks.filter { profile.heardTrackIDs.contains($0.id) }
+        XCTAssertEqual(familiar.count, 7, "Heard recordings include the short tap even without listening affinity")
+        XCTAssertEqual(mix.tracks.count - familiar.count, 18)
         XCTAssertEqual(artistCounts(mix.tracks)["arijit singh"], 3, "Three listened Arijit songs leave no room for his unheard ones")
         XCTAssertEqual(mix.seedArtists, ["Arijit Singh", "The Weeknd", "Pritam"])
         let callCount = await catalog.callCount
@@ -188,7 +188,7 @@ final class RecommendationEngineTests: XCTestCase {
 
     func testDailyMixInterleavesInsteadOfClumpingFamiliarSongs() async throws {
         let mix = try await daily(await RecommendationFixtures.catalog())
-        let familiarPositions = mix.tracks.indices.filter { profile.trackAffinity[mix.tracks[$0].id] != nil }
+        let familiarPositions = mix.tracks.indices.filter { profile.heardTrackIDs.contains(mix.tracks[$0].id) }
         let gaps = zip(familiarPositions.dropFirst(), familiarPositions).map { $0 - $1 }
         XCTAssertTrue(gaps.allSatisfy { $0 >= 2 }, "Familiar songs are spaced out: \(familiarPositions)")
     }
@@ -206,7 +206,7 @@ final class RecommendationEngineTests: XCTestCase {
         await catalog.setRadio(RecommendationFixtures.tracks("n", count: 3, artist: "Newcomer"), for: "arijit-1")
         for id in ["UCarijit", "UCweeknd", "UCpritam"] { await catalog.setArtist(RecommendationFixtures.page(id, name: id)) }
         let mix = try await daily(catalog)
-        XCTAssertEqual(mix.tracks.count, 9, "Six listened songs plus three recommendations")
+        XCTAssertEqual(mix.tracks.count, 10, "Seven heard recordings plus three recommendations")
         XCTAssertEqual(mix.tracks.filter { $0.artists == ["Newcomer"] }.count, 3)
     }
 
@@ -239,7 +239,7 @@ final class RecommendationEngineTests: XCTestCase {
                 XCTAssertNil(mix.tracks.first { $0.id == "eligible-11" }?.language)
             } else {
                 XCTAssertEqual(mix.tracks.count, 25)
-                XCTAssertEqual(mix.tracks.filter { profile.trackAffinity[$0.id] != nil }.count, 10)
+                XCTAssertEqual(mix.tracks.filter { profile.heardTrackIDs.contains($0.id) }.count, 10)
             }
         }
     }

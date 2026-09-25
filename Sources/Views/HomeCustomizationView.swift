@@ -26,6 +26,7 @@ struct HomeCustomizationView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(minHeight: 52, alignment: .leading)
                     }
+                    .toggleStyle(CompactSwitchToggleStyle())
                     .accessibilityLabel(section.title)
                     .accessibilityIdentifier("home.customization.show.\(section.rawValue)")
                 }

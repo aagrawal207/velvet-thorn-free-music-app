@@ -5,6 +5,7 @@ import SwiftUI
 struct RecapView: View {
     @Environment(MusicAppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var window: ListeningWindow = .week
     @State private var showsAllRepeatTracks = false
     @ScaledMetric(relativeTo: .largeTitle) private var totalFontSize: CGFloat = 44
@@ -20,6 +21,7 @@ struct RecapView: View {
                     header
                     windowSelector
                     LibraryStoreNotices()
+                    listeningLanguagesEntry(now: now)
                     if summary.seconds > 0 {
                         hero(summary, now: now)
                         metrics(summary)
@@ -35,7 +37,7 @@ struct RecapView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
                 .padding(.bottom, 28)
-                .frame(maxWidth: 760)
+                .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
                 .frame(maxWidth: .infinity)
             }
         }
@@ -83,6 +85,46 @@ struct RecapView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("recap.window")
+    }
+
+    private func listeningLanguagesEntry(now: Date) -> some View {
+        let summary = model.listeningLanguageSummary(for: .month, now: now)
+        let counts = "\(summary.totalPlays.formatted()) \(summary.totalPlays == 1 ? "play" : "plays") · \(summary.totalSongs.formatted()) \(summary.totalSongs == 1 ? "song" : "songs")"
+        return AppNavigationLink {
+            ListeningLanguagesView()
+        } label: {
+            HStack(spacing: 14) {
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Image(systemName: "character.bubble")
+                        .appFont(.title2)
+                        .foregroundStyle(AppTheme.accent)
+                        .accessibilityHidden(true)
+                }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Listening languages").appFont(.headline, weight: .semibold)
+                    Text("Last 30 days")
+                        .appFont(.caption, weight: .semibold)
+                        .foregroundStyle(AppTheme.secondaryText)
+                    Text(summary.totalPlays > 0 ? counts : "See your listening take shape.")
+                        .appFont(.subheadline)
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .appFont(.subheadline, weight: .semibold)
+                    .foregroundStyle(AppTheme.secondaryText)
+            }
+            .frame(minHeight: 64)
+            .padding(16)
+            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: AppCorner.card))
+            .contentShape(RoundedRectangle(cornerRadius: AppCorner.card))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Listening languages, Last 30 days")
+        .accessibilityValue(summary.totalPlays > 0 ? counts : "No counted plays")
+        .accessibilityHint("View language statistics and optional recommendation adjustments")
+        .accessibilityIdentifier("recap.listeningLanguages")
     }
 
     private func hero(_ summary: ListeningSummary, now: Date) -> some View {
@@ -164,12 +206,20 @@ struct RecapView: View {
     }
 
     private func metrics(_ summary: ListeningSummary) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 240 : 140), spacing: 12)], spacing: 12) {
+        LazyVGrid(columns: metricColumns, spacing: 12) {
             RecapMetric(value: summary.plays, title: "Counted plays", symbol: "play.circle", identifier: "recap.plays")
             RecapMetric(value: summary.uniqueTracks, title: "Different songs", symbol: "music.note", identifier: "recap.songs")
             RecapMetric(value: summary.uniqueArtists, title: "Artists", symbol: "person.2", identifier: "recap.artists")
             RecapMetric(value: summary.streak, title: "Current day streak", symbol: "flame", identifier: "recap.streak")
         }
+    }
+
+    private var metricColumns: [GridItem] {
+        if AppLayout.isRegularWidth(horizontalSizeClass) {
+            // Adaptive columns in a 1000-point column leave empty cells beside the four metrics; fixed counts fill the row.
+            return Array(repeating: GridItem(.flexible(), spacing: 12), count: dynamicTypeSize.isAccessibilitySize ? 2 : 4)
+        }
+        return [GridItem(.adaptive(minimum: dynamicTypeSize.isAccessibilitySize ? 240 : 140), spacing: 12)]
     }
 
     private func onRepeat(_ summary: ListeningSummary) -> some View {
@@ -278,7 +328,7 @@ struct RecapView: View {
             }
             .buttonStyle(AppNavigationIntentButtonStyle(.plain))
             .accessibilityIdentifier("recap.share")
-            Text("Your listening stays on this device until you choose to share it.")
+            Text("Your listening can sync with iCloud. Sharing sends only this recap text.")
                 .appFont(.caption)
                 .foregroundStyle(AppTheme.secondaryText)
                 .multilineTextAlignment(.center)
@@ -452,7 +502,7 @@ private enum RecapText {
         for (index, ranking) in summary.topTracks.prefix(5).enumerated() {
             lines.append("\(index + 1). \(ranking.track.title) · \(ranking.track.artistName)")
         }
-        lines.append(contentsOf: ["", "Made from my actual listening on this device."])
+        lines.append(contentsOf: ["", "Made from my saved listening."])
         return lines.joined(separator: "\n")
     }
 }

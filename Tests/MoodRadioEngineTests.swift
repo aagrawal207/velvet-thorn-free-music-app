@@ -37,8 +37,8 @@ final class MoodRadioEngineTests: XCTestCase {
         let experience = station()
         let songs = (0..<6).map { RecommendationFixtures.track("mood-\($0)", artist: "Mood Artist \($0)", language: .english) }
         var searches: [String: Result<[Track], any Error>] = Dictionary(uniqueKeysWithValues: experience.seeds.map { ($0.query, .success([])) })
-        searches[experience.styleQueries[0]] = .success(songs)
-        searches[experience.styleQueries[1]] = .success([])
+        searches[queries(experience)[0]] = .success(songs)
+        searches[queries(experience)[1]] = .success([])
         let catalog = ExperienceRadioCatalogFixture(searches: searches,
             radios: Dictionary(uniqueKeysWithValues: songs.map { ($0.id, .success([])) }),
             playlistSearches: emptyPlaylists(experience))
@@ -59,8 +59,8 @@ final class MoodRadioEngineTests: XCTestCase {
         configuration.artists = [hint]
         let experience = configuration.experience()
         var searches: [String: Result<[Track], any Error>] = Dictionary(uniqueKeysWithValues: experience.seeds.map { ($0.query, .success([])) })
-        searches[experience.styleQueries[0]] = .success(songs)
-        searches[experience.styleQueries[1]] = .success([])
+        searches[queries(experience)[0]] = .success(songs)
+        searches[queries(experience)[1]] = .success([])
         let catalog = ExperienceRadioCatalogFixture(searches: searches,
             radios: Dictionary(uniqueKeysWithValues: (songs + [hintSong]).map { ($0.id, .success([])) }),
             artists: ["UCmoodHint": .success(ArtistPage(id: "UCmoodHint", name: hint.name, topSongs: [hintSong]))],
@@ -74,7 +74,7 @@ final class MoodRadioEngineTests: XCTestCase {
         let radios = await catalog.radioRequests
         XCTAssertEqual(radios.count, 4, "Mood discovery must precede an unnecessary hint-only radio request")
         let searchesMade = await catalog.searchRequests
-        XCTAssertTrue(searchesMade.contains { $0.query == experience.styleQueries[0] && $0.filter == .songs })
+        XCTAssertTrue(searchesMade.contains { $0.query == queries(experience)[0] && $0.filter == .songs })
     }
 
     func testAStalledArtistHintCannotBlockMoodDefaultsOrDiscardAnotherAvailableHint() async throws {
@@ -128,11 +128,11 @@ final class MoodRadioEngineTests: XCTestCase {
         let duplicate = RecommendationFixtures.track("alternate-upload", title: songs[0].title + " (Remastered)")
         let playlist = MusicCollection(id: "provider-mood-playlist", title: "Dream pop nights", kind: .playlist)
         var searches = cueSearches()
-        for query in experience.styleQueries { searches[query] = .success([]) }
+        for query in queries(experience) { searches[query] = .success([]) }
         let catalog = ExperienceRadioCatalogFixture(searches: searches,
             radios: [f.cas.id: .success([]), f.pixies.id: .success([])],
             albums: [playlist.id: .success(CatalogPage(tracks: [video, hindi, blocked] + songs + [duplicate]))],
-            playlistSearches: [experience.styleQueries[0]: .success([playlist]), experience.styleQueries[1]: .success([])])
+            playlistSearches: [queries(experience)[0]: .success([playlist]), queries(experience)[1]: .success([])])
         let batch = try await ExperienceRadioEngine(catalog: catalog).start(experience,
             disliked: [DislikedSong(id: "different-upload", title: "Blocked song (Live)", artists: [])], languages: [.english])
         XCTAssertTrue(Set(songs).isSubset(of: Set(batch.tracks)))
@@ -148,10 +148,10 @@ final class MoodRadioEngineTests: XCTestCase {
         let f = ExperienceRadioFixtures.self
         let experience = station()
         var searches = cueSearches()
-        for query in experience.styleQueries { searches[query] = .success([]) }
+        for query in queries(experience) { searches[query] = .success([]) }
         let catalog = ExperienceRadioCatalogFixture(searches: searches, playlistSearches: emptyPlaylists(experience),
             radioSequences: [f.cas.id: [.success([]), .success([f.dream])], f.pixies.id: [.success([]), .success([f.alt])]])
-        let batch = try await ExperienceRadioEngine(catalog: catalog).start(experience, disliked: [])
+        let batch = try await ExperienceRadioEngine(catalog: catalog).start(experience, disliked: [], languages: [.english])
         XCTAssertEqual(batch.tracks, [f.cas, f.pixies, f.dream, f.alt])
         let calls = await catalog.radioRequests
         XCTAssertEqual(calls.count, 4)
@@ -164,11 +164,11 @@ final class MoodRadioEngineTests: XCTestCase {
         let cues = intents.enumerated().map { RecommendationFixtures.track("cue-\($0.offset)", title: $0.element.title, artist: $0.element.artist.name) }
         let hints = (0..<7).map { ArtistCredit(name: "Hint Artist \($0)", id: "UChint\($0)") }
         let hintSongs = hints.prefix(4).enumerated().map { RecommendationFixtures.track("hint-\($0.offset)", artist: $0.element.name, artistID: $0.element.id) }
-        let queries = ["dream pop songs", "indie rock songs", "unused third query"]
+        let queries = ["dream pop songs", "indie rock songs", "lofi study songs", "unused fourth query"]
         let experience = RadioExperience(id: "bounded-style", title: "Bounded", description: "Fixture", symbol: "radio",
             discoveryLanguages: [.english], contentLabel: "English", seeds: intents, styleQueries: queries, artistHints: hints)
         var searches: [String: Result<[Track], any Error>] = Dictionary(uniqueKeysWithValues: zip(intents, cues).map { ($0.query, .success([$1])) })
-        for query in queries.prefix(2) { searches[query] = .success([]) }
+        for query in queries.prefix(3) { searches[query] = .success([]) }
         let playlists = (0..<4).map { MusicCollection(id: "playlist-\($0)", title: "Mood playlist \($0)", kind: .playlist) }
         let artistPages: [String: Result<ArtistPage, any Error>] = Dictionary(uniqueKeysWithValues: zip(hints.prefix(4), hintSongs).map { hint, song in
             (hint.id!, .success(ArtistPage(id: hint.id!, name: hint.name, topSongs: [song])))
@@ -176,9 +176,9 @@ final class MoodRadioEngineTests: XCTestCase {
         let catalog = ExperienceRadioCatalogFixture(searches: searches,
             radios: Dictionary(uniqueKeysWithValues: (cues + hintSongs).map { ($0.id, .success([])) }), artists: artistPages,
             albums: Dictionary(uniqueKeysWithValues: playlists.map { ($0.id, .success(CatalogPage())) }),
-            playlistSearches: Dictionary(uniqueKeysWithValues: queries.prefix(2).map { ($0, .success(playlists)) }), delay: .milliseconds(20))
+            playlistSearches: Dictionary(uniqueKeysWithValues: queries.prefix(3).map { ($0, .success(playlists)) }), delay: .milliseconds(20))
         do {
-            _ = try await ExperienceRadioEngine(catalog: catalog).start(experience, disliked: [])
+            _ = try await ExperienceRadioEngine(catalog: catalog).start(experience, disliked: [], languages: [.english])
             XCTFail("Fixed cues alone must not masquerade as a provider-backed station")
         } catch { XCTAssertEqual(error as? ExperienceRadioError, .unavailable) }
         let searchesMade = await catalog.searchRequests
@@ -186,24 +186,51 @@ final class MoodRadioEngineTests: XCTestCase {
         let browses = await catalog.browseRequests
         let radio = await catalog.radioRequests
         let peak = await catalog.maximumActiveRequests
-        XCTAssertEqual(searchesMade.count, 10)
-        XCTAssertFalse(searchesMade.contains { $0.query == queries[2] })
+        XCTAssertEqual(searchesMade.count, 12, "Six cue searches plus three style queries with songs and playlists filters")
+        XCTAssertEqual(ExperienceRadioEngine.maximumStyleQueries, 3)
+        XCTAssertFalse(searchesMade.contains { $0.query == queries[3] })
         XCTAssertEqual(artistsMade.count, 4)
-        XCTAssertEqual(browses.count, 2)
+        XCTAssertEqual(browses.count, ExperienceRadioEngine.maximumStylePlaylists)
         XCTAssertEqual(radio.count, ExperienceRadioEngine.maximumRadioRequests)
         XCTAssertGreaterThan(peak, 1)
         XCTAssertLessThanOrEqual(peak, 3)
     }
 
-    func testYearWordsInAMoodQueryDoNotMakeUndatedSongsEligibleSeeds() async throws {
+    func testSeedlessDatedStationStartsFromUndatedStyleSongsWhenNoDatedEvidenceExists() async throws {
         let experience = station(seeds: [], era: .newer)
         let songs = (0..<4).map { RecommendationFixtures.track("undated-\($0)", title: "2024 song \($0)", artist: "Artist \($0)") }
-        let queries = experience.styleQueries.map { $0 + " 2015 and later" }
+        let neighbors = songs.map { RecommendationFixtures.track("near-\($0.id)", artist: "Neighbor \($0.id)") }
+        let queries = self.queries(experience).map { $0 + " 2015 and later" }
         let catalog = ExperienceRadioCatalogFixture(searches: [queries[0]: .success(songs), queries[1]: .success([])],
+            radios: Dictionary(uniqueKeysWithValues: zip(songs, neighbors).map { ($0.id, .success([$1])) }),
+            playlistSearches: Dictionary(uniqueKeysWithValues: queries.map { ($0, .success([])) }))
+        let batch = try await ExperienceRadioEngine(catalog: catalog).start(experience, disliked: [], languages: [.english])
+        // Query wording is not release-date evidence, but a wording-only station still has to start.
+        XCTAssertEqual(Set(batch.buckets.map(\.anchor.id)), Set(songs.map(\.id)))
+        XCTAssertTrue(Set(songs + neighbors).isSubset(of: Set(batch.tracks)))
+        XCTAssertTrue(Set(songs.map(\.id)).isSubset(of: batch.discoveryTrackIDs))
+        let radio = await catalog.radioRequests
+        XCTAssertEqual(Set(radio.map(\.id)), Set(songs.map(\.id)))
+        let artists = await catalog.artistRequests
+        XCTAssertTrue(artists.isEmpty, "Undated songs without artist ids have no album evidence to look up")
+        let searched = await catalog.searchRequests
+        XCTAssertTrue(searched.allSatisfy { $0.query.hasSuffix(" 2015 and later") })
+    }
+
+    func testCueStationsStillRequireDatedEvidenceForEraFallbackSeeds() async throws {
+        let f = ExperienceRadioFixtures.self
+        let experience = station(era: .newer)
+        let songs = (0..<4).map { RecommendationFixtures.track("undated-\($0)", title: "2024 song \($0)", artist: "Artist \($0)") }
+        let queries = self.queries(experience).map { $0 + " 2015 and later" }
+        var searches: [String: Result<[Track], any Error>] = Dictionary(uniqueKeysWithValues: experience.seeds.map { ($0.query, .success([])) })
+        searches[queries[0]] = .success(songs)
+        searches[queries[1]] = .success([])
+        let catalog = ExperienceRadioCatalogFixture(searches: searches,
+            radios: [f.cas.id: .success([]), f.pixies.id: .success([])],
             playlistSearches: Dictionary(uniqueKeysWithValues: queries.map { ($0, .success([])) }))
         do {
-            _ = try await ExperienceRadioEngine(catalog: catalog).start(experience, disliked: [])
-            XCTFail("Query wording is not release-date evidence")
+            _ = try await ExperienceRadioEngine(catalog: catalog).start(experience, disliked: [], languages: [.english])
+            XCTFail("Missing cue recordings do not relax the era for a station that has cues")
         } catch { XCTAssertEqual(error as? ExperienceRadioError, .noSeeds) }
         let radio = await catalog.radioRequests
         XCTAssertTrue(radio.isEmpty)
@@ -216,7 +243,7 @@ final class MoodRadioEngineTests: XCTestCase {
         var newer = RecommendationFixtures.track("new-song", artist: "Current Artist", artistID: "UCcurrent")
         newer.albumID = "new-album"
         let related = [RecommendationFixtures.track("related-one", artist: "Related One"), RecommendationFixtures.track("related-two", artist: "Related Two")]
-        let queries = experience.styleQueries.map { $0 + " 2015 and later" }
+        let queries = self.queries(experience).map { $0 + " 2015 and later" }
         let catalog = ExperienceRadioCatalogFixture(searches: [queries[0]: .success([older, newer] + related), queries[1]: .success([])],
             radios: [newer.id: .success([])], artists: [
                 "UCearlier": .success(ArtistPage(id: "UCearlier", name: "Earlier Artist", releases: [
@@ -224,8 +251,8 @@ final class MoodRadioEngineTests: XCTestCase {
                 "UCcurrent": .success(ArtistPage(id: "UCcurrent", name: "Current Artist", releases: [
                     RecommendationFixtures.release("new-album", title: "Current release", subtitle: "Album · 2019")])),
             ], playlistSearches: Dictionary(uniqueKeysWithValues: queries.map { ($0, .success([])) }))
-        let batch = try await ExperienceRadioEngine(catalog: catalog).start(experience, disliked: [])
-        XCTAssertEqual(batch.buckets.map(\.anchor.id), [newer.id])
+        let batch = try await ExperienceRadioEngine(catalog: catalog).start(experience, disliked: [], languages: [.english])
+        XCTAssertEqual(batch.buckets.map(\.anchor.id), [newer.id], "Dated evidence outranks undated songs as anchors")
         XCTAssertEqual(batch.tracks.first, newer)
         XCTAssertEqual(Set(batch.tracks), Set([older, newer] + related))
         let radio = await catalog.radioRequests
@@ -269,8 +296,8 @@ final class MoodRadioEngineTests: XCTestCase {
         let unknown = RecommendationFixtures.track("fresh-unknown", artist: "Unclassified Artist")
         let hindi = RecommendationFixtures.track("wrong-language", language: .hindi)
         let blocked = RecommendationFixtures.track("blocked", title: "Blocked Song")
-        let catalog = ExperienceRadioCatalogFixture(searches: [experience.styleQueries[0]: .success([f.dream, english, unknown, hindi, blocked]),
-                                                              experience.styleQueries[1]: .success([])],
+        let catalog = ExperienceRadioCatalogFixture(searches: [queries(experience)[0]: .success([f.dream, english, unknown, hindi, blocked]),
+                                                              queries(experience)[1]: .success([])],
             radios: [f.pixies.id: .success([]), f.alt.id: .success([])], playlistSearches: emptyPlaylists(experience))
         let batch = try await ExperienceRadioEngine(catalog: catalog).continueRadio(
             buckets: [.init(anchor: f.pixies, frontier: f.pixies), .init(anchor: f.alt, frontier: f.alt)], round: 0,
@@ -303,11 +330,16 @@ final class MoodRadioEngineTests: XCTestCase {
             styleQueries: ["dream pop songs", "mellow indie songs"])
     }
 
+    /// The fixture station carries English wording only; other languages get synthesized wording the fixtures never answer.
+    private func queries(_ experience: RadioExperience) -> [String] {
+        experience.styleQueries(in: [.english])
+    }
+
     private func cueSearches() -> [String: Result<[Track], any Error>] {
         ExperienceRadioFixtures.melancholySearches.mapValues { .success([$0]) }
     }
 
     private func emptyPlaylists(_ experience: RadioExperience) -> [String: Result<[MusicCollection], any Error>] {
-        Dictionary(uniqueKeysWithValues: experience.styleQueries.map { ($0, .success([])) })
+        Dictionary(uniqueKeysWithValues: queries(experience).map { ($0, .success([])) })
     }
 }

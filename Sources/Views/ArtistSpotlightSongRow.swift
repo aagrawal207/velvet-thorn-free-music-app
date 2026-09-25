@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 struct ArtistSpotlightSongRow: View {
     @Environment(MusicAppModel.self) private var model
+    @Environment(\.secondaryTextColor) private var secondaryText
     let track: Track
     let tracks: [Track]
     let loader: ArtistSpotlightLoader
@@ -10,31 +11,43 @@ struct ArtistSpotlightSongRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TrackRow(track: track, tracks: tracks)
-            Button {
-                AppNavigationIntent.perform(in: model) { isChoosingLanguage = true }
-            } label: {
-                HStack(spacing: 6) {
-                    let result = loader.languageResult(for: track)
-                    Text(result?.title ?? "Unclassified").appFont(.caption, weight: .semibold)
-                    if let source = result?.source { Text("· \(source.title)").appFont(.caption).lineLimit(2) }
-                    Image(systemName: "pencil").font(.caption)
+            TrackRow(track: track, tracks: tracks, showsDuration: true)
+                .contextMenu {
+                    Button("Song language", systemImage: "globe") { chooseLanguage() }
                 }
-                .foregroundStyle(AppTheme.secondaryText)
-                .frame(minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
+                .accessibilityAction(named: Text("Review song language")) { chooseLanguage() }
+            if loader.isBrowsingLanguages {
+                languageButton
             }
-            .buttonStyle(.plain)
-            .padding(.leading, 65)
-            .accessibilityLabel("Language for \(track.title), \(loader.languageResult(for: track)?.title ?? "Unclassified")")
-            .accessibilityValue(loader.languageResult(for: track)?.source?.title ?? "")
-            .accessibilityHint("Review the source or set the recording's language")
-            .accessibilityIdentifier("artist.spotlight.correctLanguage.\(track.id)")
         }
         .sheet(isPresented: AppNavigationIntent.binding($isChoosingLanguage, in: model)) {
             NavigationStack { ArtistSpotlightLanguageSheet(track: track, loader: loader) }
-                .presentationDragIndicator(.visible)
+                .appSheetChrome()
         }
+    }
+
+    private var languageButton: some View {
+        Button { chooseLanguage() } label: {
+            HStack(spacing: 6) {
+                let result = loader.languageResult(for: track)
+                Text(result?.title ?? "Unclassified").appFont(.caption, weight: .semibold)
+                if let source = result?.source { Text("· \(source.title)").appFont(.caption).lineLimit(2) }
+                Image(systemName: "pencil").font(.caption)
+            }
+            .foregroundStyle(secondaryText)
+            .frame(minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 65)
+        .accessibilityLabel("Language for \(track.title), \(loader.languageResult(for: track)?.title ?? "Unclassified")")
+        .accessibilityValue(loader.languageResult(for: track)?.source?.title ?? "")
+        .accessibilityHint("Review the source or set the recording's language")
+        .accessibilityIdentifier("artist.spotlight.correctLanguage.\(track.id)")
+    }
+
+    private func chooseLanguage() {
+        AppNavigationIntent.perform(in: model) { isChoosingLanguage = true }
     }
 }
 
@@ -51,6 +64,8 @@ private struct ArtistSpotlightLanguageSheet: View {
                 Text(track.title).appFont(.headline)
                 let result = loader.languageResult(for: track)
                 Text(result?.title ?? "Unclassified").appFont(.body)
+                Text(result?.explanation ?? "You can check more languages or set this recording's language yourself.")
+                    .appFont(.caption).foregroundStyle(AppTheme.secondaryText)
                 if let source = result?.source {
                     Text(source.title).appFont(.caption).foregroundStyle(AppTheme.secondaryText)
                     if case .musicBrainzWork(let recordingID, let workID) = source,
@@ -84,7 +99,7 @@ private struct ArtistSpotlightLanguageSheet: View {
             } header: {
                 Text("Set this recording's language").appFont(.footnote)
             } footer: {
-                Text("Saved only on this device. Your choice takes priority over automatic detection.").appFont(.footnote)
+                Text("Saved in your library. Your choice takes priority over automatic detection.").appFont(.footnote)
             }
             .listRowBackground(AppTheme.surface)
             if model.library.recordingLanguageOverrides[track.id] != nil {
@@ -101,16 +116,11 @@ private struct ArtistSpotlightLanguageSheet: View {
         .tint(AppTheme.accent)
         .navigationTitle("Song language")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Done") { AppNavigationIntent.perform(in: model) { dismiss() } }.appFont(.body)
-            }
-        }
+        .appSheetDoneButton(id: "songLanguage.done") { AppNavigationIntent.perform(in: model) { dismiss() } }
     }
 
     private func save(_ code: String?) {
         guard model.library.setRecordingLanguageOverride(code, for: track.id) else { return }
-        loader.overridesChanged()
         AppNavigationIntent.perform(in: model) { dismiss() }
     }
 }

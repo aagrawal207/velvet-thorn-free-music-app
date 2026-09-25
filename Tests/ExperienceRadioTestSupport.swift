@@ -119,11 +119,39 @@ enum ExperienceRadioFixtures {
     static var melancholyRadios: [String: [Track]] { [cas.id: [dream], pixies.id: [alt]] }
     static var gymRadios: [String: [Track]] { [zinda.id: [sultan], goat.id: [punjabi]] }
 
+    /// Six usable songs by distinct artists, the shape a style search must return for a wording-only start.
+    static func styleSongs(_ prefix: String, language: MusicLanguage? = nil) -> [Track] {
+        (0..<6).map { RecommendationFixtures.track("\(prefix)-\($0)", artist: "\(prefix) artist \($0)", language: language) }
+    }
+
+    /// A complete style pass includes both filters once per query; cancelled starts can finish only their in-flight wave.
+    @MainActor
+    @discardableResult
+    static func answerStyleSearches(_ context: AppModelTestContext, from offset: Int, count: Int, songs: [Track],
+                                    expecting queries: Set<String>) async throws -> [AppModelSearchRequest] {
+        guard queries.count <= ExperienceRadioEngine.maximumStyleQueries,
+              (0...(queries.count * 2)).contains(count) else {
+            throw AppModelTestFailure.unexpectedRequest("Style search budget: \(count) requests for \(queries.count) queries")
+        }
+        var answered: [AppModelSearchRequest] = []
+        for index in offset..<(offset + count) {
+            let request = try await context.catalog.searches.request(at: index)
+            guard queries.contains(request.input.query), request.input.continuation == nil,
+                  request.input.filter == .songs || request.input.filter == .playlists,
+                  !answered.contains(request.input) else { throw AppModelTestFailure.unexpectedRequest(request.input.query) }
+            let page = request.input.filter == .songs ? CatalogPage(tracks: songs) : CatalogPage()
+            try await context.catalog.searches.complete(request, with: .success(page))
+            answered.append(request.input)
+        }
+        return answered
+    }
+
     @MainActor
     static func answerSearches(_ context: AppModelTestContext, from offset: Int, with songs: [String: Track]) async throws {
         for index in offset..<(offset + songs.count) {
             let request = try await context.catalog.searches.request(at: index)
-            guard let song = songs[request.input.query] else { throw AppModelTestFailure.unexpectedRequest(request.input.query) }
+            guard request.input.filter == .songs, request.input.continuation == nil,
+                  let song = songs[request.input.query] else { throw AppModelTestFailure.unexpectedRequest(request.input.query) }
             try await context.catalog.searches.complete(request, with: .success(CatalogPage(tracks: [song])))
         }
     }
@@ -138,5 +166,12 @@ enum ExperienceRadioFixtures {
                 ? .failure(MusicServiceError.network("Offline radio fixture")) : .success(songs)
             try await context.catalog.autoplayRadios.complete(request, with: result)
         }
+    }
+}
+
+extension RadioExperience {
+    /// Wording the engine searches for one language set; `styleQueries` alone spans every language.
+    func styleQueries(in languages: Set<MusicLanguage>) -> [String] {
+        selection(for: languages)?.styleQueries ?? []
     }
 }

@@ -18,19 +18,12 @@ enum AppIcons {
     /// IDs keep saved icon choices, preview assets, and accessibility identifiers stable; titles are display-only.
     static let all: [AppIconOption] = [
         AppIconOption(id: "Beat", title: "Leafnote", isPrimary: true),
-        AppIconOption(id: "Dhol", title: "Breeze", isPrimary: false),
         AppIconOption(id: "Notes", title: "Drift", isPrimary: false),
-        AppIconOption(id: "Headphones", title: "Airwave", isPrimary: false),
-        AppIconOption(id: "Vinyl", title: "Groove", isPrimary: false),
         AppIconOption(id: "Boombox", title: "Moonleaf", isPrimary: false),
-        AppIconOption(id: "Cassette", title: "Daybreak", isPrimary: false),
         AppIconOption(id: "Speaker", title: "Ripple", isPrimary: false),
         AppIconOption(id: "Waves", title: "Tide", isPrimary: false),
-        AppIconOption(id: "Peacock", title: "Zephyr", isPrimary: false),
-        AppIconOption(id: "Mic", title: "Sway", isPrimary: false),
-        AppIconOption(id: "Tabla", title: "Hush", isPrimary: false),
-        AppIconOption(id: "Sargam", title: "Flutter", isPrimary: false),
-        AppIconOption(id: "Bansuri", title: "Loop", isPrimary: false),
+        AppIconOption(id: "Thorn", title: "Thorn", isPrimary: false),
+        AppIconOption(id: "Sonnet", title: "Sonnet", isPrimary: false),
     ]
 
     static var primary: AppIconOption { all[0] }
@@ -40,31 +33,130 @@ enum AppIcons {
         guard let alternateName else { return primary }
         return all.first { "AppIcon-\($0.id)" == alternateName } ?? primary
     }
+
+    /// False for a retired icon set that an older installation still has selected; the `AppIcon-Beat` alias counts.
+    static func isKnown(alternateName: String) -> Bool {
+        all.contains { "AppIcon-\($0.id)" == alternateName }
+    }
 }
 
-/// Reads and changes the home-screen icon. iOS shows its own confirmation alert after a change.
-@MainActor @Observable
-final class AppIconController {
-    private(set) var current: AppIconOption
+@MainActor
+protocol AppIconSystem {
+    var alternateIconName: String? { get }
+    var supportsAlternateIcons: Bool { get }
+    func setAlternateIconName(_ name: String?) async throws
+    func claimOrphanReset() -> Bool
+}
 
-    init() {
-        current = AppIcons.option(named: Self.installedAlternateName)
+@MainActor
+final class UIKitAppIconSystem: AppIconSystem {
+    private static var hasRequestedOrphanReset = false
+
+    var alternateIconName: String? {
+        guard Bundle.main.bundleIdentifier != nil else { return nil }
+        return UIApplication.shared.alternateIconName
     }
 
     var supportsAlternateIcons: Bool {
         Bundle.main.bundleIdentifier != nil && UIApplication.shared.supportsAlternateIcons
     }
 
-    func select(_ option: AppIconOption) async throws {
-        guard option != current else { return }
-        guard supportsAlternateIcons else { throw AppIconError.unsupported }
-        try await UIApplication.shared.setAlternateIconName(option.alternateIconName)
-        current = option
+    func setAlternateIconName(_ name: String?) async throws {
+        try await UIApplication.shared.setAlternateIconName(name)
     }
 
-    private static var installedAlternateName: String? {
-        guard Bundle.main.bundleIdentifier != nil else { return nil }
-        return UIApplication.shared.alternateIconName
+    // The native reset is process-wide; injected systems keep their own launch state.
+    func claimOrphanReset() -> Bool {
+        guard !Self.hasRequestedOrphanReset else { return false }
+        Self.hasRequestedOrphanReset = true
+        return true
+    }
+}
+
+/// Reads and changes the home-screen icon. iOS shows its own confirmation alert after a change.
+@MainActor @Observable
+final class AppIconController {
+    private(set) var isApplying = false
+    private(set) var errorMessage: String?
+    private var installedAlternateName: String?
+    @ObservationIgnored private let system: any AppIconSystem
+    @ObservationIgnored private let enabled: Bool
+    @ObservationIgnored private var desired: AppIconOption?
+    @ObservationIgnored private var generation = UUID()
+    @ObservationIgnored private var applyTask: Task<Void, Error>?
+
+    init(system: any AppIconSystem = UIKitAppIconSystem(), enabled: Bool = true) {
+        self.system = system
+        self.enabled = enabled
+        installedAlternateName = enabled ? system.alternateIconName : nil
+        if hasOrphanedAlternate, supportsAlternateIcons, system.claimOrphanReset() {
+            request(AppIcons.primary)
+        }
+    }
+
+    var current: AppIconOption { AppIcons.option(named: installedAlternateName) }
+    var supportsAlternateIcons: Bool { enabled && system.supportsAlternateIcons }
+
+    func request(_ option: AppIconOption) {
+        desired = option
+        generation = UUID()
+        errorMessage = nil
+        guard enabled, applyTask == nil else { return }
+        installedAlternateName = system.alternateIconName
+        guard option != current || hasOrphanedAlternate else { return }
+        guard supportsAlternateIcons else {
+            errorMessage = AppIconError.unsupported.localizedDescription
+            return
+        }
+        isApplying = true
+        applyTask = Task { @MainActor in try await self.applyLatest() }
+    }
+
+    /// Awaited callers share the queue; a superseded selection reports cancellation.
+    func select(_ option: AppIconOption) async throws {
+        try Task.checkCancellation()
+        request(option)
+        let generation = self.generation
+        guard supportsAlternateIcons else {
+            if option != current || hasOrphanedAlternate { throw AppIconError.unsupported }
+            return
+        }
+        guard let applyTask else { return }
+        let result = await applyTask.result
+        try Task.checkCancellation()
+        guard generation == self.generation else { throw CancellationError() }
+        try result.get()
+    }
+
+    private var hasOrphanedAlternate: Bool {
+        guard let installedAlternateName else { return false }
+        return !AppIcons.isKnown(alternateName: installedAlternateName)
+    }
+
+    private func applyLatest() async throws {
+        defer {
+            applyTask = nil
+            isApplying = false
+        }
+        while let option = desired {
+            guard option != current || hasOrphanedAlternate else { return }
+            guard supportsAlternateIcons else {
+                errorMessage = AppIconError.unsupported.localizedDescription
+                throw AppIconError.unsupported
+            }
+            let generation = self.generation
+            do {
+                // UIKit may finish a change after cancellation, so drain it before applying newer intent.
+                try await system.setAlternateIconName(option.alternateIconName)
+                installedAlternateName = option.alternateIconName
+            } catch {
+                installedAlternateName = system.alternateIconName
+                guard generation == self.generation else { continue }
+                errorMessage = error.localizedDescription
+                throw error
+            }
+            if generation == self.generation { return }
+        }
     }
 }
 

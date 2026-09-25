@@ -163,7 +163,12 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
             XCTAssertNil(external.errorMessage)
             let firstPosition = context.player.position
             context.player.resumePlayback()
-            try await pauseAfterAdvance(context, from: firstPosition)
+            try await PlaybackTestSupport.waitUntil {
+                guard context.player.isPlaying, context.player.position > firstPosition else { return false }
+                context.player.flushListeningProgress()
+                return (rejected.last?.listenedSeconds ?? 0) > 0.5
+            }
+            context.player.pause()
             XCTAssertTrue(context.library.requiresReload)
             XCTAssertEqual(rejected.last?.id, original.id)
             XCTAssertGreaterThan(rejected.last?.listenedSeconds ?? 0, 0.5)
@@ -184,7 +189,12 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
             }
             context.model.updatePreferences { $0.saveListeningHistory = true }
             context.player.resumePlayback()
-            try await pauseAfterAdvance(context, from: position)
+            try await PlaybackTestSupport.waitUntil {
+                guard context.player.isPlaying, context.player.position > position else { return false }
+                context.player.flushListeningProgress()
+                return (context.library.events.first { $0.id != original.id }?.listenedSeconds ?? 0) > 0.5
+            }
+            context.player.pause()
             context.player.flushListeningProgress()
             let restored = LibraryStore(directory: context.directory)
             let fresh = try XCTUnwrap(restored.events.first { $0.id != original.id })
@@ -199,7 +209,7 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
     }
 
     func testRejectedCorruptOrFutureReloadLeavesRealBacklogRetryableAfterRepair() async throws {
-        for invalid in [Data("{broken library".utf8), Data("{\"version\":9999,\"future\":\"keep\"}".utf8)] {
+        for invalid in [Data("{broken library".utf8), Data("{\"version\":\(LibraryPersistence.currentVersion + 1),\"future\":\"keep\"}".utf8)] {
             let context = try makeAudioContext()
             let song = AppModelFixtures.track("failed-reload")
             let installed = try XCTUnwrap(context.player.onListeningProgress)
@@ -277,6 +287,7 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
         let external = LibraryStore(directory: context.directory)
         var preferences = external.preferences
         preferences.languages = [.hindi]
+        preferences.languageNudges[.bengali] = .more
         preferences.appearance = .light
         preferences.accent = .mint
         preferences.homeLayout.setVisible(false, for: .charts)
@@ -292,7 +303,7 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
         external.preferences = preferences
         external.updatePlayback(PlaybackSnapshot(queue: [other], position: 1))
         XCTAssertNil(external.errorMessage)
-        context.library.recordSearch("rejected-before-reload")
+        XCTAssertFalse(context.library.recordSearchSelection(.track(first)))
         XCTAssertTrue(context.library.requiresReload)
 
         XCTAssertEqual(context.model.reloadSavedLibrary(), .reloaded)
@@ -306,6 +317,7 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
         XCTAssertEqual(context.library.playback.originalQueue, snapshot.originalQueue)
         XCTAssertFalse(context.player.isPlaying)
         XCTAssertTrue(context.library.recentSearches.isEmpty)
+        XCTAssertTrue(context.library.recentSearchSelections.isEmpty)
         try await PlaybackTestSupport.waitUntil { !context.player.isUpdatingAudioCacheLimit }
         let usage = try await context.player.audioCacheUsage()
         XCTAssertEqual(usage?.capacityBytes, AudioCacheLimit.mb250.bytes)
@@ -324,58 +336,71 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
 
     func testRecoveryRetiresOldHomeAndArtistWorkAndInvalidatesTheHomeCache() async throws {
         let context = try makeContext()
-        let cached = AppModelFixtures.section("cached")
-        await context.catalog.discoveries.enqueue(.success([cached]))
+        let cached = AppModelFixtures.track("cached")
+        await context.catalog.searches.enqueue(.success(CatalogPage(tracks: [cached])))
         await context.charts.charts.enqueue(.success(AppModelFixtures.chart("cached-chart")))
         await context.model.loadHome()
+        context.model.selectTab(.search)
+        context.model.searchQuery = "Keep this draft"
+        let paths = context.model.navigationPaths
         let oldHome = context.start { await $0.loadHome(force: true) }
-        let oldDiscovery = try await context.catalog.discoveries.request(at: 1)
+        let oldDiscovery = try await context.catalog.searches.request(at: 1)
         let oldChart = try await context.charts.charts.request(at: 1)
         let artist = MusicCollection(id: "UC-recovery-artist", title: "Recovery Artist", kind: .artist)
-        let oldArtist = context.start { await $0.openArtist(ArtistCredit(name: artist.title)) }
-        let lookup = try await context.catalog.searches.request(at: 0)
+        let oldArtist = context.start { await $0.openArtist(ArtistCredit(name: artist.title), searchSource: .result) }
+        let lookup = try await context.catalog.searches.request(at: 2)
+        XCTAssertEqual(oldDiscovery.input.query, "English songs")
+        XCTAssertEqual(lookup.input.filter, .artists)
         let external = LibraryStore(directory: context.directory)
-        external.toggleDislike(cached.tracks[0])
+        external.toggleDislike(cached)
         external.toggleFavorite(AppModelFixtures.track("external-favorite"))
 
         XCTAssertEqual(context.model.reloadSavedLibrary(), .reloaded)
         XCTAssertFalse(context.model.isLoadingHome)
         XCTAssertFalse(context.model.isArtistLookupPending)
-        XCTAssertEqual(context.model.homeSections.map(\.id), [cached.id])
-        XCTAssertTrue(context.model.homeSections.flatMap(\.tracks).isEmpty)
+        XCTAssertTrue(context.model.homeSections.isEmpty, "Reload retires every captured derived language section")
         let currentHome = context.start { await $0.loadHome() }
-        let currentDiscovery = try await context.catalog.discoveries.request(at: 2)
+        let currentDiscovery = try await context.catalog.searches.request(at: 3)
         let currentChart = try await context.charts.charts.request(at: 2)
-        try await context.catalog.discoveries.complete(oldDiscovery, with: .success([AppModelFixtures.section("obsolete")]))
+        try await context.catalog.searches.complete(oldDiscovery, with: .success(CatalogPage(tracks: [AppModelFixtures.track("obsolete")])))
         try await context.charts.charts.complete(oldChart, with: .success(AppModelFixtures.chart("obsolete-chart")))
         try await context.catalog.searches.complete(lookup, with: .success(CatalogPage(collections: [artist])))
         await oldHome.value
         await oldArtist.value
         XCTAssertTrue(context.model.isLoadingHome)
-        XCTAssertTrue(context.model.navigationPaths.isEmpty)
-        XCTAssertEqual(context.model.homeSections.map(\.id), [cached.id])
+        XCTAssertEqual(context.model.navigationPaths, paths)
+        XCTAssertEqual(context.model.searchQuery, "Keep this draft")
+        XCTAssertTrue(context.model.homeSections.isEmpty)
+        XCTAssertTrue(context.library.recentSearchSelections.isEmpty)
 
-        try await context.catalog.discoveries.complete(currentDiscovery, with: .success([AppModelFixtures.section("current")]))
+        let current = AppModelFixtures.track("current")
+        try await context.catalog.searches.complete(currentDiscovery, with: .success(CatalogPage(tracks: [cached, current])))
         try await context.charts.charts.complete(currentChart, with: .success(AppModelFixtures.chart("current-chart")))
         await currentHome.value
-        XCTAssertEqual(context.model.homeSections.map(\.id), ["current"])
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["discovery.language.en"])
+        XCTAssertEqual(context.model.homeSections.first?.tracks, [current], "Fresh generation uses the reloaded dislike state")
         XCTAssertEqual(context.model.charts.map(\.id), ["current-chart"])
         XCTAssertFalse(context.model.isLoadingHome)
+        XCTAssertTrue(context.library.recentSearches.isEmpty)
+        let legacyDiscovery = await context.catalog.discoveries.requests
+        XCTAssertTrue(legacyDiscovery.isEmpty)
     }
 
-    func testRecoveryRetiresMixGenerationEvenWhenDiscoveryLanguagesAreUnchanged() async throws {
+    func testRecoveryRetiresMixGenerationEvenWhenTheLanguageProfileIsUnchanged() async throws {
         let context = try makeContext(generatesMixes: true)
         let seed = context.seedListener(primary: AppModelFixtures.track("recovery-seed"))
+        let profileKey = context.model.listeningLanguageProfile.requestKey
         let mix = try XCTUnwrap(context.model.refreshMixes())
-        let radios = [try await context.catalog.radios.request(at: 0), try await context.catalog.radios.request(at: 1)]
+        let radios = [try await context.catalog.autoplayRadios.request(at: 0), try await context.catalog.autoplayRadios.request(at: 1)]
         let artist = try await context.catalog.artists.request(at: 0)
         let external = LibraryStore(directory: context.directory)
         external.toggleFavorite(seed)
 
         XCTAssertEqual(context.model.reloadSavedLibrary(), .reloaded)
         XCTAssertFalse(context.model.isGeneratingMixes)
+        XCTAssertEqual(context.model.listeningLanguageProfile.requestKey, profileKey)
         let candidates = (0..<12).map { RecommendationFixtures.track("obsolete-\($0)", artist: "Artist \($0)", language: .english) }
-        for request in radios { try await context.catalog.radios.complete(request, with: .success(candidates)) }
+        for request in radios { try await context.catalog.autoplayRadios.complete(request, with: .success(candidates)) }
         try await context.catalog.artists.complete(artist, with: .success(context.artistPage(artist.input, songs: candidates)))
         await mix.value
         XCTAssertTrue(context.library.mixes.isEmpty)
@@ -384,6 +409,8 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
         retry.cancel()
         await retry.value
         XCTAssertFalse(context.model.isGeneratingMixes)
+        let targeted = await context.catalog.radios.requests
+        XCTAssertTrue(targeted.isEmpty)
     }
 
     func testRecoveryCancelsPendingRadioWithoutReplacingTheActiveStation() async throws {
@@ -426,6 +453,7 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
         await replacement.value
         XCTAssertFalse(context.model.isLoadingRadio)
         XCTAssertEqual(context.model.activeRadioExperience, f.gym)
+        XCTAssertTrue(context.library.recentSearchSelections.isEmpty)
     }
 
     func testReleaseChecksHonorReloadedAlertPreferencesAndPendingDeliveries() async throws {
@@ -610,6 +638,59 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
         XCTAssertTrue(context.player.queue.isEmpty)
         XCTAssertEqual(context.player.position, 0)
         XCTAssertTrue(LibraryStore(directory: context.directory).playback.queue.isEmpty)
+    }
+
+    func testMalformedTypedHistoryAndFutureVersionsFailClosedWithoutReplacingSearchOrPlayback() async throws {
+        let song = AppModelFixtures.track("live-selection")
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [song], position: 42))
+        let album = MusicCollection(id: "saved-result", title: "Saved result", kind: .album)
+        XCTAssertTrue(context.library.recordSearchSelection(.collection(album)))
+        context.library.recordSearch("Legacy history")
+        context.model.selectTab(.search)
+        await context.seedSearch(CatalogPage(collections: [album]), query: "Keep this draft", filter: .albums)
+        let file = context.directory.appendingPathComponent(LibraryPersistence.fileName)
+        let original = try Data(contentsOf: file)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? [String: Any])
+        XCTAssertEqual(object["version"] as? Int, 3)
+        let journal = try XCTUnwrap(object["syncState"] as? [String: Any])
+        XCTAssertEqual(journal["version"] as? Int, 2)
+        let reset = context.library.searchHistoryResetRevision
+        var malformed = object
+        malformed["recentSearchSelections"] = "not a destination list"
+        var futureStore = object
+        futureStore["version"] = 4
+        var futureJournal = object
+        var nextJournal = journal
+        nextJournal["version"] = 3
+        futureJournal["syncState"] = nextJournal
+
+        for invalid in [malformed, futureStore, futureJournal] {
+            let bytes = try JSONSerialization.data(withJSONObject: invalid, options: .sortedKeys)
+            try bytes.write(to: file, options: .atomic)
+            XCTAssertEqual(context.model.reloadSavedLibrary(), .failed)
+            XCTAssertTrue(context.library.requiresReload)
+            XCTAssertTrue(context.library.hasLoadedDocument)
+            XCTAssertEqual(context.library.recentSearchSelections, [.collection(album)])
+            XCTAssertEqual(context.library.recentSearches, ["Legacy history"])
+            XCTAssertEqual(context.library.searchHistoryResetRevision, reset)
+            XCTAssertEqual(context.player.queue, [song])
+            XCTAssertEqual(context.player.position, 42)
+            XCTAssertFalse(context.player.isPlaying)
+            XCTAssertEqual(context.model.searchQuery, "Keep this draft")
+            XCTAssertEqual(context.model.searchPage.collections, [album])
+            context.model.clearRecentSearchSelections()
+            XCTAssertEqual(context.library.recentSearchSelections, [.collection(album)])
+            XCTAssertEqual(try Data(contentsOf: file), bytes)
+
+            try original.write(to: file, options: .atomic)
+            XCTAssertEqual(context.model.reloadSavedLibrary(), .reloaded)
+            XCTAssertFalse(context.library.requiresReload)
+            XCTAssertEqual(context.library.recentSearchSelections, [.collection(album)])
+            XCTAssertEqual(context.player.queue, [song])
+            XCTAssertEqual(context.player.position, 42)
+            XCTAssertEqual(context.model.searchQuery, "Keep this draft")
+            XCTAssertNil(context.library.errorMessage)
+        }
     }
 
     private func makeFailedInitialLoad(snapshot: PlaybackSnapshot, saveListeningHistory: Bool = true,

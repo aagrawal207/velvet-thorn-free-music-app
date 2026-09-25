@@ -40,6 +40,21 @@ struct AppNavigationLink<Destination: View, Label: View>: View {
     var body: some View {
         // A native selection binding covers activation and Back outside the root's typed collection path.
         NavigationLink(destination: destination, isActive: selection) { label }
+            .onChange(of: resetGeneration) { _, _ in
+                guard isActive else { return }
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                $isActive.transaction(transaction).wrappedValue = false
+                activationTab = nil
+            }
+    }
+
+    private var resetGeneration: UUID? {
+        switch activationTab ?? model.selectedTab {
+        case .search: model.searchRootGeneration
+        case .library: model.libraryRootGeneration
+        default: nil
+        }
     }
 
     private var selection: Binding<Bool> {

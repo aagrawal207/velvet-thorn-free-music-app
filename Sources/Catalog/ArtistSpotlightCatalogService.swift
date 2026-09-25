@@ -19,6 +19,7 @@ struct ArtistSpotlightCatalogService: Sendable {
 
     struct Outcome: Sendable {
         let tracks: [Track]
+        let candidates: [Track]
         let hadFailures: Bool
     }
 
@@ -40,43 +41,62 @@ struct ArtistSpotlightCatalogService: Sendable {
     var configuration = Configuration()
     var now: @Sendable () -> Date = { Date() }
 
+    // A single trailing closure observes display rows; raw snapshots require both labelled callbacks.
     func load(_ artist: ArtistPage,
               onUpdate: @escaping @Sendable ([Track]) async -> Void = { _ in }) async throws -> Outcome {
+        try await load(artist, onCandidates: { _ in }, onUpdate: onUpdate)
+    }
+
+    func load(_ artist: ArtistPage, onCandidates: @escaping @Sendable ([Track]) async -> Void,
+              onUpdate: @escaping @Sendable ([Track]) async -> Void) async throws -> Outcome {
         try Task.checkCancellation()
         let started = now()
         let deadline = started.addingTimeInterval(configuration.totalTimeout)
         let initial = ArtistSpotlight.mergedTracks(artist.topSongs)
-        let trackLimit = initial.count + max(0, configuration.maximumAdditionalTracks)
-        var tracks = initial
+        let additionalLimit = max(0, configuration.maximumAdditionalTracks)
+        // The existing song and request budgets bound retained aliases, including aliases of a full listing.
+        let requestBudget = max(0, configuration.maximumArtistSearchPages) + max(0, configuration.maximumAlbumRequests)
+        let candidateLimit = initial.count + (initial.count + additionalLimit) * requestBudget
+        var candidates = initial
+        func display(_ candidates: [Track]) -> ArtistSpotlight.SongDisplay {
+            ArtistSpotlight.displaySongs(candidates, artist: artist, maximumAdditionalTracks: additionalLimit)
+        }
+        func publish(_ candidates: [Track]) async {
+            await onCandidates(candidates)
+            await onUpdate(ArtistSpotlight.sorted(display(candidates).tracks))
+        }
         var hadFailures = false
-        var usedSupplement = false
+        var usedAlbumFallback = false
+        var searchPages = 0
         var countSearches = 0
-        await onUpdate(ArtistSpotlight.sorted(tracks))
+        await publish(candidates)
 
         do {
-            if let artistName = CatalogText.clean(artist.name), tracks.count < configuration.minimumSongCount {
+            // The provider's artist listing omits songs that credit the artist after another performer, so the
+            // bounded search runs even for a full listing; only the album fallback waits for a sparse one.
+            if let artistName = CatalogText.clean(artist.name) {
                 var cursor: String?
                 var visited = Set<String>()
                 for _ in 0..<max(0, configuration.maximumArtistSearchPages) {
-                    guard tracks.count < configuration.minimumSongCount, now() < deadline else { break }
-                    usedSupplement = true
+                    guard now() < deadline else { break }
+                    searchPages += 1
                     guard let page = try await response(to: .artistSongs(artistName, continuation: cursor), deadline: deadline) else {
                         hadFailures = true
                         break
                     }
-                    tracks = supplement(tracks, with: page.tracks, artist: artist, limit: trackLimit)
+                    candidates = supplement(candidates, with: page.tracks, artist: artist, limit: candidateLimit)
                     try Task.checkCancellation()
-                    await onUpdate(ArtistSpotlight.sorted(tracks))
+                    await publish(candidates)
                     guard let next = page.continuation, visited.insert(next).inserted else { break }
                     cursor = next
                 }
             }
 
-            if tracks.count < configuration.minimumSongCount, now() < deadline {
+            if display(candidates).tracks.count < configuration.minimumSongCount, now() < deadline {
                 let albums = Array(CatalogText.uniqueCollections(artist.releases.filter { $0.kind == .album })
                     .prefix(max(0, configuration.maximumAlbumRequests)))
-                usedSupplement = usedSupplement || !albums.isEmpty
-                let base = tracks
+                usedAlbumFallback = !albums.isEmpty
+                let base = candidates
                 try await withThrowingTaskGroup(of: (Int, CatalogPage?).self) { group in
                     var pages: [Int: [Track]] = [:]
                     var next = min(albums.count, concurrency)
@@ -85,12 +105,12 @@ struct ArtistSpotlightCatalogService: Sendable {
                     }
                     while let (index, page) = try await group.next() {
                         try Task.checkCancellation()
-                        if let page { pages[index] = page.tracks }
+                        if let page { pages[index] = supplement(base, with: page.tracks, artist: artist, limit: candidateLimit) }
                         else { hadFailures = true }
                         let ordered = pages.keys.sorted().flatMap { pages[$0] ?? [] }
-                        tracks = supplement(base, with: ordered, artist: artist, limit: trackLimit)
-                        await onUpdate(ArtistSpotlight.sorted(tracks))
-                        if next < albums.count, tracks.count < configuration.minimumSongCount, now() < deadline {
+                        candidates = supplement(base, with: ordered, artist: artist, limit: candidateLimit)
+                        await publish(candidates)
+                        if next < albums.count, display(candidates).tracks.count < configuration.minimumSongCount, now() < deadline {
                             let index = next
                             next += 1
                             group.addTask { (index, try await response(to: .album(albums[index].id), deadline: deadline)) }
@@ -101,7 +121,7 @@ struct ArtistSpotlightCatalogService: Sendable {
 
             // The listing's count wins. Search only fills missing counts on the exact provider ID,
             // with title and artist checks so covers, clips, and translated recordings cannot lend counts.
-            let missing = Array(tracks.filter { ArtistSpotlight.availableCount($0) == nil }
+            let missing = Array(display(candidates).tracks.filter { ArtistSpotlight.availableCount($0) == nil }
                 .prefix(max(0, configuration.maximumCountSearches)))
             if CatalogText.clean(artist.name) != nil, now() < deadline {
                 try await withThrowingTaskGroup(of: (Int, CatalogPage?).self) { group in
@@ -115,9 +135,9 @@ struct ArtistSpotlightCatalogService: Sendable {
                         let original = missing[index]
                         if let page {
                             if let count = ArtistSpotlight.matchingCount(for: original, in: page.tracks, artist: artist),
-                               let position = tracks.firstIndex(where: { $0.id == original.id }) {
-                                tracks[position].playCount = count
-                                await onUpdate(ArtistSpotlight.sorted(tracks))
+                               let position = candidates.firstIndex(where: { $0.id == original.id }) {
+                                candidates[position].playCount = count
+                                await publish(candidates)
                             }
                         } else { hadFailures = true }
                         if next < missing.count, now() < deadline {
@@ -135,11 +155,12 @@ struct ArtistSpotlightCatalogService: Sendable {
             throw error
         }
 
-        let ordered = ArtistSpotlight.sorted(tracks)
+        let finalDisplay = display(candidates)
+        let ordered = ArtistSpotlight.sorted(finalDisplay.tracks)
         let knownCounts = ordered.filter { ArtistSpotlight.availableCount($0) != nil }.count
         let milliseconds = Int(max(0, now().timeIntervalSince(started)) * 1_000)
-        ArtistSpotlightDiagnostics.logger.info("catalogSuccess=\(hadFailures ? 0 : 1) catalogFailure=\(hadFailures ? 1 : 0) catalogCancelled=0 fallbackUsed=\(usedSupplement ? 1 : 0) countSearches=\(countSearches) knownCounts=\(knownCounts) songs=\(ordered.count) latencyMs=\(milliseconds)")
-        return Outcome(tracks: ordered, hadFailures: hadFailures)
+        ArtistSpotlightDiagnostics.logger.info("catalogSuccess=\(hadFailures ? 0 : 1) catalogFailure=\(hadFailures ? 1 : 0) catalogCancelled=0 searchPages=\(searchPages) fallbackUsed=\(usedAlbumFallback ? 1 : 0) countSearches=\(countSearches) knownCounts=\(knownCounts) songs=\(ordered.count) displayAliases=\(finalDisplay.aliasCount) latencyMs=\(milliseconds)")
+        return Outcome(tracks: ordered, candidates: candidates, hadFailures: hadFailures)
     }
 
     private var concurrency: Int { min(3, max(1, configuration.maximumConcurrentRequests)) }
@@ -148,15 +169,24 @@ struct ArtistSpotlightCatalogService: Sendable {
         "\(LyricsMatcher.cleanTitle(track.title, artists: track.artists)) \(artist.name)"
     }
 
+    // Retain source recordings rather than display winners so later pages can reconsider every release.
     private func supplement(_ tracks: [Track], with candidates: [Track], artist: ArtistPage, limit: Int) -> [Track] {
         let existing = Dictionary(uniqueKeysWithValues: tracks.map { ($0.id, $0) })
-        let matching = candidates.filter { ArtistSpotlight.credits(artist, on: $0) }.map { candidate in
+        var retainedIDs = Set(existing.keys)
+        let matching = candidates.filter {
+            guard ArtistSpotlight.credits(artist, on: $0), $0.isAudioRecording != false,
+                  CatalogText.clean($0.id) != nil, CatalogText.clean($0.title) != nil else { return false }
+            if retainedIDs.contains($0.id) { return true }
+            guard retainedIDs.count < limit else { return false }
+            retainedIDs.insert($0.id)
+            return true
+        }.map { candidate in
             guard let original = existing[candidate.id], ArtistSpotlight.availableCount(original) == nil else { return candidate }
             var checked = candidate
             checked.playCount = ArtistSpotlight.matchingCount(for: original, in: [candidate], artist: artist)
             return checked
         }
-        return Array(ArtistSpotlight.mergedTracks(tracks + matching).prefix(limit))
+        return ArtistSpotlight.mergedTracks(tracks + matching)
     }
 
     private func response(to request: Request, deadline: Date) async throws -> CatalogPage? {

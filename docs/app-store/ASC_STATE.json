@@ -1,0 +1,144 @@
+{
+  "appId": "6815025307",
+  "name": "Breezy - Stream Music & Chill",
+  "bundleId": "com.agraabhi.ganabajana",
+  "sku": "BREEZY-IOS",
+  "teamId": "W2NS9DM63G",
+  "primaryLocale": "en-US",
+  "appInfoId": "49ab6f45-a195-4a95-9381-d9d61ae78108",
+  "versionId": "2754a299-5b46-4e62-8f79-8bf80c6078d5",
+  "platform": "IOS",
+  "versionLocalizationId": "508731a4-a244-4991-acaa-9dce56243aad",
+  "appInfoLocalizationId": "2c021bb1-6f25-4115-ac51-278720f7e3ba",
+  "version": "1.0.0",
+  "localBuildNumber": "5",
+  "versionState": "PREPARE_FOR_SUBMISSION",
+  "releaseType": "AFTER_APPROVAL",
+  "buildId": "42a08cec-1e27-4ec2-afad-4e3e88af27e3",
+  "buildProcessingState": "VALID",
+  "buildAudienceType": "APP_STORE_ELIGIBLE",
+  "buildAttached": true,
+  "uploadId": "42a08cec-1e27-4ec2-afad-4e3e88af27e3",
+  "uploadFileId": "6a72d07e-cd2b-48e4-98b0-123a5f495543",
+  "reviewDetailId": "d4b2f115-ac13-46c4-8c98-848b3fdefce0",
+  "reviewContactVerified": true,
+  "reviewNotesCharacters": 3914,
+  "reviewNotesReceipt": "artifacts/AppStore-1.0.0-5/review-1790309749262953000/summary.json",
+  "demoAccountRequired": false,
+  "submissionId": "43569019-e4a2-4875-9fa1-c79b72716763",
+  "submissionState": "READY_FOR_REVIEW",
+  "submissionItemCount": 0,
+  "submitted": false,
+  "setupStatus": "REVIEW_ATTEMPT_BLOCKED_REQUIRED_DECLARATIONS",
+  "reviewAttemptReceipt": "artifacts/AppStore-1.0.0-5/submit-1790220849624895000/summary.json",
+  "ipa": {
+    "path": "artifacts/AppStore-1.0.0-5/Breezy-1.0.0-5.ipa",
+    "bytes": 15358007,
+    "sha256": "8593026f58d070a74df1cf93e48a54b9678e270e796baa48c0ca79de7746b4a0",
+    "md5": "7017f372367b022a009116c7b56320b0",
+    "appleValidation": "PASSED",
+    "remoteFileChecksumMatches": true
+  },
+  "pricing": {
+    "isFree": true,
+    "baseTerritory": "USA",
+    "availableTerritories": 175,
+    "availableInNewTerritories": true
+  },
+  "screenshots": [
+    {
+      "displayType": "APP_IPHONE_67",
+      "setId": "d9872aa7-edc0-4270-838e-67e4c6612f11",
+      "count": 6,
+      "manifest": "artifacts/StoreScreenshots-20260924/readback-1790286580768511000/iphone-assets.json"
+    },
+    {
+      "displayType": "APP_IPAD_PRO_3GEN_129",
+      "setId": "04f98da0-1649-4069-9642-2d341cacdc20",
+      "count": 6,
+      "manifest": "artifacts/StoreScreenshots-20260924/readback-1790286580768511000/ipad-assets.json"
+    },
+    {
+      "displayType": "APP_WATCH_SERIES_4",
+      "setId": "9df6d109-2f9b-4a19-9d47-2d66b38b516a",
+      "count": 2,
+      "manifest": "artifacts/AppStore-1.0.0-3/watch-assets.json"
+    }
+  ],
+  "screenshotDelivery": "COMPLETE_ORDERED_CHECKSUMS_VERIFIED",
+  "phoneAndIPadScreenshotSource": {
+    "captureDirectory": "artifacts/StoreScreenshots-20260924/",
+    "version": "1.0.0",
+    "debugBuildLabel": "5",
+    "sourceState": "POST_BUILD_5_WORKING_TREE_INCLUDING_R10",
+    "requiresMatchingNewBuildBeforeReview": true,
+    "screenOrder": ["Home", "Player", "Album", "Artist", "Recap", "Liked songs"],
+    "contentSource": "Live catalog and actual saved listening; no seeded media or history"
+  },
+  "iapReadyToSubmit": 5,
+  "iapManifest": "docs/app-store/IAP_MANIFEST.json",
+  "publicPagesRevision": "e84b3f6fba4d81425f5609196dc12fd59506a4ef",
+  "deliveryReadback": "artifacts/AppStore-1.0.0-5/readback-1790220802087226000/summary.json",
+  "readback": "artifacts/StoreScreenshots-20260924/readback-1790286580768511000/summary.json",
+  "finalRecordAudit": "artifacts/AppStore-1.0.0-5/final-record-audit.json",
+  "reviewQuestionComparison": "artifacts/AppStore-1.0.0-5/questionnaire-comparison-1790252213014504000/summary.json",
+  "ageRatingPreparation": {
+    "manifest": "docs/app-store/AGE_RATING_ANSWERS.json",
+    "status": "BLOCKED_INITIAL_QUESTIONNAIRE_INCOMPLETE",
+    "preparedFieldCount": 14,
+    "savedFieldCount": 0,
+    "unassessedContentFieldCount": 10,
+    "attemptReceipt": "artifacts/AppStore-1.0.0-5/age-rating-confirmed-1790252246811509000/summary.json"
+  },
+  "reviewQuestionAuthentication": "artifacts/AppStore-1.0.0-5/review-question-auth-20260924.json",
+  "reviewQuestionFollowup": "artifacts/AppStore-1.0.0-5/review-questions-20260924.json",
+  "authorizationFollowup": {
+    "routingIssue": "https://issuetracker.google.com/issues/565837697",
+    "routingReceipt": "artifacts/YouTube-authorization/intake-routing-20260924/posted.json",
+    "preparedApplication": "artifacts/Authorization-20260925/google-application-draft.json",
+    "summary": "artifacts/Authorization-20260925/summary.json",
+    "providerInquiries": "artifacts/Authorization-20260925/provider-inquiries.json",
+    "productPermissionGranted": false,
+    "agreementsReceipt": "artifacts/Authorization-20260925/agreements.json",
+    "librarySourcePublication": "artifacts/Authorization-20260925/ffmpeg-publication.json",
+    "reviewNotesReceipt": "artifacts/AppStore-1.0.0-5/review-1790309749262953000/summary.json",
+    "recipientApplicationRelinkingVerified": false
+  },
+  "appPrivacyDraft": {
+    "record": "docs/app-store/PRIVACY_DRAFT.json",
+    "receipt": "artifacts/AppStore-1.0.0-5/privacy-draft-20260924.json",
+    "status": "DATA_TYPES_SAVED_SETUP_INCOMPLETE",
+    "dataTypes": ["Search History", "User ID", "Product Interaction"],
+    "browserAuthenticationVerified": true,
+    "browserReloadVerified": true,
+    "published": false
+  },
+  "readiness": {
+    "errors": 25,
+    "warnings": 6,
+    "missingAgeRatingFields": 24,
+    "serverMissingAgeRatingFields": 22,
+    "contentRightsDeclaration": "UNSET_AUTHORIZATION_ABSENT",
+    "appPrivacyPublication": "DRAFT_SETUP_INCOMPLETE_BROWSER_VERIFIED",
+    "agreements": "FREE_AND_PAID_ACTIVE_VERIFIED_IN_BROWSER_2026_09_25",
+    "report": "artifacts/Authorization-20260925/asc-readiness.json"
+  },
+  "previousDelivery": {
+    "version": "1.0.0",
+    "buildNumber": "4",
+    "buildId": "0e257a65-ec5d-47ac-ba00-d39e470caab6",
+    "artifactDirectory": "artifacts/AppStore-1.0.0-4/",
+    "readback": "artifacts/AppStore-1.0.0-4/final-readback-1790209733641079000/summary.json"
+  },
+  "earlierDelivery": {
+    "version": "1.0.0",
+    "buildNumber": "3",
+    "buildId": "567a0b14-bbc9-43d1-92a8-4ba99764f8de",
+    "artifactDirectory": "artifacts/AppStore-1.0.0-3/",
+    "readback": "artifacts/AppStore-1.0.0-3/store-final-readback-1790128322101863000/summary.json"
+  },
+  "submissionHolds": [
+    "CONTENT_PROVIDER_AUTHORIZATION",
+    "FFMPEG_RECIPIENT_SOURCE_AND_RELINK_DELIVERY"
+  ]
+}

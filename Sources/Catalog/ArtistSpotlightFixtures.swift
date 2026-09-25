@@ -5,12 +5,15 @@ import Foundation
 // DebugBootstrap can select this provider for both catalog and lyrics with --artist-spotlight-fixture.
 enum ArtistSpotlightFixtures {
     static let artist = ArtistCredit(name: "A. R. Rahman", id: "UCfixtureARRahman0000001")
+    static let guest = ArtistCredit(name: "Spotlight Fixture Guest", id: "UCfixtureSpotlightGuest01")
     static let hindiID = "fixture.spotlight.hindi"
     static let secondHindiID = "fixture.spotlight.hindi.second"
     static let tamilID = "fixture.spotlight.tamil"
     static let teluguID = "fixture.spotlight.telugu"
     static let englishID = "fixture.spotlight.english"
     static let unknownID = "fixture.spotlight.unknown"
+    static let featuredID = "fixture.spotlight.featured"
+    static let featuredClauseID = "fixture.spotlight.featured.clause"
 
     static let hindiText = """
     सुबह की हल्की हवा हमारे छोटे घर की खिड़की से भीतर आती है। आकाश में बादल धीरे धीरे चलते हैं और बच्चे खुले मैदान में खेलते हैं।
@@ -38,6 +41,15 @@ enum ArtistSpotlightFixtures {
          track(secondHindiID, "River Lights", count: 400), track(teluguID, "Evening Courtyard", count: 600),
          track(hindiID, "Morning Windows", count: 800), track(tamilID, "Garden Paths", count: 1_200)]
             + (0..<14).map { track("fixture.spotlight.extra.\($0)", "Unclassified recording \($0 + 1)", count: Int64(100 - $0)) }
+    }
+
+    /// Only the songs search returns these: one linked second credit and one title feature clause, so the
+    /// artist page's collaborations section and the spotlight's role handling have real rows to show.
+    static var collaborations: [Track] {
+        [Track(id: featuredID, title: "Harbour Duet", credits: [guest, artist], albumTitle: "Synthetic spotlight collaborations",
+               duration: 240, isAudioRecording: true, playCount: 950),
+         Track(id: featuredClauseID, title: "Night Train (feat. A. R. Rahman)", credits: [guest],
+               albumTitle: "Synthetic spotlight collaborations", duration: 240, isAudioRecording: true, playCount: 300)]
     }
 
     static var page: ArtistPage {
@@ -70,7 +82,8 @@ struct ArtistSpotlightFixtureProvider: MusicCatalogProviding, LyricsProviding {
         let key = SearchRelevance.normalize(query)
         if key == SearchRelevance.normalize(ArtistSpotlightFixtures.artist.name) {
             if filter == .songs {
-                return CatalogPage(tracks: ArtistSpotlightFixtures.tracks, featuredArtist: ArtistSpotlightFixtures.artist.collection)
+                return CatalogPage(tracks: ArtistSpotlightFixtures.tracks + ArtistSpotlightFixtures.collaborations,
+                                   featuredArtist: ArtistSpotlightFixtures.artist.collection)
             }
             if filter == .artists { return CatalogPage(collections: [ArtistSpotlightFixtures.artist.collection!]) }
         }

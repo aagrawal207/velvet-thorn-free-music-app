@@ -304,12 +304,12 @@ final class CatalogServiceTests: XCTestCase {
 
         let album = try await service.browse(id: CatalogFixtures.albumID)
         XCTAssertEqual(album.tracks.map(\.id), [CatalogFixtures.hindiID, CatalogFixtures.englishID])
-        XCTAssertEqual(album.tracks.map(\.playCount), [1_200_000_000, 845_000], "The parsed count wins; get_queue only fills a gap")
+        XCTAssertEqual(album.tracks.map(\.playCount), [1_200_000_000, nil], "Upload views cannot fill a missing song total")
         XCTAssertEqual(album.tracks.map(\.duration), [202, 202], "Durations still come from get_queue")
 
         let search = try await service.search(query: "Tum Hi Ho", filter: .songs, continuation: nil)
         XCTAssertEqual(search.tracks.map(\.id), [CatalogFixtures.hindiID, CatalogFixtures.englishID])
-        XCTAssertEqual(search.tracks.map(\.playCount), [1_200_000_000, 845_000], "Rescued rows carry the queue's count")
+        XCTAssertEqual(search.tracks.map(\.playCount), [1_200_000_000, nil], "Rescuing a row must not relabel queue views as song plays")
     }
 
     func testHeaderlessAlbumContinuationInheritsCreditsTitleAndArtworkWithoutADurationLookup() async throws {

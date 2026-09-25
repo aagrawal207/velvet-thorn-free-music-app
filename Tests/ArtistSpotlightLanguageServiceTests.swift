@@ -3,6 +3,104 @@ import XCTest
 
 @MainActor
 final class ArtistSpotlightLanguageServiceTests: XCTestCase {
+    func testAStalledLyricsSourceDoesNotDiscardUsableWorkMetadata() async throws {
+        let provider = ArtistSpotlightLyricsFixture()
+        addTeardownBlock { await provider.requests.close() }
+        var configuration = ArtistSpotlightLanguageService.Configuration()
+        configuration.lookupTimeout = 1
+        configuration.sourceTimeout = 0.05
+        let work = ArtistSongLanguageResult.identified(.english, source: .musicBrainzWork(
+            recordingID: ArtistSpotlightMusicBrainzFixtures.recordingID, workID: ArtistSpotlightMusicBrainzFixtures.workID))
+        let service = ArtistSpotlightLanguageService(provider: provider, configuration: configuration, metadataLookup: { _ in work })
+        let result = try await service.classification(for: ArtistSpotlightTestSupport.track("lyrics-timeout"))
+        XCTAssertEqual(result, work)
+        let activity = await service.activity
+        XCTAssertEqual(activity.activeLookups, 0)
+        XCTAssertEqual(activity.cachedRecordings, 1)
+    }
+
+    func testAStalledMetadataSourceDoesNotDiscardMatchedEnglishRapLyrics() async throws {
+        let provider = ArtistSpotlightLyricsFixture()
+        addTeardownBlock { await provider.requests.close() }
+        let track = ArtistSpotlightTestSupport.track("metadata-timeout")
+        await provider.requests.enqueue(.success(ArtistSpotlightTestSupport.document(track, text: ArtistSpotlightTestSupport.englishRapText)))
+        var configuration = ArtistSpotlightLanguageService.Configuration()
+        configuration.lookupTimeout = 1
+        configuration.sourceTimeout = 0.05
+        let service = ArtistSpotlightLanguageService(provider: provider, configuration: configuration, hypotheses: { _ in ["en": 0.99] },
+            metadataLookup: { _ in
+                try await Task.sleep(for: .seconds(30))
+                return nil
+            })
+        let result = try await service.classification(for: track)
+        XCTAssertEqual(result, .identified(.english, source: .matchedLyrics))
+    }
+
+    func testBilingualLyricsRemainAConfirmedConflictWhenMetadataFailsAndUseNegativeCache() async throws {
+        let clock = LyricsTestClock()
+        let provider = ArtistSpotlightLyricsFixture()
+        addTeardownBlock { await provider.requests.close() }
+        let track = ArtistSpotlightTestSupport.track("conflict-cache")
+        let document = ArtistSpotlightTestSupport.document(track,
+            text: ArtistSpotlightTestSupport.englishRockText + "\n" + ArtistSpotlightFixtures.hindiText)
+        await provider.requests.enqueue(.success(document))
+        var configuration = ArtistSpotlightLanguageService.Configuration()
+        configuration.negativeLifetime = 10
+        let service = ArtistSpotlightLanguageService(provider: provider, configuration: configuration,
+            hypotheses: { text in
+                text.unicodeScalars.contains { (0x0900...0x097F).contains($0.value) } ? ["hi": 0.99] : ["en": 0.99]
+            }, now: { clock.now() }, metadataLookup: { _ in throw MusicServiceError.network("Synthetic metadata failure") })
+        let result = try await service.classification(for: track)
+        XCTAssertEqual(result, .unclassified(.conflictingEvidence))
+        _ = try await service.classification(for: track)
+        let cachedRequests = await provider.requests.requests.count
+        XCTAssertEqual(cachedRequests, 1)
+        clock.advance(11)
+        await provider.requests.enqueue(.success(document))
+        let retried = try await service.classification(for: track)
+        XCTAssertEqual(retried, result)
+        let requests = await provider.requests.requests.count
+        XCTAssertEqual(requests, 2)
+    }
+
+    func testExplicitMixedWorkCannotBeOverriddenByEnglishLyrics() async throws {
+        let provider = ArtistSpotlightLyricsFixture()
+        addTeardownBlock { await provider.requests.close() }
+        let track = ArtistSpotlightTestSupport.track("mixed-work")
+        await provider.requests.enqueue(.success(ArtistSpotlightTestSupport.document(track)))
+        let service = ArtistSpotlightLanguageService(provider: provider, hypotheses: { _ in ["en": 0.99] },
+                                                    metadataLookup: { _ in .unclassified(.conflictingEvidence) })
+        let result = try await service.classification(for: track)
+        XCTAssertEqual(result, .unclassified(.conflictingEvidence))
+        XCTAssertNil(result.language)
+    }
+
+    func testLastWaiterCancellationRetiresBothSourcesWithoutCachingTheirLateResults() async throws {
+        let provider = ArtistSpotlightLyricsFixture()
+        addTeardownBlock { await provider.requests.close() }
+        let events = CatalogTestRecorder<String>()
+        let track = ArtistSpotlightTestSupport.track("cancel-both-sources")
+        let service = ArtistSpotlightLanguageService(provider: provider, metadataLookup: { _ in
+            events.record("started")
+            return try await withTaskCancellationHandler {
+                try await Task.sleep(for: .seconds(30))
+                return .identified(.english, source: .musicBrainzWork(recordingID: "recording", workID: "work"))
+            } onCancel: { events.record("cancelled") }
+        })
+        let pending = Task { try await service.classification(for: track) }
+        let lyrics = try await provider.requests.request(at: 0)
+        try await AppModelFixtures.eventually { events.values.contains("started") }
+        pending.cancel()
+        do { _ = try await pending.value; XCTFail("Expected cancellation") }
+        catch is CancellationError { }
+        try await AppModelFixtures.eventually { events.values.contains("cancelled") }
+        try await provider.requests.complete(lyrics, with: .success(ArtistSpotlightTestSupport.document(track)))
+        let activity = await service.activity
+        XCTAssertEqual(activity.activeLookups, 0)
+        XCTAssertEqual(activity.waitingCallers, 0)
+        XCTAssertEqual(activity.cachedRecordings, 0)
+    }
+
     func testRecordingMetadataSkipsLyricsAndUnknownDoesNotInheritIt() async throws {
         let provider = ArtistSpotlightLyricsFixture()
         addTeardownBlock { await provider.requests.close() }

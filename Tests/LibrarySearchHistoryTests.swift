@@ -4,16 +4,19 @@ import XCTest
 
 @MainActor
 final class LibrarySearchHistoryTests: XCTestCase {
-    func testEmptyQueriesDoNotCreateAStore() throws {
+    func testEmptyQueriesDoNotCreateAStoreButAnExplicitClearPersistsASyncBoundary() throws {
         try withLibraryTestDirectory { directory in
             let store = LibraryStore(directory: directory)
             for query in ["", " ", "\n\t "] { store.recordSearch(query) }
             store.removeRecentSearch("missing")
-            store.clearRecentSearches()
             XCTAssertTrue(store.recentSearches.isEmpty)
             XCTAssertEqual(store.storageBytes, 0)
             XCTAssertNil(store.errorMessage)
             XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+            store.clearRecentSearches()
+            XCTAssertNotNil(try store.cloudReplica(replicaID: UUID()).state.searchReset)
+            XCTAssertTrue(store.recentSearches.isEmpty)
+            XCTAssertGreaterThan(store.storageBytes, 0)
         }
     }
 

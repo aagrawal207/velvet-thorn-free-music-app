@@ -5,13 +5,13 @@ import UIKit
 struct HomeView: View {
     @Environment(MusicAppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isVisible = false
 
     var body: some View {
         GeometryReader { geometry in
-            let width = geometry.size.width.isFinite ? min(max(0, geometry.size.width), 760) : 0
-            let cardSize = dynamicTypeSize.isAccessibilitySize ? 200 : min(150, max(124, width * 0.36))
-            let tileSize = dynamicTypeSize.isAccessibilitySize ? max(0, width - 40) : min(230, max(140, (width - 54) / 2))
+            let metrics = HomeShelfMetrics(containerWidth: geometry.size.width, sizeClass: horizontalSizeClass,
+                                           isAccessibilitySize: dynamicTypeSize.isAccessibilitySize)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 30) {
@@ -21,7 +21,7 @@ struct HomeView: View {
                     ForEach(visibleHomeSections) { section in
                         if hasContent(for: section) {
                             VStack(alignment: .leading, spacing: 30) {
-                                homeSection(section, cardSize: cardSize, tileSize: tileSize)
+                                homeSection(section, metrics: metrics)
                             }
                             .accessibilityElement(children: .contain)
                             .accessibilityIdentifier("home.group.\(section.rawValue)")
@@ -29,22 +29,11 @@ struct HomeView: View {
                     }
 
                     if visibleHomeSections.isEmpty {
-                        VStack(spacing: 16) {
-                            EmptyStateView(symbol: "square.grid.2x2", title: "Make Home your own",
-                                           message: "Choose the sections you want to see here.")
-                            AppNavigationLink {
-                                HomeCustomizationView()
-                            } label: {
-                                Text("Customize Home").appFont(.body, weight: .semibold).frame(minHeight: 44)
-                                    .foregroundStyle(AppTheme.onAccent)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .accessibilityIdentifier("home.customize.empty")
-                        }
-                        .padding(20)
-                        .frame(maxWidth: .infinity)
-                        .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("home.empty.customized")
+                        EmptyStateView(symbol: "square.grid.2x2", title: "Home sections are hidden",
+                                       message: "Open Settings, then Customize Home, to show your sections.")
+                            .padding(20)
+                            .frame(maxWidth: .infinity)
+                            .accessibilityIdentifier("home.empty.customized")
                     } else if isLoadingVisibleHome && !hasContent {
                         ProgressView()
                             .tint(AppTheme.accent)
@@ -70,7 +59,7 @@ struct HomeView: View {
                 }
                 .padding(.top, 12)
                 .padding(.bottom, 28)
-                .frame(maxWidth: 760)
+                .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
                 .frame(maxWidth: .infinity, alignment: .center)
             }
             .background(AppTheme.background)
@@ -104,32 +93,16 @@ struct HomeView: View {
                 .accessibilityElement(children: .combine)
                 if !dynamicTypeSize.isAccessibilitySize {
                     Spacer(minLength: 4)
-                    customizationLink
                     settingsButton
                 }
             }
             if dynamicTypeSize.isAccessibilitySize {
                 HStack {
-                    customizationLink
                     Spacer()
                     settingsButton
                 }
             }
         }
-    }
-
-    private var customizationLink: some View {
-        AppNavigationLink {
-            HomeCustomizationView()
-        } label: {
-            Image(systemName: "square.grid.2x2")
-                .appFont(.title3, weight: .medium)
-                .frame(width: 46, height: 46)
-                .appGlass(in: Circle(), interactive: true)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Customize Home")
-        .accessibilityIdentifier("home.customize")
     }
 
     private var settingsButton: some View {
@@ -139,6 +112,7 @@ struct HomeView: View {
             Image(systemName: "slider.horizontal.3")
                 .appFont(.title3, weight: .medium)
                 .frame(width: 46, height: 46)
+                .contentShape(Circle())
                 .appGlass(in: Circle(), interactive: true)
         }
         .buttonStyle(.plain)
@@ -147,42 +121,50 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private func homeSection(_ section: HomeSectionKind, cardSize: CGFloat, tileSize: CGFloat) -> some View {
+    private func homeSection(_ section: HomeSectionKind, metrics: HomeShelfMetrics) -> some View {
         switch section {
         case .recentlyPlayed:
-            recentListening(cardSize: cardSize)
+            recentListening(metrics: metrics)
         case .madeForYou:
-            mixes(tileSize: tileSize)
+            mixes(metrics: metrics)
         case .newReleases:
-            newReleases(cardSize: cardSize)
+            newReleases(metrics: metrics)
         case .becauseYouLike:
-            ForEach(personalSections) { carousel($0, cardSize: cardSize) }
+            ForEach(personalSections) { carousel($0, metrics: metrics) }
         case .charts:
-            charts(tileSize: tileSize)
+            charts(metrics: metrics)
         case .discovery:
             if let error = model.homeError { homeError(error).padding(.horizontal, 20) }
-            ForEach(editorialSections) { carousel($0, cardSize: cardSize) }
+            ForEach(editorialSections) { carousel($0, metrics: metrics) }
         }
     }
 
+    /// The first card keeps the column's 20-point inset; in wide windows the shelf scrolls out to the window edge.
+    private func shelf<Content: View>(_ metrics: HomeShelfMetrics, @ViewBuilder content: () -> Content) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            content()
+                .padding(.horizontal, 20 + metrics.carouselBleed)
+        }
+        .padding(.horizontal, -metrics.carouselBleed)
+    }
+
     @ViewBuilder
-    private func mixes(tileSize: CGFloat) -> some View {
+    private func mixes(metrics: HomeShelfMetrics) -> some View {
         let weekly = model.discoverWeekly
         let daily = model.dailyMix
         if weekly != nil || daily != nil {
             VStack(alignment: .leading, spacing: 16) {
                 sectionHeader(title: "Made for you")
                     .padding(.horizontal, 20)
-                ScrollView(.horizontal, showsIndicators: false) {
+                shelf(metrics) {
                     HStack(alignment: .top, spacing: 14) {
                         if let weekly {
-                            MixTile(collection: collection(for: weekly), caption: "New every Monday", size: tileSize, tint: AppTheme.violet)
+                            MixTile(collection: weekly.collection, caption: "New every Monday", size: metrics.tileSize, tint: AppTheme.violet)
                         }
                         if let daily {
-                            MixTile(collection: collection(for: daily), caption: "Fresh every day", size: tileSize, tint: AppTheme.accent)
+                            MixTile(collection: daily.collection, caption: "Fresh every day", size: metrics.tileSize, tint: AppTheme.accent)
                         }
                     }
-                    .padding(.horizontal, 20)
                 }
             }
         } else if model.isGeneratingMixes {
@@ -212,25 +194,24 @@ struct HomeView: View {
         }
     }
 
-    private func newReleases(cardSize: CGFloat) -> some View {
+    private func newReleases(metrics: HomeShelfMetrics) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             sectionHeader(title: "New releases")
                 .padding(.horizontal, 20)
-            ScrollView(.horizontal, showsIndicators: false) {
+            shelf(metrics) {
                 LazyHStack(alignment: .top, spacing: 16) {
                     ForEach(model.library.releases.prefix(20)) { release in
                         CollectionCard(collection: MusicCollection(id: release.id, title: release.title, subtitle: release.subtitle,
                                                                    artworkURL: release.artworkURL, kind: .album),
-                                       size: cardSize, caption: release.artistName)
+                                       size: metrics.cardSize, caption: release.artistName)
                     }
                 }
-                .padding(.horizontal, 20)
             }
         }
         .accessibilityIdentifier("home.releases")
     }
 
-    private func recentListening(cardSize: CGFloat) -> some View {
+    private func recentListening(metrics: HomeShelfMetrics) -> some View {
         let recents = model.library.recentlyPlayed.map(\.track)
         return VStack(alignment: .leading, spacing: 16) {
             sectionHeader(title: "Recently played", collection: MusicCollection(id: "home.recent", title: "Recently played",
@@ -242,55 +223,51 @@ struct HomeView: View {
                     .padding(.horizontal, 20)
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
+            shelf(metrics) {
                 LazyHStack(alignment: .top, spacing: 16) {
                     ForEach(model.library.recentlyPlayed.prefix(12)) { recent in
-                        TrackCard(track: recent.track, tracks: recents, size: cardSize)
+                        TrackCard(track: recent.track, tracks: recents, size: metrics.cardSize)
                     }
                 }
-                .padding(.horizontal, 20)
             }
         }
     }
 
-    private func charts(tileSize: CGFloat) -> some View {
+    private func charts(metrics: HomeShelfMetrics) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             sectionHeader(title: "Charts")
                 .padding(.horizontal, 20)
-            ScrollView(.horizontal, showsIndicators: false) {
+            shelf(metrics) {
                 HStack(alignment: .top, spacing: 14) {
                     ForEach(visibleCharts) { chart in
-                        MixTile(collection: collection(for: chart), caption: chartCaption(chart), size: tileSize,
+                        MixTile(collection: collection(for: chart), caption: chartCaption(chart), size: metrics.tileSize,
                                 tint: chart.language == .hindi ? AppTheme.gold : AppTheme.violet)
                     }
                 }
-                .padding(.horizontal, 20)
             }
         }
     }
 
-    private func carousel(_ section: DiscoverySection, cardSize: CGFloat) -> some View {
+    private func carousel(_ section: DiscoverySection, metrics: HomeShelfMetrics) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             sectionHeader(title: section.title, collection: collection(for: section))
                 .padding(.horizontal, 20)
             if !section.tracks.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
+                shelf(metrics) {
                     LazyHStack(alignment: .top, spacing: 16) {
                         ForEach(section.tracks.prefix(16)) { track in
-                            TrackCard(track: track, tracks: section.tracks, size: cardSize)
+                            TrackCard(track: track, tracks: section.tracks, size: metrics.cardSize)
                         }
                     }
-                    .padding(.horizontal, 20)
                 }
             }
             if !section.collections.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
+                shelf(metrics) {
                     LazyHStack(alignment: .top, spacing: 16) {
                         ForEach(section.collections) { collection in
-                            CollectionCard(collection: collection, size: cardSize)
+                            CollectionCard(collection: collection, size: metrics.cardSize)
                         }
                     }
-                    .padding(.horizontal, 20)
                 }
             }
         }
@@ -370,7 +347,9 @@ struct HomeView: View {
     private var visibleHomeSections: [HomeSectionKind] { model.library.preferences.homeLayout.visibleSections }
 
     private var loadRequest: HomeLoadRequest {
-        HomeLoadRequest(languages: model.library.preferences.languages,
+        HomeLoadRequest(languageProfileKey: model.listeningLanguageProfile.requestKey,
+                        discoveryFamiliarity: model.library.preferences.discoveryFamiliarity,
+                        isOffline: model.isOffline,
                         enabled: isVisible && model.selectedTab == .home && !model.isSettingsPresented,
                         needsCatalog: !catalogSections.isDisjoint(with: visibleHomeSections),
                         needsReleases: visibleHomeSections.contains(.newReleases))
@@ -387,8 +366,7 @@ struct HomeView: View {
 
     private var visibleSections: [DiscoverySection] {
         model.homeSections.filter { section in
-            (section.language.map { model.library.preferences.languages.contains($0) } ?? true)
-                && (!section.tracks.isEmpty || !section.collections.isEmpty)
+            !section.tracks.isEmpty || !section.collections.isEmpty
         }
     }
 
@@ -396,7 +374,7 @@ struct HomeView: View {
     private var editorialSections: [DiscoverySection] { visibleSections.filter { !$0.id.hasPrefix("personal.") } }
 
     private var visibleCharts: [ChartSnapshot] {
-        model.charts.filter { model.library.preferences.languages.contains($0.language) && !$0.entries.isEmpty }
+        model.charts.filter { !$0.entries.isEmpty }
     }
 
     private var hasContent: Bool {
@@ -435,14 +413,6 @@ struct HomeView: View {
         }
     }
 
-    private func collection(for mix: GeneratedPlaylist) -> MusicCollection {
-        let basis = mix.seedArtists.isEmpty ? "" : "Based on \(mix.seedArtists.joined(separator: ", ")) · "
-        let cadence = mix.kind == .discoverWeekly ? "New every Monday" : "Fresh every day"
-        return MusicCollection(id: "mix.\(mix.kind.rawValue)", title: mix.kind.title,
-                               subtitle: basis + cadence + " · Made on this iPhone from your listening",
-                               artworkURL: mix.tracks.first?.artworkURL, kind: .mix, tracks: mix.tracks)
-    }
-
     private func collection(for section: DiscoverySection) -> MusicCollection {
         MusicCollection(id: "section.\(section.id)", title: section.title, subtitle: section.subtitle,
                         artworkURL: section.tracks.first?.artworkURL, kind: .mix, language: section.language,
@@ -465,7 +435,9 @@ struct HomeView: View {
     }
 
     private struct HomeLoadRequest: Hashable {
-        let languages: Set<MusicLanguage>
+        let languageProfileKey: String
+        let discoveryFamiliarity: DiscoveryFamiliarity
+        let isOffline: Bool
         let enabled: Bool
         let needsCatalog: Bool
         let needsReleases: Bool
@@ -487,8 +459,7 @@ private struct HomeResumeRow: View {
                     model.player.togglePlayback()
                 }
             } else {
-                model.play(recent.track, in: tracks)
-                model.player.seek(to: recent.position)
+                if model.play(recent.track, in: tracks) { model.player.seek(to: recent.position) }
             }
         } label: {
             HStack(spacing: 12) {

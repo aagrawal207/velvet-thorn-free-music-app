@@ -6,3 +6,4 @@ artifacts/
 xcuserdata/
 .swiftpm/
 GanaBajana.xcodeproj/
+Resources/YouTubeDataAPI.local.plist

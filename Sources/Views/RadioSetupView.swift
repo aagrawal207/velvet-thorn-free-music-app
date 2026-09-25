@@ -5,14 +5,15 @@ import SwiftUI
 @MainActor
 struct RadioSetupView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var setup: RadioSetupModel
     @FocusState private var isArtistSearchFocused: Bool
     private let model: MusicAppModel
 
     init(experience: RadioExperience, model: MusicAppModel) {
         self.model = model
-        _setup = State(initialValue: RadioSetupModel(station: experience, languages: model.library.preferences.languages,
-                                                    catalog: model.catalog))
+        _setup = State(initialValue: RadioSetupModel(station: experience, catalog: model.catalog))
     }
 
     var body: some View {
@@ -20,13 +21,25 @@ struct RadioSetupView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        Text(setup.station.title).appFont(.title2, weight: .bold)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(setup.station.title).appFont(.title2, weight: .bold)
+                            Text(setup.station.description)
+                                .appFont(.subheadline)
+                                .foregroundStyle(AppTheme.secondaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Label("Languages follow your listening", systemImage: "character.bubble")
+                            .appFont(.subheadline)
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("radio.setup.listeningLanguages")
                         eraSection
-                        languageSection
                         artistSection
                         artistSearch
                     }
                     .padding(20)
+                    .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
+                    .frame(maxWidth: .infinity)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 // Hidden artist rows must not share a hit region with the Start control.
@@ -52,11 +65,8 @@ struct RadioSetupView: View {
                 }
             }
         }
-        .tint(AppTheme.accent)
-        .foregroundStyle(AppTheme.primaryText)
         .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
-        .presentationBackground(AppTheme.background)
+        .appSheetChrome()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if isArtistSearchFocused {
                 HStack {
@@ -89,9 +99,11 @@ struct RadioSetupView: View {
     }
 
     private var eraSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+        return VStack(alignment: .leading, spacing: 10) {
             Text("Era preference").appFont(.headline, weight: .semibold)
-            HStack(spacing: 8) {
+            layout {
                 ForEach(RadioEra.allCases) { era in
                     Button { setup.selectEra(era) } label: {
                         Text(era.title)
@@ -113,28 +125,13 @@ struct RadioSetupView: View {
         }
     }
 
-    private var languageSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Languages").appFont(.headline, weight: .semibold)
-            ForEach(MusicLanguage.allCases) { language in
-                Toggle(isOn: Binding {
-                    setup.languages.contains(language)
-                } set: { setup.setLanguage(language, selected: $0) }) {
-                    Text(language.title).appFont(.body).frame(minHeight: 44)
-                }
-                .accessibilityIdentifier("radio.setup.language.\(language.rawValue)")
-            }
-            Text("Applies to this radio. Songs with no catalog language label can still appear.")
-                .appFont(.caption)
-                .foregroundStyle(AppTheme.secondaryText)
-        }
-    }
-
     private var artistSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 12))
+        return VStack(alignment: .leading, spacing: 8) {
+            layout {
                 Text("Artists (optional)").appFont(.headline, weight: .semibold)
-                Spacer()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Text("\(setup.selectedArtists.count) of 4 hints")
                     .appFont(.caption)
                     .foregroundStyle(AppTheme.secondaryText)
@@ -149,9 +146,7 @@ struct RadioSetupView: View {
                 .disabled(setup.selectedArtists.isEmpty)
                 .accessibilityIdentifier("radio.setup.clearArtists")
             if setup.artistChoices.isEmpty {
-                Text(setup.station.selection(for: setup.languages) == nil
-                     ? "Choose a supported language to see this station’s artist hints."
-                     : "Search below to add artists for these languages.")
+                Text("Search below to add artists you want to hear more of.")
                     .appFont(.subheadline)
                     .foregroundStyle(AppTheme.secondaryText)
             }
@@ -247,7 +242,7 @@ struct RadioSetupView: View {
                 .accessibilityIdentifier("radio.setup.summary")
             Button {
                 guard let experience = setup.submit() else { return }
-                model.startRadio(experience, languages: setup.languages)
+                model.startRadio(experience)
                 dismiss()
             } label: {
                 HStack {
@@ -257,7 +252,7 @@ struct RadioSetupView: View {
                     Image(systemName: "play.fill").frame(width: 24, height: 24)
                 }
                 .padding(.horizontal, 16)
-                .frame(height: 52)
+                .frame(minHeight: 52)
                 .background(AppTheme.accent.opacity(setup.canStart ? 0.22 : 0.1), in: RoundedRectangle(cornerRadius: 12))
                 .contentShape(Rectangle())
             }
@@ -269,6 +264,8 @@ struct RadioSetupView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
+        .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
+        .frame(maxWidth: .infinity)
         .background(AppTheme.background)
     }
 }
@@ -303,7 +300,7 @@ final class RadioSetupModel {
     @ObservationIgnored private let catalog: any MusicCatalogProviding
     @ObservationIgnored private var searchGeneration = UUID()
 
-    init(station: RadioExperience, languages: Set<MusicLanguage>, catalog: any MusicCatalogProviding) {
+    init(station: RadioExperience, languages: Set<MusicLanguage> = Set(MusicLanguage.allCases), catalog: any MusicCatalogProviding) {
         let configuration = RadioConfiguration(station: station, languages: languages)
         self.station = station
         self.era = configuration.era

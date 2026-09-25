@@ -5,13 +5,21 @@ enum ArtistSpotlightMusicBrainzFixtures {
     static let recordingID = "11111111-1111-4111-8111-111111111111"
     static let workID = "22222222-2222-4222-8222-222222222222"
 
-    static func recording(id: String = recordingID, language: String = "eng", attributes: [CatalogJSON] = []) -> CatalogJSON {
+    static func recording(id: String = recordingID, language: String? = "eng", attributes: [CatalogJSON] = []) -> CatalogJSON {
         ["id": .string(id), "title": .string(LyricsFallbackFixtures.track.title), "length": 200_000, "video": false,
          "disambiguation": "", "artist-credit": [["name": "Test Singer"]],
          "releases": [["country": "IN", "text-representation": ["language": "tam"]]],
          "relations": [["type": "performance", "target-type": "work", "direction": "forward", "attributes": .array(attributes),
-                        "work": ["id": .string(workID), "type": "Song", "title": .string(LyricsFallbackFixtures.track.title),
-                                 "language": .string(language), "languages": [.string(language)]]]]]
+                        "work": work(language: language)]]]
+    }
+
+    static func work(language: String? = "eng") -> CatalogJSON {
+        var value: [String: CatalogJSON] = ["id": .string(workID), "type": "Song", "title": .string(LyricsFallbackFixtures.track.title)]
+        if let language {
+            value["language"] = .string(language)
+            value["languages"] = [.string(language)]
+        }
+        return .object(value)
     }
 
     static func search(_ records: [CatalogJSON], count: Int? = nil) -> CatalogJSON {
@@ -50,6 +58,7 @@ final class ArtistSpotlightMusicBrainzTests: XCTestCase {
         let other = ArtistSpotlightMusicBrainzFixtures.recording(id: "33333333-3333-4333-8333-333333333333")
         XCTAssertNil(ArtistSpotlightMusicBrainz.matchedRecording(in: ArtistSpotlightMusicBrainzFixtures.search([record, other]), for: track))
         XCTAssertNil(ArtistSpotlightMusicBrainz.matchedRecording(in: ArtistSpotlightMusicBrainzFixtures.search([record], count: 2), for: track))
+        XCTAssertNil(ArtistSpotlightMusicBrainz.matchedRecording(in: ArtistSpotlightMusicBrainzFixtures.search([record], count: 0), for: track))
         XCTAssertNil(ArtistSpotlightMusicBrainz.workLanguage(in: other, recordingID: ArtistSpotlightMusicBrainzFixtures.recordingID, for: track))
     }
 
@@ -71,15 +80,17 @@ final class ArtistSpotlightMusicBrainzTests: XCTestCase {
         let relation = record["relations"]!.array[0]
         record["relations"] = [relation, relation]
         XCTAssertNil(ArtistSpotlightMusicBrainz.workLanguage(in: .object(record), recordingID: id, for: track))
-        let ambiguous: [CatalogJSON] = [["eng", "hin"], [], ["eng", 7]]
-        for languages in ambiguous {
+        let ambiguous: [(CatalogJSON, ArtistSongLanguageResult?)] = [
+            (["eng", "hin"], .unclassified(.conflictingEvidence)), ([], nil), (["eng", 7], nil),
+        ]
+        for (languages, expected) in ambiguous {
             var work = relation["work"].object
             work["languages"] = languages
             work["language"] = .null
             var changed = relation.object
             changed["work"] = .object(work)
             record["relations"] = [.object(changed)]
-            XCTAssertNil(ArtistSpotlightMusicBrainz.workLanguage(in: .object(record), recordingID: id, for: track))
+            XCTAssertEqual(ArtistSpotlightMusicBrainz.workLanguage(in: .object(record), recordingID: id, for: track), expected)
         }
     }
 

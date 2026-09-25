@@ -150,7 +150,7 @@ final class YouTubeAccountStore {
         do {
             try signOutIntent.setPending(true)
         } catch {
-            errorMessage = "Sign-out couldn't be saved on this iPhone. Retry before closing the app."
+            errorMessage = "Sign-out couldn't be saved on this device. Retry before closing the app."
             log.error("event=account_sign_out_intent_write_failed")
             return false
         }
@@ -183,7 +183,7 @@ final class YouTubeAccountStore {
         do {
             try secrets.write(try JSONEncoder().encode(session), key: Self.secretKey)
         } catch {
-            errorMessage = "Your sign-in couldn't be saved on this iPhone. Try again."
+            errorMessage = "Your sign-in couldn't be saved on this device. Try again."
             log.error("event=account_save_failed")
             return false
         }

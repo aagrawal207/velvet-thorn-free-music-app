@@ -17,7 +17,7 @@ struct YouTubeSignInView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Text("Sign in with your Google account. The sign-in stays on this iPhone and is used only to load songs.")
+                Text("Sign in with your Google account. The sign-in stays on this device and is used only to load songs.")
                     .appFont(.footnote)
                     .foregroundStyle(AppTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)

@@ -8,15 +8,18 @@ final class RadioSetupPlaybackTests: XCTestCase {
         let old = libraryTestTrack("keep-playing")
         let context = try makeContext(snapshot: PlaybackSnapshot(queue: [old], position: 42))
         let f = ExperienceRadioFixtures.self
+        let wording = Set(f.gym.selection(for: context.model.listeningLanguageProfile).styleQueries)
         let pendingRadio = context.model.startRadio(f.gym)
-        _ = try await context.catalog.searches.request(at: 1)
+        _ = try await context.catalog.searches.request(at: 2)
         let setup = RadioSetupModel(station: f.melancholy, languages: context.library.preferences.languages,
                                    catalog: context.catalog)
         defer { setup.cancel() }
         setup.artistQuery = "Norah"
         let draft = Task { await setup.searchArtists() }
         defer { draft.cancel() }
-        let request = try await context.catalog.searches.request(at: 2)
+        let request = try await context.catalog.searches.request(at: 3)
+        XCTAssertEqual(request.input.query, "Norah")
+        XCTAssertEqual(request.input.filter, .artists)
         XCTAssertEqual(context.player.queue, [old])
         XCTAssertEqual(context.player.position, 42)
         setup.cancel()
@@ -27,13 +30,27 @@ final class RadioSetupPlaybackTests: XCTestCase {
         XCTAssertEqual(context.model.selectedRadioExperience, f.gym)
         XCTAssertEqual(context.player.queue, [old])
         XCTAssertEqual(context.player.position, 42)
-        try await f.answerSearches(context, from: 0, with: f.gymSearches)
+        let firstWave = try await f.answerStyleSearches(context, from: 0, count: 3, songs: [], expecting: wording)
+        let secondWave = try await f.answerStyleSearches(context, from: 4, count: 3, songs: [], expecting: wording)
+        for query in wording {
+            XCTAssertEqual((firstWave + secondWave).filter { $0.query == query && $0.filter == .songs }.count, 1)
+            XCTAssertEqual((firstWave + secondWave).filter { $0.query == query && $0.filter == .playlists }.count, 1)
+        }
+        try await f.answerSearches(context, from: 7, with: f.gymSearches)
         try await f.answerRadios(context, from: 0, with: f.gymRadios)
         await pendingRadio.value
         XCTAssertEqual(context.model.activeRadioExperience, f.gym)
         XCTAssertEqual(context.player.currentTrack, f.zinda)
+        XCTAssertEqual(context.player.queue, [f.zinda, f.goat, f.sultan, f.punjabi])
+        XCTAssertEqual(context.model.activeRadioContentLabel, "Automatic discovery")
+        XCTAssertNil(context.model.radioError)
         XCTAssertEqual(context.library.preferences.languages, [.hindi, .english])
+        XCTAssertTrue(context.library.preferences.languageNudges.isAutomatic)
         XCTAssertTrue(context.library.recentSearches.isEmpty)
+        let searches = await context.catalog.searches.requests
+        let radios = await context.catalog.radioRefreshRequests
+        XCTAssertEqual(searches.count, 9, "The draft search is separate from six style requests and two backup cue searches")
+        XCTAssertEqual(radios.map(\.forceRefresh), [false, false])
     }
 
     func testConfiguredRetryKeepsResolvedRecordingsAndUnsavedLanguageScope() async throws {

@@ -2,6 +2,8 @@ import Foundation
 import OSLog
 
 actor CompositeLyricsProvider: LyricsProviding {
+    typealias MetadataPreparation = @Sendable (Track) async throws -> Track
+
     struct Configuration: Sendable {
         var primaryTimeout: TimeInterval = 2.5
         var fallbackTimeout: TimeInterval = 3
@@ -13,6 +15,7 @@ actor CompositeLyricsProvider: LyricsProviding {
         var missingLifetime: TimeInterval = 60
         var maximumConcurrentLookups = 4
         var maximumWaiters = 16
+        var metadataTimeout: TimeInterval = 1
     }
 
     struct Activity: Sendable {
@@ -41,6 +44,7 @@ actor CompositeLyricsProvider: LyricsProviding {
 
     private let primary: any LyricsProviding
     private let fallback: (any LyricsProviding)?
+    private let prepareTrack: MetadataPreparation?
     private let configuration: Configuration
     private let now: @Sendable () -> Date
     private var cache: [LyricsRequestKey: Entry] = [:]
@@ -48,9 +52,11 @@ actor CompositeLyricsProvider: LyricsProviding {
     private var access: UInt64 = 0
 
     init(primary: any LyricsProviding = LRCLyricsService(), fallback: (any LyricsProviding)?,
+         prepareTrack: MetadataPreparation? = nil,
          configuration: Configuration = Configuration(), now: @escaping @Sendable () -> Date = { Date() }) {
         self.primary = primary
         self.fallback = fallback
+        self.prepareTrack = prepareTrack
         self.configuration = configuration
         self.now = now
     }
@@ -91,10 +97,11 @@ actor CompositeLyricsProvider: LyricsProviding {
                 }
                 LyricsDiagnostics.logger.debug("compositeCacheHit=0 compositeCacheMiss=1 coalesced=0")
                 let flightID = UUID()
-                let task = Task<Void, Never> { [primary, fallback, configuration] in
+                let task = Task<Void, Never> { [primary, fallback, prepareTrack, configuration] in
                     let result: Result<Outcome, any Error>
                     do {
-                        let value = try await Self.lookup(track, primary: primary, fallback: fallback, configuration: configuration)
+                        let value = try await Self.lookup(track, primary: primary, fallback: fallback,
+                                                         prepareTrack: prepareTrack, configuration: configuration)
                         try Task.checkCancellation()
                         result = .success(value)
                     } catch { result = .failure(error) }
@@ -110,8 +117,22 @@ actor CompositeLyricsProvider: LyricsProviding {
     }
 
     private nonisolated static func lookup(_ track: Track, primary: any LyricsProviding, fallback: (any LyricsProviding)?,
+                                          prepareTrack: MetadataPreparation?,
                                           configuration: Configuration) async throws -> Outcome {
         let deadline = Date().addingTimeInterval(configuration.totalTimeout)
+        var lookupTrack = track
+        if LyricsMatcher.validDuration(track.duration) == nil, let prepareTrack {
+            do {
+                let prepared = try await PlaybackDeadline.run(seconds: min(configuration.metadataTimeout, configuration.totalTimeout)) {
+                    try await prepareTrack(track)
+                }
+                try Task.checkCancellation()
+                if prepared.id == track.id { lookupTrack.duration = LyricsMatcher.validDuration(prepared.duration) }
+            } catch {
+                if error is CancellationError || Task.isCancelled { throw CancellationError() }
+            }
+        }
+        let prepared = lookupTrack
         let providers = [primary] + (fallback.map { [$0] } ?? [])
         var hadError = false
         for (index, provider) in providers.enumerated() {
@@ -121,7 +142,7 @@ actor CompositeLyricsProvider: LyricsProviding {
             let started = Date()
             do {
                 let timeout = min(remaining, index == 0 ? configuration.primaryTimeout : configuration.fallbackTimeout)
-                let document = try await PlaybackDeadline.run(seconds: timeout) { try await provider.lyrics(for: track) }
+                let document = try await PlaybackDeadline.run(seconds: timeout) { try await provider.lyrics(for: prepared) }
                 try Task.checkCancellation()
                 try validate(document, for: track)
                 let missing = document.kind == .unavailable

@@ -239,7 +239,8 @@ final class PlaybackTransitionTests: XCTestCase {
         XCTAssertEqual(requests, [first.id, second.id], "Each newly last track asks for its own continuation")
         XCTAssertEqual(player.queue, [first, second], "Duplicates of queued tracks are not appended")
         try await PlaybackTestSupport.waitUntil(timeout: 6) { !player.isPlaying && !player.isLoading && player.position >= 2.9 }
-        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests, [first.id, second.id, second.id],
+                       "An early answer that added nothing earns the last track one more request when the queue ends")
         XCTAssertNil(player.errorMessage)
     }
 

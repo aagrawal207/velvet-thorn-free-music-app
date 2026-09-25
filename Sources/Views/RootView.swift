@@ -6,10 +6,11 @@ import UIKit
 struct RootView: View {
     @Environment(MusicAppModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     #if DEBUG
     @Environment(\.scenePhase) private var scenePhase
     #endif
-    @State private var isKeyboardVisible = false
+    @State private var keyboardHiding = KeyboardChromeHiding.nothing
 
     var body: some View {
         @Bindable var model = model
@@ -17,13 +18,16 @@ struct RootView: View {
 
         ZStack {
             navigation
-                .accessibilityHidden(!model.library.preferences.hasCompletedWelcome)
+                .accessibilityHidden(hidesNavigation)
 
             if !model.library.preferences.hasCompletedWelcome {
                 WelcomeView()
                     .transition(.opacity)
                     .zIndex(1)
             }
+            #if DEBUG
+            if model.isWidgetPreviewPresented { DebugWidgetPreviewView().zIndex(2) }
+            #endif
         }
         .background(AppTheme.background.ignoresSafeArea())
         .appFont(.body)
@@ -40,7 +44,7 @@ struct RootView: View {
                 SettingsView()
             }
             .preferredColorScheme(preferredColorScheme)
-            .presentationDragIndicator(.visible)
+            .appSheetChrome()
         }
         .accentColor(preferredColor)
         .tint(preferredColor)
@@ -63,11 +67,15 @@ struct RootView: View {
                 model.toast = nil
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            isKeyboardVisible = true
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+            guard KeyboardNotice.isLocal(notification.userInfo) else { return }
+            keyboardHiding = KeyboardChromeHiding(keyboardHeight: KeyboardNotice.endFrameHeight(notification.userInfo),
+                                                  isRegularWidth: AppLayout.isRegularWidth(horizontalSizeClass),
+                                                  isMacDesignedForIPad: AppPlatform.isMacDesignedForIPad)
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            isKeyboardVisible = false
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { notification in
+            guard KeyboardNotice.isLocal(notification.userInfo) else { return }
+            keyboardHiding = .nothing
         }
         #if DEBUG
         .onChange(of: scenePhase, initial: true) { _, phase in
@@ -79,6 +87,35 @@ struct RootView: View {
         }
         .onChange(of: model.isPlayerPresented) { _, presented in
             DebugBootstrap.logLayout("player=\(presented)")
+        }
+        .overlay(alignment: .bottomLeading) {
+            if DebugWidgetSupport.sharesWithExtension {
+                VStack(spacing: 0) {
+                    Text("Widget fixture availability")
+                        .accessibilityIdentifier("widgetFixture.availability")
+                        .accessibilityValue(DebugWidgetSupport.sharedSnapshot.availability.rawValue)
+                    Text("Widget fixture artwork")
+                        .accessibilityIdentifier("widgetFixture.artwork")
+                        .accessibilityValue(String(DebugWidgetSupport.sharedSnapshot.artwork.count))
+                }
+                .font(.system(size: 1))
+                .allowsHitTesting(false)
+            }
+            if DebugCachedAudioFixture.isActive {
+                VStack(spacing: 0) {
+                    Text("Fixture network requests")
+                        .accessibilityIdentifier("cacheFixture.networkRequests")
+                        .accessibilityValue(String(DebugCachedAudioFixture.networkRequestCount))
+                    Text("Fixture playback source")
+                        .accessibilityIdentifier("cacheFixture.playbackSource")
+                        .accessibilityValue(model.player.currentStreamURL?.isFileURL == true ? "local" : "none")
+                    if let error = DebugCachedAudioFixture.setupError {
+                        Text(error).accessibilityIdentifier("cacheFixture.setupError")
+                    }
+                }
+                .font(.system(size: 1))
+                .allowsHitTesting(false)
+            }
         }
         #endif
     }
@@ -98,7 +135,7 @@ struct RootView: View {
                 NavigationStack(path: model.navigationPath(for: .home)) {
                     HomeView().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0) }
                 }
-                .modifier(MiniPlayerNavigationLayout(isKeyboardVisible: isKeyboardVisible))
+                .modifier(MiniPlayerNavigationLayout(hidesPlayerForKeyboard: keyboardHiding.hidesMiniPlayer))
             }
             .accessibilityIdentifier("tab.home")
 
@@ -106,15 +143,18 @@ struct RootView: View {
                 NavigationStack(path: model.navigationPath(for: .search)) {
                     SearchView().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0) }
                 }
-                .modifier(MiniPlayerNavigationLayout(isKeyboardVisible: isKeyboardVisible))
+                .modifier(MiniPlayerNavigationLayout(hidesPlayerForKeyboard: keyboardHiding.hidesMiniPlayer))
             }
             .accessibilityIdentifier("tab.search")
 
             Tab("Library", systemImage: "square.stack", value: AppTab.library) {
                 NavigationStack(path: model.navigationPath(for: .library)) {
                     LibraryView().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0) }
+                        .navigationDestination(item: widgetLibraryDestination) { kind in
+                            LibrarySavedSongsView(kind: kind).id(model.libraryRootGeneration)
+                        }
                 }
-                .modifier(MiniPlayerNavigationLayout(isKeyboardVisible: isKeyboardVisible))
+                .modifier(MiniPlayerNavigationLayout(hidesPlayerForKeyboard: keyboardHiding.hidesMiniPlayer))
             }
             .accessibilityIdentifier("tab.library")
 
@@ -122,11 +162,11 @@ struct RootView: View {
                 NavigationStack(path: model.navigationPath(for: .recap)) {
                     RecapView().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0) }
                 }
-                .modifier(MiniPlayerNavigationLayout(isKeyboardVisible: isKeyboardVisible))
+                .modifier(MiniPlayerNavigationLayout(hidesPlayerForKeyboard: keyboardHiding.hidesMiniPlayer))
             }
             .accessibilityIdentifier("tab.recap")
         }
-        .toolbar(isKeyboardVisible ? .hidden : .automatic, for: .tabBar)
+        .toolbar(keyboardHiding.hidesTabBar ? .hidden : .automatic, for: .tabBar)
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -136,26 +176,79 @@ struct RootView: View {
         case .light: .light
         }
     }
+
+    private var hidesNavigation: Bool {
+        #if DEBUG
+        !model.library.preferences.hasCompletedWelcome || model.isWidgetPreviewPresented
+        #else
+        !model.library.preferences.hasCompletedWelcome
+        #endif
+    }
+
+    private var widgetLibraryDestination: Binding<LibrarySavedSongsView.Kind?> {
+        AppNavigationIntent.binding(Binding(get: { model.widgetLibraryDestination }, set: { model.widgetLibraryDestination = $0 }),
+                                    in: model, isCurrent: { model.selectedTab == .library })
+    }
 }
 
 @MainActor
 private struct MiniPlayerNavigationLayout: ViewModifier {
     @Environment(MusicAppModel.self) private var model
-    let isKeyboardVisible: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    let hidesPlayerForKeyboard: Bool
+    @State private var showsCachedSongs = false
 
     func body(content: Content) -> some View {
         // Reserve the player's intrinsic height in the stack's viewport, including direct NavigationLink destinations.
         VStack(spacing: 0) {
+            if model.isOffline { offlineBar }
             content.frame(maxWidth: .infinity, maxHeight: .infinity)
             player
         }
+        .sheet(isPresented: AppNavigationIntent.binding($showsCachedSongs, in: model)) {
+            NavigationStack {
+                CachedSongsView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            AppSheetDoneButton(id: "cachedSongs.done") { showsCachedSongs = false }
+                        }
+                    }
+            }
+            .appSheetChrome()
+        }
+    }
+
+    private var offlineBar: some View {
+        Button {
+            AppNavigationIntent.perform(in: model) { showsCachedSongs = true }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "wifi.slash")
+                Text("You’re offline").appFont(.subheadline, weight: .semibold)
+                Spacer(minLength: 8)
+                Text("Cached songs").appFont(.subheadline)
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(AppTheme.primaryText)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
+            .frame(minHeight: 44)
+            .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
+            .frame(maxWidth: .infinity)
+            .background(AppTheme.raised)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("You’re offline. Open cached songs")
+        .accessibilityIdentifier("offline.cachedSongs")
     }
 
     @ViewBuilder
     private var player: some View {
-        if let track = model.player.currentTrack, !isKeyboardVisible {
+        if let track = model.player.currentTrack, !hidesPlayerForKeyboard {
             MiniPlayer(track: track)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: AppLayout.floatingMaxWidth(for: horizontalSizeClass))
                 .padding(.horizontal, 20)
                 .padding(.vertical, 8)
         }
@@ -165,6 +258,7 @@ private struct MiniPlayerNavigationLayout: ViewModifier {
 @MainActor
 private struct MiniPlayer: View {
     @Environment(MusicAppModel.self) private var model
+    @Environment(\.colorScheme) private var colorScheme
     let track: Track
 
     var body: some View {
@@ -182,12 +276,12 @@ private struct MiniPlayer: View {
                         if model.player.errorMessage != nil {
                             Label("Couldn’t play", systemImage: "exclamationmark.circle")
                                 .appFont(.caption)
-                                .foregroundStyle(AppTheme.accent)
+                                .foregroundStyle(AppTheme.primaryText)
                                 .lineLimit(1)
                         } else {
                             Text(track.artistName)
                                 .appFont(.caption)
-                                .foregroundStyle(AppTheme.secondaryText)
+                                .foregroundStyle(AppTheme.primaryText.opacity(0.75))
                                 .lineLimit(1)
                         }
                     }
@@ -239,24 +333,25 @@ private struct MiniPlayer: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity, minHeight: 64)
-        .appGlass(in: Capsule(), interactive: true)
-        .overlay {
+        .background {
             GeometryReader { geometry in
-                // Reserve the rounded ends even when larger text makes the capsule taller.
-                let width = max(0, geometry.size.width - geometry.size.height)
-                Capsule()
-                    .fill(AppTheme.raised)
-                    .overlay(alignment: .leading) {
-                        Capsule()
-                            .fill(AppTheme.accent)
-                            .frame(width: width * progress)
-                    }
-                    .frame(width: width, height: 2)
-                    .position(x: geometry.size.width / 2, y: geometry.size.height - 5)
+                let width = geometry.size.width * progress
+                Rectangle()
+                    .fill(AppTheme.accent.opacity(colorScheme == .dark ? 0.18 : 0.12))
+                    .frame(width: width, height: geometry.size.height)
+                    // Playback's time axis stays physically left-to-right in every layout direction.
+                    .position(x: width / 2, y: geometry.size.height / 2)
             }
+            .clipShape(Capsule())
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+            .transaction { transaction in
+                // Seeks and track resets must not inherit navigation animations, including with Reduce Motion.
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
         }
+        .appGlass(in: Capsule(), interactive: true)
         .accessibilityElement(children: .contain)
         // The group's focus bounds include the glass padding, while each button retains its own target.
         .contentShape(.accessibility, Capsule())
@@ -272,17 +367,15 @@ private struct MiniPlayer: View {
     }
 
     private var progress: Double {
-        let duration = model.player.duration > 0 ? model.player.duration : (track.duration ?? 0)
-        guard duration.isFinite, duration > 0, model.player.position.isFinite else { return 0 }
-        return min(max(model.player.position / duration, 0), 1)
+        guard let duration = PlaybackTiming.validDuration(model.player.duration)
+            ?? PlaybackTiming.validDuration(track.duration) else { return 0 }
+        return PlaybackTiming.position(model.player.position, duration: duration) / duration
     }
 }
 
 @MainActor
 private struct WelcomeView: View {
     @Environment(MusicAppModel.self) private var model
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @State private var languages: Set<MusicLanguage> = [.hindi, .english]
 
     var body: some View {
         GeometryReader { geometry in
@@ -302,22 +395,12 @@ private struct WelcomeView: View {
                             .appFont(.largeTitle, weight: .bold, design: .rounded)
                             .foregroundStyle(AppTheme.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("Pick the languages you want on Home. Search covers everything.")
+                        Text("Play music you love. Breezy learns your listening languages along the way.")
                             .appFont(.body)
                             .foregroundStyle(AppTheme.secondaryText)
                     }
 
-                    VStack(spacing: 12) {
-                        ForEach(MusicLanguage.allCases) { language in
-                            languageChoice(language)
-                        }
-                    }
-
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Keep at least one selected. You can change this later in Settings.")
-                            .appFont(.footnote)
-                            .foregroundStyle(AppTheme.secondaryText)
-
                         if let error = model.library.errorMessage {
                             Label(error, systemImage: "exclamationmark.triangle")
                                 .appFont(.footnote)
@@ -328,10 +411,7 @@ private struct WelcomeView: View {
                         }
 
                         Button {
-                            var preferences = model.library.preferences
-                            preferences.languages = languages
-                            preferences.hasCompletedWelcome = true
-                            model.library.preferences = preferences
+                            model.updatePreferences { $0.hasCompletedWelcome = true }
                         } label: {
                             HStack {
                                 Text("Start listening")
@@ -345,6 +425,7 @@ private struct WelcomeView: View {
                             .background(AppTheme.accent, in: Capsule())
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Start listening")
                         .accessibilityIdentifier("welcome.continue")
                     }
                     .padding(.bottom, 28)
@@ -363,65 +444,14 @@ private struct WelcomeView: View {
                         .ignoresSafeArea()
                 }
         }
-        .onAppear {
-            let saved = model.library.preferences.languages
-            languages = saved.isEmpty ? [.hindi, .english] : saved
-        }
-    }
-
-    private func languageChoice(_ language: MusicLanguage) -> some View {
-        let selected = languages.contains(language)
-        let color = language == .hindi ? AppTheme.gold : AppTheme.violet
-
-        return Button {
-            if selected {
-                if languages.count > 1 { languages.remove(language) }
-            } else {
-                languages.insert(language)
-            }
-        } label: {
-            HStack(spacing: 18) {
-                if !dynamicTypeSize.isAccessibilitySize {
-                    Text(language == .hindi ? "अ" : "Aa")
-                        .appFont(.title, weight: .semibold)
-                        .foregroundStyle(color)
-                        .frame(width: 48)
-                        .accessibilityHidden(true)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(language.title)
-                        .appFont(.headline, weight: .semibold)
-                        .foregroundStyle(AppTheme.primaryText)
-                    Text(language.subtitle)
-                        .appFont(.subheadline)
-                        .foregroundStyle(AppTheme.secondaryText)
-                }
-                Spacer(minLength: 4)
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.title2)
-                    .foregroundStyle(selected ? color : AppTheme.secondaryText)
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selected ? color.opacity(0.10) : AppTheme.surface,
-                        in: RoundedRectangle(cornerRadius: 12))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12)
-                    .strokeBorder(selected ? color.opacity(0.65) : .clear, lineWidth: 1)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 12))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(language.title)
-        .accessibilityValue(selected ? "Selected" : "Not selected")
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityIdentifier("welcome.\(language.rawValue)")
+        .accessibilityIdentifier("welcome.screen")
     }
 }
 
 @MainActor
 struct RootMessageBanner: View {
     @Environment(MusicAppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
         if let message = model.toast {
@@ -463,6 +493,7 @@ struct RootMessageBanner: View {
             .foregroundStyle(AppTheme.primaryText)
             .padding(.leading, 16)
             .appGlass(in: RoundedRectangle(cornerRadius: 14))
+            .frame(maxWidth: AppLayout.floatingMaxWidth(for: horizontalSizeClass))
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .accessibilityElement(children: .contain)

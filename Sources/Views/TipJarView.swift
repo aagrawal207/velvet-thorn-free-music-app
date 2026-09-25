@@ -59,8 +59,8 @@ struct TipJarView: View {
                     }
                 }
                 if tips.tipCount > 0 {
-                    Text(tips.tipCount == 1 ? "One tip recorded on this iPhone. Thank you."
-                         : "\(tips.tipCount.formatted()) tips recorded on this iPhone. Thank you.")
+                    Text(tips.tipCount == 1 ? "One tip recorded on this device. Thank you."
+                         : "\(tips.tipCount.formatted()) tips recorded on this device. Thank you.")
                         .appFont(.caption)
                         .foregroundStyle(AppTheme.secondaryText)
                         .accessibilityIdentifier("tipJar.count")

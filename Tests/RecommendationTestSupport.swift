@@ -17,9 +17,10 @@ actor RecommendationCatalogMock: MusicCatalogProviding {
     private var failingArtistIDs: Set<String> = []
     private var beforeArtist: (@Sendable (String) async -> Void)?
     private(set) var radioRequests: [(seed: Track, language: MusicLanguage)] = []
+    private(set) var unrestrictedRadioRequests: [Track] = []
     private(set) var artistRequests: [String] = []
 
-    var callCount: Int { radioRequests.count + artistRequests.count }
+    var callCount: Int { radioRequests.count + unrestrictedRadioRequests.count + artistRequests.count }
 
     func setRadio(_ tracks: [Track], for seedID: String) { radios[seedID] = tracks }
     func setArtist(_ page: ArtistPage) { artistPages[page.id] = page }
@@ -45,6 +46,12 @@ actor RecommendationCatalogMock: MusicCatalogProviding {
 
     func recommendations(seed: Track, language: MusicLanguage) async throws -> [Track] {
         radioRequests.append((seed, language))
+        if failingRadioSeeds.contains(seed.id) { throw RecommendationTestFailure.provider("radio \(seed.id)") }
+        return radios[seed.id] ?? []
+    }
+
+    func radio(seed: Track) async throws -> [Track] {
+        unrestrictedRadioRequests.append(seed)
         if failingRadioSeeds.contains(seed.id) { throw RecommendationTestFailure.provider("radio \(seed.id)") }
         return radios[seed.id] ?? []
     }

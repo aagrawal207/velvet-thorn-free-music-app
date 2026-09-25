@@ -59,7 +59,8 @@ struct Track: Codable, Hashable, Identifiable, Sendable {
     var language: MusicLanguage?
     var isExplicit: Bool
     var isAudioRecording: Bool?
-    /// Worldwide plays as reported by the provider at parse time; nil when the row carried no count.
+    /// Provider-labelled song plays, which may aggregate several uploads; nil when no song total was supplied.
+    /// Legacy saved values have no unit or fetch-time provenance.
     var playCount: Int64?
 
     init(id: String, title: String, credits: [ArtistCredit], albumTitle: String? = nil,
@@ -136,7 +137,7 @@ struct Track: Codable, Hashable, Identifiable, Sendable {
         albumTitle = albumTitle ?? other.albumTitle
         albumID = albumID ?? other.albumID
         duration = duration ?? other.duration
-        playCount = playCount ?? other.playCount
+        if id == other.id { playCount = playCount ?? other.playCount }
     }
 
     private static func credits(names: [String], primaryID: String?) -> [ArtistCredit] {
@@ -252,6 +253,7 @@ struct CatalogPage: Sendable {
     var featuredArtist: MusicCollection?
     /// The artists credited on an album page header; empty for searches, playlists, and artist pages.
     var credits: [ArtistCredit] = []
+    var albumDescription: AlbumDescription? = nil
 }
 
 struct ArtistPage: Sendable {
@@ -343,32 +345,53 @@ enum MusicServiceError: LocalizedError, Sendable {
 }
 
 enum PlayCountText {
+    enum Unit: Equatable, Sendable { case plays, views }
+
     /// "1.2B plays", "845K plays", "12 plays". Nil below 1 so unknown and zero never show as popularity.
     static func plays(_ count: Int64?) -> String? {
         guard let count, count >= 1 else { return nil }
         let number = count.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)).locale(Locale(identifier: "en_US")))
-        return "\(number) plays"
+        return "\(number) \(count == 1 ? "play" : "plays")"
     }
 
-    /// Parses provider text such as "1.2B plays", "845K views", or "12,345 plays".
-    static func parse(_ text: String) -> Int64? {
-        let lowered = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard lowered.hasSuffix(" plays") || lowered.hasSuffix(" views") || lowered.hasSuffix(" play") || lowered.hasSuffix(" view") else { return nil }
-        return parseNumber(lowered.components(separatedBy: " ").first ?? "")
+    /// A full provider label is required: reporting-period counts and audiences are not lifetime song plays.
+    static func parse(_ text: String, unit: Unit? = nil) -> Int64? {
+        guard text.utf8.count <= 128 else { return nil }
+        let parts = text.lowercased().split(whereSeparator: \.isWhitespace)
+        let actual: Unit
+        switch parts.last {
+        case "play", "plays": actual = .plays
+        case "view", "views": actual = .views
+        default: return nil
+        }
+        guard unit == nil || unit == actual else { return nil }
+        return parseNumber(parts.dropLast().joined(separator: " "))
     }
 
     static func parseNumber(_ text: String) -> Int64? {
-        var number = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        var multiplier: Double = 1
-        if let suffix = number.last, "kmbt".contains(suffix) {
-            multiplier = ["k": 1e3, "m": 1e6, "b": 1e9, "t": 1e12][suffix] ?? 1
-            number.removeLast()
+        guard text.utf8.count <= 128 else { return nil }
+        let label = text.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let pattern = #"^((?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,3}(?: [0-9]{3})+)(?:\.[0-9]+)?)\s*(k|m|b|t|thousand|million|billion|trillion)?$"#
+        guard let expression = try? NSRegularExpression(pattern: pattern),
+              let match = expression.firstMatch(in: label, range: NSRange(label.startIndex..., in: label)),
+              let range = Range(match.range(at: 1), in: label) else { return nil }
+        let number = label[range].replacingOccurrences(of: ",", with: "").replacingOccurrences(of: " ", with: "")
+        let suffix = Range(match.range(at: 2), in: label).map { String(label[$0]) } ?? ""
+        let multiplier: Int64 = switch suffix {
+        case "k", "thousand": 1_000
+        case "m", "million": 1_000_000
+        case "b", "billion": 1_000_000_000
+        case "t", "trillion": 1_000_000_000_000
+        default: 1
         }
-        number = number.replacingOccurrences(of: ",", with: "")
-        guard let value = Double(number), value.isFinite, value >= 0 else { return nil }
-        let total = value * multiplier
-        guard total < Double(Int64.max) else { return nil }
-        return Int64(total.rounded())
+        // Binary floating point cannot preserve literal counts above 2^53.
+        guard let value = Decimal(string: number, locale: Locale(identifier: "en_US_POSIX")) else { return nil }
+        var total = value * Decimal(multiplier)
+        guard !total.isNaN, total >= 0, total <= Decimal(Int64.max) else { return nil }
+        var integer = Decimal()
+        NSDecimalRound(&integer, &total, 0, .plain)
+        guard integer == total else { return nil }
+        return NSDecimalNumber(decimal: integer).int64Value
     }
 }
 

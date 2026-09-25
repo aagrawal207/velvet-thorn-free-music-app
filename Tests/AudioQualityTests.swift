@@ -388,7 +388,7 @@ final class AudioQualityTests: XCTestCase {
         let data = Data([0, 0, 0, 24]) + Data("ftypdash".utf8) + Data(repeating: 7, count: 256)
         let fixture = try CacheManagementFixture(capacityBytes: 1 << 30, handler: { _ in
             CatalogStub(headers: ["Content-Type": "audio/mp4", "Content-Length": "\(data.count)"], data: data)
-        })
+        }, localDurationLoader: { _ in 8 })
         addTeardownBlock { @MainActor in try await fixture.close() }
         return (fixture, data)
     }

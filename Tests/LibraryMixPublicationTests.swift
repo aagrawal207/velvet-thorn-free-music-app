@@ -10,7 +10,7 @@ final class LibraryMixPublicationTests: XCTestCase {
                           periodKey: period, seedArtists: ["Seed artist"])
     }
 
-    func testPublicationUsesCurrentDislikesAndLanguagesAndKeepsUnclassifiedSongs() throws {
+    func testPublicationUsesCurrentDislikesWithoutFilteringLanguagesOrUnclassifiedSongs() throws {
         try withLibraryTestDirectory { directory in
             let library = LibraryStore(directory: directory)
             library.preferences.languages = [.hindi]
@@ -25,30 +25,31 @@ final class LibraryMixPublicationTests: XCTestCase {
             library.saveMix(pending)
             XCTAssertNil(library.errorMessage)
             var expected = pending
-            expected.tracks = [english, unknown]
+            expected.tracks = [hindi, english, unknown]
             XCTAssertEqual(library.mix(.dailyMix), expected)
             XCTAssertEqual(LibraryStore(directory: directory).mix(.dailyMix), expected)
         }
     }
 
-    func testPublicationRespectsSavedLanguageCorrectionsOverStaleCatalogMetadata() throws {
+    func testPublicationKeepsEveryLanguageAfterCorrectionsAndLegacyPreferenceChanges() throws {
         try withLibraryTestDirectory { directory in
             let library = LibraryStore(directory: directory)
             library.preferences.languages = [.english]
-            let correctedOut = Fixtures.track("corrected-out", language: .english)
-            let correctedIn = Fixtures.track("corrected-in", language: .hindi)
+            let correctedHindi = Fixtures.track("corrected-hindi", language: .english)
+            let correctedEnglish = Fixtures.track("corrected-english", language: .hindi)
             let tamil = Fixtures.track("tamil")
             let unclassified = Fixtures.track("unclassified", language: .hindi)
             let unknown = Fixtures.track("unknown", title: "Hindi is only part of this title")
-            XCTAssertTrue(library.setRecordingLanguageOverride("hi", for: correctedOut.id))
-            XCTAssertTrue(library.setRecordingLanguageOverride("en", for: correctedIn.id))
+            XCTAssertTrue(library.setRecordingLanguageOverride("hi", for: correctedHindi.id))
+            XCTAssertTrue(library.setRecordingLanguageOverride("en", for: correctedEnglish.id))
             XCTAssertTrue(library.setRecordingLanguageOverride("ta", for: tamil.id))
             XCTAssertTrue(library.setRecordingLanguageOverride("unclassified", for: unclassified.id))
-            library.saveMix(mix([correctedOut, correctedIn, tamil, unclassified, unknown]))
+            library.preferences.languageNudges[.tamil] = .less
+            library.saveMix(mix([correctedHindi, correctedEnglish, tamil, unclassified, unknown]))
 
             XCTAssertNil(library.errorMessage)
             let reopened = LibraryStore(directory: directory)
-            XCTAssertEqual(reopened.mix(.dailyMix)?.tracks, [correctedIn, unclassified, unknown])
+            XCTAssertEqual(reopened.mix(.dailyMix)?.tracks, [correctedHindi, correctedEnglish, tamil, unclassified, unknown])
             XCTAssertEqual(reopened.recordingLanguageOverrides, library.recordingLanguageOverrides)
         }
     }
@@ -61,7 +62,7 @@ final class LibraryMixPublicationTests: XCTestCase {
             let disliked = Fixtures.track("disliked", language: .hindi)
             library.toggleDislike(disliked)
             library.preferences.languages = [.hindi]
-            let pending = mix([Fixtures.track("wrong-language", language: .english), disliked], period: "current-day")
+            let pending = mix([disliked], period: "current-day")
             let url = directory.appendingPathComponent(LibraryPersistence.fileName)
             let saved = try Data(contentsOf: url)
             library.saveMix(pending)
@@ -93,15 +94,19 @@ final class LibraryMixPublicationTests: XCTestCase {
         }
     }
 
-    func testWrongLanguageSavedMixDoesNotBlockAnEligibleReplacementInTheSamePeriod() throws {
+    func testLanguagePreferenceAndCorrectionChangesPreserveTheSavedMixForItsPeriod() throws {
         try withLibraryTestDirectory { directory in
             let library = LibraryStore(directory: directory)
-            library.saveMix(mix([Fixtures.track("hindi", language: .hindi)]))
+            let song = Fixtures.track("hindi", language: .hindi)
+            let original = mix([song])
+            library.saveMix(original)
             library.preferences.languages = [.english]
+            library.preferences.languageNudges[.tamil] = .less
+            XCTAssertTrue(library.setRecordingLanguageOverride("ta", for: song.id))
             let replacement = mix([Fixtures.track("english", language: .english)])
             library.saveMix(replacement)
             XCTAssertNil(library.errorMessage)
-            XCTAssertEqual(LibraryStore(directory: directory).mix(.dailyMix), replacement)
+            XCTAssertEqual(LibraryStore(directory: directory).mix(.dailyMix), original)
         }
     }
 

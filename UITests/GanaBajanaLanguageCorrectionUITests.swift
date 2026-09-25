@@ -35,6 +35,12 @@ final class GanaBajanaLanguageCorrectionUITests: XCTestCase {
         try ui.reveal(card)
         try ui.tap(card)
         try waitForPageReady("artist.spotlight.countProvenance", label: "Sorted by available play counts", in: ui)
+        let browser = ui.app.buttons["artist.spotlight.browseLanguages"]
+        try ui.reveal(browser)
+        try ui.tap(browser)
+        try ui.wait("The requested language browser must expand") {
+            (browser.value as? String ?? "").hasPrefix("Expanded")
+        }
     }
 
     private func waitForPageReady(_ identifier: String, label: String, in ui: AppUITestDriver) throws {

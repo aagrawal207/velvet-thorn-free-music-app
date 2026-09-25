@@ -13,13 +13,26 @@ final class LibraryStore {
     @ObservationIgnored private var persistedData: Data?
     private var storageIsBlocked = false
     @ObservationIgnored private let now: @Sendable () -> Date
+    @ObservationIgnored private let syncWriterID: UUID
+    @ObservationIgnored private let projectSyncValues: LibrarySyncValueProjection
+    @ObservationIgnored private var syncPreparationGeneration = UUID()
     @ObservationIgnored var onHistoryCleared: (@MainActor () -> Void)?
+    @ObservationIgnored var onCloudSyncApplied: (@MainActor (_ previous: UserPreferences, _ recommendationsChanged: Bool) -> Void)?
+    @ObservationIgnored var onSyncChange: (@MainActor () -> Void)?
+    @ObservationIgnored var onWidgetLibraryChange: (@MainActor () -> Void)?
+    @ObservationIgnored private(set) var widgetLibrarySourceIsAvailable = false
+
+    var syncDeviceConfigurationURL: URL? {
+        fileURL?.deletingLastPathComponent().appendingPathComponent("LibrarySyncDevice/device.json")
+    }
 
     var favorites: [Track] { document.favorites }
     var playlists: [UserPlaylist] { document.playlists }
     var events: [ListeningEvent] { document.events }
     var recentlyPlayed: [RecentListen] { document.recentlyPlayed }
     var recentSearches: [String] { document.recentSearches }
+    var recentSearchSelections: [SearchSelection] { document.recentSearchSelections }
+    var searchHistoryResetRevision: LibrarySyncRevision? { document.syncState?.searchReset }
     var playback: PlaybackSnapshot { document.playback }
     var followedArtists: [FollowedArtist] { document.followedArtists }
     var releases: [ArtistRelease] { document.releases }
@@ -55,8 +68,11 @@ final class LibraryStore {
         }
     }
 
-    init(directory: URL? = nil, now: @escaping @Sendable () -> Date = { Date() }) {
+    init(directory: URL? = nil, now: @escaping @Sendable () -> Date = { Date() }, writerID: UUID = UUID(),
+         projectSyncValues: @escaping LibrarySyncValueProjection = LibrarySyncProjection.values) {
         self.now = now
+        self.syncWriterID = writerID
+        self.projectSyncValues = projectSyncValues
         do {
             let directory = try LibraryPersistence.directory(directory)
             let url = directory.appendingPathComponent(LibraryPersistence.fileName)
@@ -68,10 +84,11 @@ final class LibraryStore {
                 document = try LibraryPersistence.decode(data, now: now)
                 var retained = document
                 if LibraryHistoryRetention.apply(to: &retained, now: now) {
-                    commit { $0 = retained }
+                    commit(syncSharedChanges: false) { $0 = retained }
                 }
             }
             hasLoadedDocument = true
+            widgetLibrarySourceIsAvailable = !storageIsBlocked
         } catch {
             storageIsBlocked = true
             if let error = error as? LibraryStorageError {
@@ -93,6 +110,7 @@ final class LibraryStore {
             let historyBoundary = LibraryRecovery.crossesHistoryBoundary(from: document, to: reloaded, now: now)
             guard try LibraryPersistence.read(fileURL) == data else { throw LibraryStorageError.changedOnDisk }
             storageIsBlocked = true
+            syncPreparationGeneration = UUID()
             document = reloaded
             persistedData = data
             storageBytes = Int64(data.count)
@@ -100,12 +118,38 @@ final class LibraryStore {
             if historyBoundary { onHistoryCleared?() }
             storageIsBlocked = false
             errorMessage = nil
+            widgetLibrarySourceIsAvailable = true
+            onWidgetLibraryChange?()
+            onSyncChange?()
             return historyBoundary ? .historyBoundary : .reloaded
         } catch {
             storageIsBlocked = true
             errorMessage = "Breezy couldn’t reload your saved library. \(error.localizedDescription)"
+            widgetStorageFailed()
             return .failed
         }
+    }
+
+    /// Activation and delayed artwork must verify the saved source; ordinary checkpoints already passed persist's check.
+    @discardableResult
+    func validateWidgetLibrarySource() -> Bool {
+        let available: Bool
+        if hasLoadedDocument, !storageIsBlocked, let fileURL {
+            do { available = try LibraryPersistence.read(fileURL) == persistedData }
+            catch { available = false }
+        } else {
+            available = false
+        }
+        if available != widgetLibrarySourceIsAvailable {
+            // Reentrant validation must observe the transition before notifying any publication or route caller.
+            widgetLibrarySourceIsAvailable = available
+            onWidgetLibraryChange?()
+        }
+        return widgetLibrarySourceIsAvailable
+    }
+
+    private func widgetStorageFailed() {
+        validateWidgetLibrarySource()
     }
 
     func isFavorite(_ track: Track) -> Bool {
@@ -143,10 +187,12 @@ final class LibraryStore {
     }
 
     @discardableResult
-    func createPlaylist(name: String) -> UUID {
+    func createPlaylist(name: String, tracks: [Track] = []) -> UUID {
         let now = self.now()
+        var ids = Set<String>()
         let playlist = UserPlaylist(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            tracks: tracks.filter { ids.insert($0.id).inserted },
             createdAt: now, updatedAt: now
         )
         guard LibraryValidation.isValidID(playlist.name) else {
@@ -234,13 +280,13 @@ final class LibraryStore {
                 return false
             }
             // The player owns checkpoint idempotency. Equal-sized deltas are separate listening time.
-            return commit {
-                $0.events[index].listenedSeconds = total
-                $0.events[index].track = track
-            }
+            var event = existing
+            event.listenedSeconds = total
+            event.track = track
+            return commit(syncCheckpoint: .listening(event)) { $0.events[index] = event }
         } else {
             let event = ListeningEvent(id: sessionID, track: track, startedAt: startedAt, listenedSeconds: seconds)
-            return commit {
+            return commit(syncCheckpoint: .listening(event)) {
                 $0.events.append(event)
                 $0.events.sort {
                     if $0.startedAt != $1.startedAt { return $0.startedAt > $1.startedAt }
@@ -254,9 +300,10 @@ final class LibraryStore {
         let saved = playback
         guard snapshot.currentIndex != saved.currentIndex || snapshot.position != saved.position
                 || snapshot.shuffleEnabled != saved.shuffleEnabled || snapshot.repeatMode != saved.repeatMode
-                || snapshot.queue != saved.queue || snapshot.originalQueue != saved.originalQueue else { return }
+                || snapshot.queue != saved.queue || snapshot.originalQueue != saved.originalQueue
+                || snapshot.originalQueueIndices != saved.originalQueueIndices else { return }
         // Queue checkpoints carry resume state, never listening time or a counted play.
-        commit { $0.playback = snapshot }
+        commit(syncSharedChanges: false) { $0.playback = snapshot }
     }
 
     func recordRecent(track: Track, position: TimeInterval) {
@@ -266,14 +313,14 @@ final class LibraryStore {
             return
         }
         let recent = RecentListen(track: track, playedAt: now(), position: position)
-        commit {
+        commit(syncCheckpoint: .recent(recent)) {
             $0.recentlyPlayed.removeAll { $0.id == track.id }
             $0.recentlyPlayed.insert(recent, at: 0)
         }
     }
 
     func clearHistory() {
-        if commit({
+        if commit(syncMutation: LibrarySyncMutation(clearHistory: true), {
             $0.listeningHistoryEpoch = UUID()
             $0.events.removeAll()
             $0.recentlyPlayed.removeAll()
@@ -288,7 +335,7 @@ final class LibraryStore {
         guard !key.isEmpty else { return }
         let searches = Array(([query] + recentSearches.filter { SearchHistory.key($0) != key }).prefix(SearchHistory.limit))
         guard searches != recentSearches else { return }
-        commit { $0.recentSearches = searches }
+        commit(syncMutation: LibrarySyncMutation(searchKey: key)) { $0.recentSearches = searches }
     }
 
     func removeRecentSearch(_ query: String) {
@@ -297,9 +344,50 @@ final class LibraryStore {
         commit { $0.recentSearches.removeAll { SearchHistory.key($0) == key } }
     }
 
-    func clearRecentSearches() {
-        guard !recentSearches.isEmpty else { return }
-        commit { $0.recentSearches.removeAll() }
+    @discardableResult
+    func recordSearchSelection(_ selection: SearchSelection) -> Bool {
+        let saved: SearchSelection
+        switch selection {
+        case .track: saved = selection
+        case .collection(var collection):
+            // A recent opens the provider destination, not the songs visible during an earlier visit.
+            collection.tracks = []
+            saved = .collection(collection)
+        }
+        return commit(syncMutation: LibrarySyncMutation(searchSelectionKey: saved.id)) {
+            $0.recentSearchSelections.removeAll { $0.id == saved.id }
+            $0.recentSearchSelections.insert(saved, at: 0)
+            $0.recentSearchSelections = Array($0.recentSearchSelections.prefix(SearchHistory.limit))
+        }
+    }
+
+    @discardableResult
+    func removeRecentSearchSelection(id: String) -> Bool {
+        guard !storageIsBlocked, let fileURL else { return false }
+        guard LibraryValidation.isValidSearchSelectionID(id) else {
+            reject("That recent search selection has an invalid identifier.")
+            return false
+        }
+        guard recentSearchSelections.contains(where: { $0.id == id }) else {
+            do {
+                guard try LibraryPersistence.read(fileURL) == persistedData else { throw LibraryStorageError.changedOnDisk }
+                return true
+            } catch {
+                if case LibraryStorageError.changedOnDisk = error { storageIsBlocked = true }
+                errorMessage = "Breezy couldn’t remove this recent search selection. \(error.localizedDescription)"
+                widgetStorageFailed()
+                return false
+            }
+        }
+        return commit { $0.recentSearchSelections.removeAll { $0.id == id } }
+    }
+
+    @discardableResult
+    func clearRecentSearches() -> Bool {
+        commit(syncMutation: LibrarySyncMutation(clearSearches: true)) {
+            $0.recentSearches.removeAll()
+            $0.recentSearchSelections.removeAll()
+        }
     }
 
     func isFollowing(artistID: String) -> Bool {
@@ -369,6 +457,7 @@ final class LibraryStore {
         } catch {
             if case LibraryStorageError.changedOnDisk = error { storageIsBlocked = true }
             errorMessage = "Breezy couldn’t verify this release alert’s saved state. \(error.localizedDescription)"
+            widgetStorageFailed()
             return false
         }
     }
@@ -376,7 +465,7 @@ final class LibraryStore {
     @discardableResult
     func acknowledgeReleaseNotification(id: String) -> Bool {
         guard document.pendingReleaseNotificationIDs.contains(id) else { return true }
-        return commit { $0.pendingReleaseNotificationIDs.removeAll { $0 == id } }
+        return commit(syncSharedChanges: false) { $0.pendingReleaseNotificationIDs.removeAll { $0 == id } }
     }
 
     func markReleasesSeen() {
@@ -390,18 +479,7 @@ final class LibraryStore {
 
     func saveMix(_ mix: GeneratedPlaylist) {
         let dislikedIDs = dislikedTrackIDs
-        let languages = preferences.languages
-        let overrides = recordingLanguageOverrides
-        let isEligible: (Track) -> Bool = { track in
-            guard !dislikedIDs.contains(track.id) else { return false }
-            guard !languages.isEmpty,
-                  let language = ArtistSpotlight.languageResult(for: track, in: [:], overrides: overrides)?.language else { return true }
-            switch language {
-            case .hindi: return languages.contains(.hindi)
-            case .english: return languages.contains(.english)
-            default: return false
-            }
-        }
+        let isEligible: (Track) -> Bool = { !dislikedIDs.contains($0.id) }
         if let saved = self.mix(mix.kind), saved.periodKey == mix.periodKey,
            !saved.tracks.isEmpty, saved.tracks.allSatisfy(isEligible) { return }
         var mix = mix
@@ -415,6 +493,12 @@ final class LibraryStore {
 
     func summary(for window: ListeningWindow, now: Date = Date()) -> ListeningSummary {
         ListeningAnalytics.summary(events: events, for: window, now: now)
+    }
+
+    func languageSummary(for window: ListeningWindow, now: Date = Date(),
+                         evidence: [LyricsRequestKey: ArtistSongLanguageResult] = [:]) -> ListeningLanguageSummary {
+        ListeningAnalytics.languageSummary(events: events, for: window, now: now,
+                                           evidence: evidence, overrides: recordingLanguageOverrides)
     }
 
     func lyricsOffset(for trackID: String) -> TimeInterval {
@@ -451,10 +535,11 @@ final class LibraryStore {
             } catch {
                 if case LibraryStorageError.changedOnDisk = error { storageIsBlocked = true }
                 errorMessage = "Breezy couldn’t save this tip record. \(error.localizedDescription)"
+                widgetStorageFailed()
                 return false
             }
         }
-        return commit { $0.tipTransactions[id] = credit }
+        return commit(syncSharedChanges: false) { $0.tipTransactions[id] = credit }
     }
 
     func setLyricsOffset(_ value: TimeInterval, for trackID: String) {
@@ -481,28 +566,165 @@ final class LibraryStore {
         errorMessage = message
     }
 
+    /// Preparation never acknowledges an in-memory placeholder or an externally replaced library.
+    func cloudReplica(replicaID: UUID) throws -> LibrarySyncReplica {
+        do {
+            try verifyCloudStorage()
+            if document.syncState == nil {
+                let prepared = try makeCloudPreparation(LibrarySyncState())
+                _ = try persist(prepared.candidate, encoded: prepared.encoded)
+            }
+            return LibrarySyncReplica(replicaID: replicaID, state: document.syncState!)
+        } catch {
+            cloudStorageFailed(error)
+            throw error
+        }
+    }
+
+    /// Incoming revisions are adopted, never restamped. Playback and device-only records come from this store.
     @discardableResult
-    private func commit(_ change: (inout LibraryDocument) -> Void) -> Bool {
-        guard !storageIsBlocked, let fileURL else { return false }
+    func mergeCloudState(_ incoming: LibrarySyncState) throws -> Bool {
+        try applyCloudMerge(makeCloudPreparation(incoming))
+    }
+
+    func prepareCloudMerge(_ incoming: LibrarySyncState) async throws -> LibraryCloudMergePreparation {
+        do { try verifyCloudStorage() } catch { cloudStorageFailed(error); throw error }
+        let document = document
+        let data = persistedData
+        let generation = syncPreparationGeneration
+        let time = now()
+        let writer = syncWriterID
+        let preparation = Task.detached(priority: .utility) {
+            try LibraryCloudMergePreparation.make(incoming: incoming, document: document, baselineData: data,
+                                                  generation: generation, now: time, writer: writer)
+        }
+        return try await withTaskCancellationHandler {
+            try await preparation.value
+        } onCancel: {
+            preparation.cancel()
+        }
+    }
+
+    private func makeCloudPreparation(_ incoming: LibrarySyncState) throws -> LibraryCloudMergePreparation {
+        do { try verifyCloudStorage() } catch { cloudStorageFailed(error); throw error }
+        return try LibraryCloudMergePreparation.make(incoming: incoming, document: document, baselineData: persistedData,
+                                                     generation: syncPreparationGeneration, now: now(), writer: syncWriterID)
+    }
+
+    @discardableResult
+    func applyCloudMerge(_ preparation: LibraryCloudMergePreparation) throws -> Bool {
+        do {
+            try verifyCloudStorage()
+            guard preparation.generation == syncPreparationGeneration else { throw LibrarySyncError.localChangedDuringSync }
+            guard var encoded = preparation.encoded else { return false }
+            var candidate = preparation.candidate
+            let previousPreferences = document.preferences
+            if preparation.baselineData != persistedData {
+                candidate.playback = document.playback
+                candidate.tipTransactions = document.tipTransactions
+                candidate.pendingReleaseNotificationIDs = document.pendingReleaseNotificationIDs
+                if !preparation.historyBoundary { candidate.listeningHistoryEpoch = document.listeningHistoryEpoch }
+                LibrarySyncProjection.prunePendingNotifications(in: &candidate)
+                encoded = try LibraryPersistence.encode(candidate)
+            }
+            _ = try persist(candidate, encoded: encoded)
+            errorMessage = nil
+            if preparation.historyBoundary { onHistoryCleared?() }
+            if preparation.remoteChanged { onCloudSyncApplied?(previousPreferences, preparation.recommendationsChanged) }
+            return preparation.remoteChanged
+        } catch {
+            cloudStorageFailed(error)
+            throw error
+        }
+    }
+
+    private func verifyCloudStorage() throws {
+        guard !storageIsBlocked, hasLoadedDocument, let fileURL else {
+            throw LibrarySyncError.localStorage(errorMessage ?? "Reload the saved library before retrying.")
+        }
+        guard try LibraryPersistence.read(fileURL) == persistedData else { throw LibraryStorageError.changedOnDisk }
+    }
+
+    private func cloudStorageFailed(_ error: any Error) {
+        if case LibraryStorageError.changedOnDisk = error { storageIsBlocked = true }
+        if !storageIsBlocked { errorMessage = "Breezy couldn’t sync your library. \(error.localizedDescription)" }
+        else if case LibraryStorageError.changedOnDisk = error { errorMessage = error.localizedDescription }
+        widgetStorageFailed()
+    }
+
+    private func persist(_ candidate: LibraryDocument, encoded: Data? = nil, syncChanged: Bool? = nil) throws -> Bool {
+        guard let fileURL else { throw LibraryStorageError.invalidDirectory }
+        let data = try encoded ?? LibraryPersistence.encode(candidate)
+        guard data != persistedData else { return false }
+        try LibraryPersistence.write(data, to: fileURL, replacing: persistedData)
+        persistedData = data
+        storageBytes = Int64(data.count)
+        if syncChanged ?? (candidate.syncState != document.syncState) { syncPreparationGeneration = UUID() }
+        document = candidate
+        widgetLibrarySourceIsAvailable = true
+        onWidgetLibraryChange?()
+        return true
+    }
+
+    @discardableResult
+    private func commit(syncMutation: LibrarySyncMutation = LibrarySyncMutation(), syncSharedChanges: Bool = true,
+                        syncCheckpoint: LibrarySyncCheckpoint? = nil,
+                        _ change: (inout LibraryDocument) -> Void) -> Bool {
+        guard !storageIsBlocked, fileURL != nil else { return false }
         var candidate = document
         change(&candidate)
         do {
             let now = self.now()
             // Validate before expiry so malformed old records cannot be silently discarded as maintenance.
             try LibraryValidation.validate(candidate, now: now)
-            LibraryHistoryRetention.apply(to: &candidate, now: now)
-            let data = try LibraryPersistence.encode(candidate)
-            if data != persistedData {
-                try LibraryPersistence.write(data, to: fileURL, replacing: persistedData)
-                persistedData = data
-                storageBytes = Int64(data.count)
-                document = candidate
+            if candidate.preferences != document.preferences {
+                _ = try LibrarySyncPreferences.applying(LibrarySyncPreferences.fields(candidate.preferences), to: candidate.preferences)
             }
+            let expired = LibraryHistoryRetention.apply(to: &candidate, now: now)
+            let historyWasPruned = expired || candidate.events.count < document.events.count
+                || candidate.recentlyPlayed.count < document.recentlyPlayed.count
+            var syncChanged = historyWasPruned
+            if let syncCheckpoint {
+                if var state = try LibrarySyncJournal.recordingCheckpoint(
+                    syncCheckpoint, previous: document, candidate: candidate, historyWasPruned: historyWasPruned,
+                    now: now, writer: syncWriterID, projectValues: projectSyncValues
+                ) {
+                    if document.syncState == nil {
+                        try LibrarySyncJournal.restoreAggregates(in: &candidate, from: state)
+                        LibrarySyncMerge.compact(&state, retaining: candidate)
+                    }
+                    syncChanged = syncChanged || document.syncState == nil || state.clock != document.syncState?.clock
+                        || state.registers.count != (document.syncState?.registers.count ?? 0)
+                    candidate.syncState = state
+                }
+            } else if syncSharedChanges {
+                let difference = try LibrarySyncDifference(previous: document, candidate: candidate, mutation: syncMutation,
+                                                           projectValues: projectSyncValues)
+                if difference.hasChanges {
+                    var state = try LibrarySyncJournal.recording(
+                        previous: document, candidate: candidate, mutation: syncMutation, now: now, writer: syncWriterID,
+                        difference: difference, projectValues: projectSyncValues
+                    )
+                    try LibrarySyncJournal.restoreAggregates(in: &candidate, from: state)
+                    LibrarySyncMerge.compact(&state, retaining: candidate)
+                    candidate.syncState = state
+                    syncChanged = syncChanged || candidate.syncState != document.syncState
+                } else if historyWasPruned, var state = candidate.syncState {
+                    LibrarySyncMerge.compactHistory(&state, retaining: candidate)
+                    candidate.syncState = state
+                }
+            } else if historyWasPruned, var state = candidate.syncState {
+                LibrarySyncMerge.compactHistory(&state, retaining: candidate)
+                candidate.syncState = state
+            }
+            let written = try persist(candidate, syncChanged: syncChanged)
             errorMessage = nil
+            if written, syncChanged { onSyncChange?() }
             return true
         } catch {
             if case LibraryStorageError.changedOnDisk = error { storageIsBlocked = true }
             errorMessage = "Breezy couldn’t save this change. \(error.localizedDescription)"
+            widgetStorageFailed()
             return false
         }
     }

@@ -188,7 +188,9 @@ final class AppModelTestContext {
     private var tasks: [Task<Void, Never>] = []
 
     init(languages: Set<MusicLanguage> = [.english], snapshot: PlaybackSnapshot = PlaybackSnapshot(),
-         resolver: (any StreamResolving)? = nil, generatesMixes: Bool = false) throws {
+         resolver: (any StreamResolving)? = nil, generatesMixes: Bool = false,
+         recordingLanguageService: ArtistSpotlightLanguageService? = nil,
+         languageDiscovery: ListeningLanguageDiscovery? = nil) throws {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("GanaBajana-AppModelTests-\(UUID())", isDirectory: true)
         library = LibraryStore(directory: directory)
@@ -203,9 +205,12 @@ final class AppModelTestContext {
             throw AppModelTestFailure.storage(error)
         }
         player = PlayerController(resolver: resolver ?? streams)
+        let languageService = recordingLanguageService ?? ArtistSpotlightLanguageService(provider: lyrics)
+        let discovery = languageDiscovery ?? ListeningLanguageDiscovery(service: languageService)
         // Most gates exercise one Home or Search request; mix publication tests opt into the engine's fan-out.
         model = MusicAppModel(library: library, player: player, catalog: catalog, charts: charts, lyrics: lyrics,
                               account: YouTubeAccountStore(secrets: MemorySecretStore(), registry: YouTubeSessionRegistry()),
+                              recordingLanguageService: languageService, languageDiscovery: discovery,
                               generatesMixes: generatesMixes)
     }
 
@@ -245,12 +250,29 @@ final class AppModelTestContext {
         await model.search()
     }
 
+    func withBlockedLibraryFile(_ body: () throws -> Void) throws {
+        let file = directory.appendingPathComponent(LibraryPersistence.fileName)
+        let saved = try Data(contentsOf: file)
+        try FileManager.default.removeItem(at: file)
+        defer {
+            do {
+                if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+                try saved.write(to: file, options: .atomic)
+            } catch { XCTFail("Couldn’t restore the isolated library after the write-failure fixture: \(error)") }
+        }
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        try body()
+    }
+
     func close() async throws {
         tasks.forEach { $0.cancel() }
+        model.cancelPendingRadio()
+        model.deactivateDeviceServices()
         player.pause()
         await catalog.close()
         await charts.charts.close()
         await streams.streams.close()
+        await model.languageDiscovery.waitForChecks()
         for task in tasks { await task.value }
         tasks.removeAll()
         try await AppModelFixtures.eventually { !model.isGeneratingMixes }
@@ -262,6 +284,7 @@ enum AppModelFixtures {
     static func track(_ id: String, language: MusicLanguage = .english) -> Track {
         var track = libraryTestTrack(id)
         track.language = language
+        track.isAudioRecording = true
         return track
     }
 

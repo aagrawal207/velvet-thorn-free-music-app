@@ -9,8 +9,10 @@ actor ArtistSpotlightLanguageService {
         var positiveLifetime: TimeInterval = 12 * 60 * 60
         var negativeLifetime: TimeInterval = 5 * 60
         var lookupTimeout: TimeInterval = 6
+        var sourceTimeout: TimeInterval = 5.5
         var maximumConcurrentLookups = 2
         var maximumWaitersPerLookup = 12
+        var recordingMetadataTimeout: TimeInterval = 2
     }
 
     struct Activity: Sendable {
@@ -35,6 +37,7 @@ actor ArtistSpotlightLanguageService {
     private let configuration: Configuration
     private let hypotheses: ArtistSpotlightLanguageClassifier.Hypotheses
     private let metadataLookup: MetadataLookup?
+    private let recordingMetadataLookup: MetadataLookup?
     private let now: @Sendable () -> Date
     private var cache: [LyricsRequestKey: Entry] = [:]
     private var flights: [LyricsRequestKey: Flight] = [:]
@@ -42,12 +45,14 @@ actor ArtistSpotlightLanguageService {
 
     init(provider: any LyricsProviding, configuration: Configuration = Configuration(),
          hypotheses: @escaping ArtistSpotlightLanguageClassifier.Hypotheses = ArtistSpotlightLanguageClassifier.recognize,
-         now: @escaping @Sendable () -> Date = { Date() }, metadataLookup: MetadataLookup? = nil) {
+          now: @escaping @Sendable () -> Date = { Date() }, recordingMetadataLookup: MetadataLookup? = nil,
+          metadataLookup: MetadataLookup? = nil) {
         self.provider = provider
         self.configuration = configuration
         self.hypotheses = hypotheses
         self.now = now
         self.metadataLookup = metadataLookup
+        self.recordingMetadataLookup = recordingMetadataLookup
     }
 
     var activity: Activity {
@@ -94,11 +99,14 @@ actor ArtistSpotlightLanguageService {
                 ArtistSpotlightDiagnostics.logger.debug("cacheHit=0 cacheMiss=1 coalesced=0 languageRejected=0")
                 let flightID = UUID()
                 let started = now()
-                let task = Task<Void, Never> { [provider, configuration, hypotheses, metadataLookup] in
+                let task = Task<Void, Never> { [provider, configuration, hypotheses, metadataLookup, recordingMetadataLookup] in
                     let result: Result<ArtistSongLanguageResult, any Error>
                     do {
                         let classification = try await PlaybackDeadline.run(seconds: configuration.lookupTimeout) {
-                            try await Self.resolve(track, provider: provider, metadataLookup: metadataLookup, hypotheses: hypotheses)
+                            try await Self.resolve(track, provider: provider, metadataLookup: metadataLookup,
+                                                   recordingMetadataLookup: recordingMetadataLookup,
+                                                   hypotheses: hypotheses, sourceTimeout: configuration.sourceTimeout,
+                                                   recordingMetadataTimeout: configuration.recordingMetadataTimeout)
                         }
                         try Task.checkCancellation()
                         result = .success(classification)
@@ -115,11 +123,23 @@ actor ArtistSpotlightLanguageService {
     }
 
     private nonisolated static func resolve(_ track: Track, provider: any LyricsProviding, metadataLookup: MetadataLookup?,
-                                           hypotheses: ArtistSpotlightLanguageClassifier.Hypotheses) async throws -> ArtistSongLanguageResult {
-        async let metadata = fetchMetadata(track, lookup: metadataLookup)
+                                           recordingMetadataLookup: MetadataLookup?,
+                                           hypotheses: ArtistSpotlightLanguageClassifier.Hypotheses,
+                                           sourceTimeout: TimeInterval, recordingMetadataTimeout: TimeInterval) async throws -> ArtistSongLanguageResult {
+        let (recording, recordingError) = try await fetchMetadata(track, lookup: recordingMetadataLookup,
+            timeout: min(sourceTimeout, recordingMetadataTimeout))
+        try Task.checkCancellation()
+        if let recording, !recording.isLikely {
+            ArtistSpotlightDiagnostics.logger.debug("providerLanguageUsed=1 classificationSkipped=1 providerLanguageFailure=0")
+            return recording
+        }
+        ArtistSpotlightDiagnostics.logger.debug("providerLanguageUsed=0 classificationSkipped=0 providerLanguageFailure=\(recordingError == nil ? 0 : 1)")
+        async let metadata = fetchMetadata(track, lookup: metadataLookup, timeout: sourceTimeout)
         var document: LyricsDocument?
         var lookupError: (any Error)?
-        do { document = try await provider.lyrics(for: track) }
+        do {
+            document = try await PlaybackDeadline.run(seconds: sourceTimeout) { try await provider.lyrics(for: track) }
+        }
         catch {
             if error is CancellationError || Task.isCancelled { throw CancellationError() }
             lookupError = error
@@ -129,15 +149,17 @@ actor ArtistSpotlightLanguageService {
         let (work, metadataError) = try await metadata
         let lyrics = document.map { ArtistSpotlightLanguageClassifier.classify($0, for: track, hypotheses: hypotheses) }
         let result = ArtistSpotlightLanguageSignals.combine(lyrics: lyrics, metadata: work, title: track.title)
-        if result.language == nil, let error = lookupError ?? metadataError { throw error }
+        ArtistSpotlightDiagnostics.logger.debug("lyricsSourceFailure=\(lookupError == nil ? 0 : 1) metadataSourceFailure=\(metadataError == nil ? 0 : 1) languageConflict=\(result.hasConflictingEvidence ? 1 : 0)")
+        if result.language == nil, !result.hasConflictingEvidence, work != .unclassified(.uncertainLanguage),
+           let error = lookupError ?? metadataError { throw error }
         try Task.checkCancellation()
         return result
     }
 
-    private nonisolated static func fetchMetadata(_ track: Track, lookup: MetadataLookup?) async throws -> (ArtistSongLanguageResult?, (any Error)?) {
+    private nonisolated static func fetchMetadata(_ track: Track, lookup: MetadataLookup?, timeout: TimeInterval) async throws -> (ArtistSongLanguageResult?, (any Error)?) {
         guard let lookup else { return (nil, nil) }
         do {
-            let result = try await PlaybackDeadline.run(seconds: 4.5) { try await lookup(track) }
+            let result = try await PlaybackDeadline.run(seconds: timeout) { try await lookup(track) }
             return (result, nil)
         }
         catch {

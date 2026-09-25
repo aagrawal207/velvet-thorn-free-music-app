@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Partial, source-supported age-rating answers; not an all-NONE template or a complete content assessment.",
+  "status": "COMPLETE_PROPOSAL_PENDING_OWNER_CONFIRMATION",
+  "applied": false,
+  "attemptReceipt": "artifacts/AppStore-1.0.0-5/age-rating-confirmed-1790252246811509000/summary.json",
+  "appId": "6815025307",
+  "versionId": "2754a299-5b46-4e62-8f79-8bf80c6078d5",
+  "appInfoId": "49ab6f45-a195-4a95-9381-d9d61ae78108",
+  "evidenceDocument": "docs/app-store/REVIEW_QUESTIONS.md",
+  "confirmedFields": {
+    "advertising": false,
+    "gambling": false,
+    "healthOrWellnessTopics": false,
+    "lootBox": false,
+    "messagingAndChat": false,
+    "parentalControls": false,
+    "ageAssurance": false,
+    "socialMedia": false,
+    "socialMediaAgeRestricted": false,
+    "unrestrictedWebAccess": true,
+    "userGeneratedContent": true,
+    "contests": "NONE",
+    "gamblingSimulated": "NONE",
+    "medicalOrTreatmentInformation": "NONE"
+  },
+  "pendingContentFields": [
+    "alcoholTobaccoOrDrugUseOrReferences",
+    "gunsOrOtherWeapons",
+    "profanityOrCrudeHumor",
+    "sexualContentGraphicAndNudity",
+    "sexualContentOrNudity",
+    "horrorOrFearThemes",
+    "matureOrSuggestiveThemes",
+    "violenceCartoonOrFantasy",
+    "violenceRealistic",
+    "violenceRealisticProlongedGraphicOrSadistic"
+  ],
+  "proposedContentFields": {
+    "profanityOrCrudeHumor": "INFREQUENT_OR_MILD",
+    "matureOrSuggestiveThemes": "INFREQUENT_OR_MILD",
+    "sexualContentOrNudity": "INFREQUENT_OR_MILD",
+    "sexualContentGraphicAndNudity": "NONE",
+    "alcoholTobaccoOrDrugUseOrReferences": "INFREQUENT_OR_MILD",
+    "horrorOrFearThemes": "INFREQUENT_OR_MILD",
+    "violenceCartoonOrFantasy": "INFREQUENT_OR_MILD",
+    "violenceRealistic": "INFREQUENT_OR_MILD",
+    "violenceRealisticProlongedGraphicOrSadistic": "NONE",
+    "gunsOrOtherWeapons": "INFREQUENT_OR_MILD"
+  },
+  "proposalRationale": {
+    "basis": "Breezy streams an unfiltered general music catalog with explicit badges and displays lyrics and provider cover art, so lyrics, artwork and titles can carry profanity, mature or sexual themes, substance references, horror imagery, weapon imagery and violent references. Nothing is prolonged, graphic or sadistic by design, and the provider's own content policies exclude pornographic material, so the two graphic descriptors stay NONE.",
+    "expectedRating": "12+ under Apple's published definitions; the Infrequent/Mild sexual, profanity, mature-theme and realistic-violence descriptors each carry 12+.",
+    "peerEvidence": {
+      "source": "Public iTunes lookup API, 2026-09-25 (contentAdvisoryRating and advisories fields)",
+      "Spotify (324684580)": "12+: Infrequent/Mild alcohol/tobacco/drug references; mature/suggestive themes; profanity or crude humor; horror/fear themes; cartoon or fantasy violence; sexual content and nudity",
+      "Apple Music (1108187390)": "12+: Infrequent/Mild cartoon or fantasy violence; alcohol/tobacco/drug references; realistic violence; horror/fear themes; sexual content and nudity; mature/suggestive themes",
+      "YouTube Music (1017492454)": "12+: Infrequent/Mild cartoon or fantasy violence"
+    },
+    "ownerDecision": "Confirm or adjust each of the ten values. The confirmed set plus the fourteen prepared capability answers form one complete questionnaire write; the helper refuses partial writes."
+  }
+}

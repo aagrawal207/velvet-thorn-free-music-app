@@ -59,12 +59,20 @@ final class ArtistSpotlightOverrideTests: XCTestCase {
         let task = Task { await loader.load(catalog: catalog, lyrics: provider) }
         let request = try await provider.requests.request(at: 0)
         XCTAssertTrue(library.setRecordingLanguageOverride("ta", for: track.id))
+        loader.filter = .language(.tamil)
+        loader.isBrowsingLanguages = true
         XCTAssertEqual(loader.languageResult(for: track)?.language, .tamil)
         try await provider.requests.complete(request, with: .success(LyricsFallbackFixtures.plain()))
         await task.value
         XCTAssertEqual(loader.languageResult(for: track), .identified(.tamil, source: .userOverride))
+        XCTAssertEqual(loader.filter, .language(.tamil))
+        XCTAssertTrue(loader.isBrowsingLanguages)
+        XCTAssertEqual(loader.visibleTracks.map(\.id), [track.id])
         XCTAssertTrue(library.setRecordingLanguageOverride(nil, for: track.id))
-        loader.overridesChanged()
         XCTAssertEqual(loader.languageResult(for: track)?.language, .english)
+        XCTAssertEqual(loader.filter, .language(.tamil))
+        XCTAssertTrue(loader.isBrowsingLanguages)
+        XCTAssertTrue(loader.visibleTracks.isEmpty)
+        XCTAssertTrue(loader.filters.contains(.language(.tamil)))
     }
 }

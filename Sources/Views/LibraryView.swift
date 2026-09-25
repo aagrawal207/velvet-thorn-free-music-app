@@ -4,6 +4,7 @@ import SwiftUI
 struct LibraryView: View {
     @Environment(MusicAppModel.self) private var model
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var playlistEditor: LibraryPlaylistEditorRequest?
     @State private var deletingPlaylist: UserPlaylist?
 
@@ -22,7 +23,7 @@ struct LibraryView: View {
             .padding(.horizontal, 20)
             .padding(.top, 16)
             .padding(.bottom, 28)
-            .frame(maxWidth: 760)
+            .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
             .frame(maxWidth: .infinity)
         }
         .background(AppTheme.background)
@@ -301,12 +302,14 @@ struct LibraryStoreNotices: View {
                 Text("New listening won’t be saved. Your earlier history is still here.")
                     .appFont(.subheadline)
                     .foregroundStyle(AppTheme.secondaryText)
-                Button("Turn on listening history") {
-                    model.player.flushListeningProgress()
-                    model.library.preferences.saveListeningHistory = true
+                Button {
+                    model.updatePreferences { $0.saveListeningHistory = true }
+                } label: {
+                    Text("Turn on listening history")
+                        .appFont(.subheadline, weight: .semibold)
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
-                .appFont(.subheadline, weight: .semibold)
-                .frame(minHeight: 44)
                 .accessibilityIdentifier("library.history.enable")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -371,8 +374,7 @@ private struct LibraryRecentSongRow: View {
             if recent.position >= 1 {
                 Button {
                     let position = recent.position
-                    model.play(recent.track, in: tracks)
-                    model.player.seek(to: position)
+                    if model.play(recent.track, in: tracks) { model.player.seek(to: position) }
                 } label: {
                     Label("Resume at \(TimeText.duration(recent.position))", systemImage: "play.circle")
                         .appFont(.caption, weight: .semibold)
@@ -391,160 +393,352 @@ private struct LibraryRecentSongRow: View {
 }
 
 @MainActor
-private struct LibrarySavedSongsView: View {
-    enum Kind { case likes, recents }
+private struct LibraryTrackSearchButton: View {
+    let title: String
+    let identifier: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "magnifyingglass")
+                .appFont(.body, weight: .semibold)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Search \(title)")
+        .accessibilityIdentifier("\(identifier).search")
+        .keyboardShortcut("f", modifiers: .command)
+    }
+}
+
+@MainActor
+private struct LibraryTrackSearchField: View {
     @Environment(MusicAppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Binding var query: String
+    let title: String
+    let identifier: String
+    let cancel: () -> Void
+    @FocusState private var isFocused: Bool
+    @State private var didRequestFocus = false
+
+    var body: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 4)) : AnyLayout(HStackLayout(spacing: 12))
+        layout {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityHidden(true)
+                TextField("Title, artist, or album", text: $query)
+                    .appFont(.body)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.search)
+                    .focused($isFocused)
+                    .onSubmit { isFocused = false }
+                    .frame(minWidth: 44, minHeight: 48)
+                    // Native editors keep text-line bounds; the surrounding padding must also focus the field.
+                    .contentShape([.interaction, .accessibility], Rectangle())
+                    .simultaneousGesture(TapGesture().onEnded { isFocused = true })
+                    .accessibilityLabel("Search \(title)")
+                    .accessibilityIdentifier("\(identifier).search.field")
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                        isFocused = true
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .frame(minWidth: 44, minHeight: 48)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                    .accessibilityIdentifier("\(identifier).search.clear")
+                }
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, query.isEmpty ? 12 : 0)
+            .background(AppTheme.raised, in: RoundedRectangle(cornerRadius: AppCorner.compact))
+
+            Button {
+                isFocused = false
+                cancel()
+            } label: {
+                Text("Cancel")
+                    .appFont(.body)
+                    .fixedSize()
+                    .frame(minWidth: 44, minHeight: 48)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Cancel search")
+            .accessibilityIdentifier("\(identifier).search.cancel")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
+        .frame(maxWidth: .infinity)
+        .background(AppTheme.background)
+        .task {
+            guard !didRequestFocus else { return }
+            didRequestFocus = true
+            let dismissal = model.searchFocusDismissal
+            let presentingTab = model.selectedTab
+            await Task.yield()
+            guard !Task.isCancelled, dismissal == model.searchFocusDismissal,
+                  model.selectedTab == presentingTab, !model.isPlayerPresented, !model.isSettingsPresented else { return }
+            isFocused = true
+        }
+        .onChange(of: model.searchFocusDismissal) { _, _ in isFocused = false }
+        .onChange(of: model.selectedTab) { _, _ in isFocused = false }
+        .onChange(of: model.isPlayerPresented) { _, presented in if presented { isFocused = false } }
+        .onDisappear { isFocused = false }
+    }
+}
+
+private struct LibraryTrackSearchEmptyResults: View {
+    let identifier: String
+
+    var body: some View {
+        EmptyStateView(symbol: "magnifyingglass", title: "No matching songs",
+                       message: "Try another title, artist, or album.")
+            .accessibilityIdentifier("\(identifier).search.empty")
+    }
+}
+
+@MainActor
+struct LibrarySavedSongsView: View {
+    enum Kind: Hashable { case likes, recents }
+    @Environment(MusicAppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let kind: Kind
+    @State private var query = ""
+    @State private var isSearching = false
 
     private var title: String { kind == .likes ? "Liked songs" : "Recent listens" }
     private var tracks: [Track] { kind == .likes ? model.library.favorites : model.library.recentlyPlayed.map(\.track) }
     private var identifier: String { kind == .likes ? "library.likes" : "library.recents" }
 
     var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 18) {
-                    Image(systemName: kind == .likes ? "heart.fill" : "clock.arrow.circlepath")
-                        .font(.system(size: 40, weight: .medium))
-                        .foregroundStyle(AppTheme.accent)
-                        .frame(width: 100, height: 100)
-                        .background(AppTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                        .accessibilityHidden(true)
-                    Text(title)
-                        .appFont(.largeTitle, weight: .bold)
-                        .accessibilityAddTraits(.isHeader)
-                    Text(librarySongCount(tracks.count))
-                        .appFont(.subheadline)
-                        .foregroundStyle(AppTheme.secondaryText)
-                    LibraryQueueButtons(tracks: tracks, title: title, identifier: identifier)
-                    LibraryStoreNotices()
+        let sourceTracks = tracks
+        let selection = LibraryTrackSearch(tracks: sourceTracks, query: query)
+        ScrollViewReader { proxy in
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: 18) {
+                        if !isSearching {
+                            Image(systemName: kind == .likes ? "heart.fill" : "clock.arrow.circlepath")
+                                .font(.system(size: 40, weight: .medium))
+                                .foregroundStyle(AppTheme.accent)
+                                .frame(width: 100, height: 100)
+                                .background(AppTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                                .accessibilityHidden(true)
+                            Text(title)
+                                .appFont(.largeTitle, weight: .bold)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityAddTraits(.isHeader)
+                        }
+                        Text(selection.isFiltering && !sourceTracks.isEmpty
+                             ? "\(selection.tracks.count.formatted()) of \(librarySongCount(sourceTracks.count))"
+                             : librarySongCount(sourceTracks.count))
+                            .appFont(.subheadline)
+                            .foregroundStyle(AppTheme.secondaryText)
+                            .accessibilityIdentifier("\(identifier).count")
+                        LibraryQueueButtons(tracks: selection.tracks, title: selection.isFiltering ? "search results" : title,
+                                            identifier: identifier)
+                        LibraryStoreNotices()
+                    }
+                    .padding(.vertical, 12)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .id("\(identifier).top")
                 }
-                .padding(.vertical, 12)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            }
-            Section {
-                if tracks.isEmpty {
-                    EmptyStateView(
-                        symbol: kind == .likes ? "heart" : "headphones",
-                        title: kind == .likes ? "Save a song you love" : "Nothing played yet",
-                        message: kind == .likes
-                            ? "Tap the heart in a song’s menu to keep it here."
-                            : "With listening history on, your recent songs and resume positions appear here."
-                    )
-                    Button("Find music", systemImage: "magnifyingglass") { model.openSearch("") }
-                        .appFont(.body)
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("\(identifier).findMusic")
-                } else if kind == .likes {
-                    ForEach(tracks) { track in
-                        TrackRow(track: track, tracks: tracks)
-                            .swipeActions(edge: .trailing) {
-                                Button("Unlike", systemImage: "heart.slash", role: .destructive) {
+                Section {
+                    if sourceTracks.isEmpty {
+                        EmptyStateView(
+                            symbol: kind == .likes ? "heart" : "headphones",
+                            title: kind == .likes ? "Save a song you love" : "Nothing played yet",
+                            message: kind == .likes
+                                ? "Tap the heart in a song’s menu to keep it here."
+                                : "With listening history on, your recent songs and resume positions appear here."
+                        )
+                        .accessibilityIdentifier("\(identifier).empty")
+                        Button("Find music", systemImage: "magnifyingglass") { model.openSearch("") }
+                            .appFont(.body)
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("\(identifier).findMusic")
+                    } else if selection.tracks.isEmpty {
+                        LibraryTrackSearchEmptyResults(identifier: identifier)
+                    } else if kind == .likes {
+                        ForEach(selection.tracks) { track in
+                            TrackRow(track: track, tracks: selection.tracks)
+                                .swipeActions(edge: .trailing) {
+                                    Button("Unlike", systemImage: "heart.slash", role: .destructive) {
+                                        model.library.toggleFavorite(track)
+                                    }
+                                    .accessibilityIdentifier("library.unlike.\(track.id)")
+                                }
+                                .accessibilityAction(named: "Remove from liked songs") {
                                     model.library.toggleFavorite(track)
                                 }
-                                .accessibilityIdentifier("library.unlike.\(track.id)")
-                            }
-                            .accessibilityAction(named: "Remove from liked songs") {
-                                model.library.toggleFavorite(track)
-                            }
-                    }
-                } else {
-                    ForEach(model.library.recentlyPlayed) { recent in
-                        LibraryRecentSongRow(recent: recent, tracks: tracks)
+                        }
+                    } else {
+                        ForEach(model.library.recentlyPlayed) { recent in
+                            LibraryRecentSongRow(recent: recent, tracks: sourceTracks)
+                        }
                     }
                 }
+                .listRowBackground(AppTheme.surface)
+                .listRowSeparator(.hidden)
             }
-            .listRowBackground(AppTheme.surface)
-            .listRowSeparator(.hidden)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .scrollDismissesKeyboard(.interactively)
+            .onChange(of: query) { _, _ in proxy.scrollTo("\(identifier).top", anchor: .top) }
+            .onChange(of: isSearching) { _, _ in proxy.scrollTo("\(identifier).top", anchor: .top) }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
+        .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
+        .frame(maxWidth: .infinity)
         .background(AppTheme.background)
         .foregroundStyle(AppTheme.primaryText)
         .tint(AppTheme.accent)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            if kind == .likes, !isSearching {
+                ToolbarItem(placement: .topBarTrailing) {
+                    LibraryTrackSearchButton(title: title, identifier: identifier) {
+                        AppNavigationIntent.perform(in: model) { isSearching = true }
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if isSearching {
+                LibraryTrackSearchField(query: $query, title: title, identifier: identifier) {
+                    query = ""
+                    isSearching = false
+                }
+            }
+        }
     }
 }
 
 @MainActor
-private struct LibraryUserPlaylistView: View {
+struct LibraryUserPlaylistView: View {
     @Environment(MusicAppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let playlistID: UUID
     @State private var editor: LibraryPlaylistEditorRequest?
     @State private var isAddingSongs = false
     @State private var isDeleting = false
+    @State private var query = ""
+    @State private var isSearching = false
+    @State private var editMode: EditMode = .inactive
 
     private var playlist: UserPlaylist? { model.library.playlists.first { $0.id == playlistID } }
 
     var body: some View {
         Group {
             if let playlist {
-                List {
-                    Section {
-                        VStack(alignment: .leading, spacing: 18) {
-                            ArtworkView(url: playlist.tracks.first?.artworkURL, title: playlist.name, size: 176, cornerRadius: 8)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .accessibilityHidden(true)
-                            Text(playlist.name)
-                                .appFont(.largeTitle, weight: .bold)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .accessibilityAddTraits(.isHeader)
-                            Text("\(librarySongCount(playlist.tracks.count)) · Made by you")
-                                .appFont(.subheadline)
-                                .foregroundStyle(AppTheme.secondaryText)
-                            LibraryQueueButtons(tracks: playlist.tracks, title: playlist.name, identifier: "library.playlist")
-                            Button("Add songs", systemImage: "plus") {
-                                AppNavigationIntent.perform(in: model) { isAddingSongs = true }
-                            }
-                            .appFont(.headline, weight: .semibold)
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .background(AppTheme.surface, in: Capsule())
-                            .buttonStyle(.plain)
-                            .accessibilityIdentifier("library.playlist.addSongs")
-                            LibraryStoreNotices()
-                        }
-                        .padding(.vertical, 8)
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                    }
-                    if playlist.tracks.isEmpty {
-                        EmptyStateView(symbol: "music.note", title: "The first song sets the mood",
-                                       message: "Add a few songs, then put them in an order that feels right.")
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                    } else {
+                let selection = LibraryTrackSearch(tracks: playlist.tracks, query: query)
+                ScrollViewReader { proxy in
+                    List {
                         Section {
-                            ForEach(playlist.tracks) { track in
-                                TrackRow(track: track, tracks: playlist.tracks)
-                                    .accessibilityElement(children: .contain)
-                                    .accessibilityIdentifier("library.playlist.track.\(track.id)")
-                                    .accessibilityAction(named: "Remove from playlist") {
-                                        model.library.remove(trackID: track.id, from: playlistID)
+                            VStack(alignment: .leading, spacing: 18) {
+                                if !isSearching {
+                                    ArtworkView(url: playlist.tracks.first?.artworkURL, title: playlist.name, size: 176, cornerRadius: 8)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .accessibilityHidden(true)
+                                    Text(playlist.name)
+                                        .appFont(.largeTitle, weight: .bold)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .accessibilityAddTraits(.isHeader)
+                                }
+                                Text(selection.isFiltering && !playlist.tracks.isEmpty
+                                     ? "\(selection.tracks.count.formatted()) of \(librarySongCount(playlist.tracks.count))"
+                                     : "\(librarySongCount(playlist.tracks.count)) · Made by you")
+                                    .appFont(.subheadline)
+                                    .foregroundStyle(AppTheme.secondaryText)
+                                    .accessibilityIdentifier("library.playlist.count")
+                                LibraryQueueButtons(tracks: selection.tracks,
+                                                    title: selection.isFiltering ? "search results" : playlist.name,
+                                                    identifier: "library.playlist")
+                                if !isSearching {
+                                    Button("Add songs", systemImage: "plus") {
+                                        AppNavigationIntent.perform(in: model) { isAddingSongs = true }
                                     }
+                                    .appFont(.headline, weight: .semibold)
+                                    .frame(maxWidth: .infinity, minHeight: 48)
+                                    .background(AppTheme.surface, in: Capsule())
+                                    .buttonStyle(.plain)
+                                    .accessibilityIdentifier("library.playlist.addSongs")
+                                }
+                                LibraryStoreNotices()
                             }
-                            .onDelete { offsets in
-                                let ids = offsets.compactMap { playlist.tracks.indices.contains($0) ? playlist.tracks[$0].id : nil }
-                                for id in ids { model.library.remove(trackID: id, from: playlistID) }
-                            }
-                            .onMove { offsets, destination in
-                                model.library.moveTracks(in: playlistID, from: offsets, to: destination)
-                            }
-                        } footer: {
-                            Text("Use Edit to reorder or remove songs.")
-                                .appFont(.footnote)
-                                .foregroundStyle(AppTheme.secondaryText)
+                            .padding(.vertical, 8)
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .id("library.playlist.top")
                         }
-                        .listRowBackground(AppTheme.surface)
-                        .listRowSeparator(.hidden)
+                        if playlist.tracks.isEmpty {
+                            EmptyStateView(symbol: "music.note", title: "The first song sets the mood",
+                                           message: "Add a few songs, then put them in an order that feels right.")
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .accessibilityIdentifier("library.playlist.empty")
+                        } else if selection.tracks.isEmpty {
+                            LibraryTrackSearchEmptyResults(identifier: "library.playlist")
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                        } else {
+                            Section {
+                                ForEach(selection.tracks) { track in
+                                    TrackRow(track: track, tracks: selection.tracks, showsDuration: true)
+                                        .moveDisabled(isSearching)
+                                        .accessibilityElement(children: .contain)
+                                        .accessibilityIdentifier("library.playlist.track.\(track.id)")
+                                        .accessibilityAction(named: "Remove from playlist") {
+                                            model.library.remove(trackID: track.id, from: playlistID)
+                                        }
+                                }
+                                .onDelete { offsets in
+                                    for id in selection.removalIDs(at: offsets) {
+                                        model.library.remove(trackID: id, from: playlistID)
+                                    }
+                                }
+                                .onMove { offsets, destination in
+                                    guard !isSearching, let current = self.playlist,
+                                          selection.canReorder(currentTracks: current.tracks) else { return }
+                                    model.library.moveTracks(in: playlistID, from: offsets, to: destination)
+                                }
+                            } footer: {
+                                Text(isSearching
+                                     ? "Cancel search to reorder songs. Swipe to remove a song."
+                                     : "Use Edit to reorder or remove songs.")
+                                    .appFont(.footnote)
+                                    .foregroundStyle(AppTheme.secondaryText)
+                            }
+                            .listRowBackground(AppTheme.surface)
+                            .listRowSeparator(.hidden)
+                        }
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .scrollDismissesKeyboard(.interactively)
+                    .environment(\.editMode, $editMode)
+                    .onChange(of: query) { _, _ in proxy.scrollTo("library.playlist.top", anchor: .top) }
+                    .onChange(of: isSearching) { _, _ in proxy.scrollTo("library.playlist.top", anchor: .top) }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
+                .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
+                .frame(maxWidth: .infinity)
             } else {
                 EmptyStateView(symbol: "music.note.list", title: "Playlist removed",
                                message: "This playlist is no longer in your library.")
@@ -557,10 +751,22 @@ private struct LibraryUserPlaylistView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
+            if !isSearching {
+                ToolbarItem(placement: .topBarTrailing) {
+                    LibraryTrackSearchButton(title: playlist?.name ?? "playlist", identifier: "library.playlist") {
+                        AppNavigationIntent.perform(in: model) {
+                            editMode = .inactive
+                            isSearching = true
+                        }
+                    }
+                    .disabled(playlist == nil)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 EditButton()
                     .appFont(.body)
-                    .disabled(playlist?.tracks.isEmpty != false)
+                    .disabled(isSearching || playlist?.tracks.isEmpty != false)
+                    .environment(\.editMode, $editMode)
                     .accessibilityIdentifier("library.playlist.edit")
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -582,6 +788,14 @@ private struct LibraryUserPlaylistView: View {
                 }
                 .accessibilityLabel("Playlist actions")
                 .accessibilityIdentifier("library.playlist.menu")
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if isSearching {
+                LibraryTrackSearchField(query: $query, title: playlist?.name ?? "playlist", identifier: "library.playlist") {
+                    query = ""
+                    isSearching = false
+                }
             }
         }
         .sheet(item: AppNavigationIntent.binding($editor, in: model, identity: { $0?.id })) { request in
@@ -666,9 +880,8 @@ private struct LibraryPlaylistNameEditor: View {
             }
             .task { isNameFocused = true }
         }
-        .tint(AppTheme.accent)
         .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .appSheetChrome()
     }
 
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -784,16 +997,9 @@ private struct LibraryAddSongsSheet: View {
             .searchable(text: $query, prompt: "Filter your saved songs")
             .navigationTitle("Add songs")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { AppNavigationIntent.perform(in: model) { dismiss() } }
-                        .appFont(.body, weight: .semibold)
-                        .accessibilityIdentifier("library.playlist.addDone")
-                }
-            }
+            .appSheetDoneButton(id: "library.playlist.addDone") { AppNavigationIntent.perform(in: model) { dismiss() } }
         }
-        .tint(AppTheme.accent)
-        .presentationDragIndicator(.visible)
+        .appSheetChrome()
     }
 }
 

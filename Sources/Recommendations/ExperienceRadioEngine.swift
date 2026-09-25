@@ -10,7 +10,8 @@ struct ExperienceRadioEngine: Sendable {
     static let setupCandidatesPerArtist = 3
     static let setupReleaseBrowseLimit = 2
     static let maximumHintSeeds = 2
-    static let maximumStyleQueries = 2
+    // The language schedule shares these slots; adding a language must not multiply discovery requests.
+    static let maximumStyleQueries = 3
     static let maximumStylePlaylists = 2
     static let maximumDateArtists = 2
     static let maximumRadioRequests = 10
@@ -33,11 +34,16 @@ struct ExperienceRadioEngine: Sendable {
     }
 
     func start(_ experience: RadioExperience, disliked: [DislikedSong],
-               languages: Set<MusicLanguage> = Set(MusicLanguage.allCases)) async throws -> Batch {
-        guard let selection = experience.selection(for: languages) else { throw ExperienceRadioError.noMatchingLanguages }
+               languages: Set<MusicLanguage> = Set(MusicLanguage.allCases),
+               languageProfile: ListeningLanguageProfile? = nil) async throws -> Batch {
+        guard let selection = languageProfile.map({ experience.selection(for: $0) }) ?? experience.selection(for: languages) else {
+            throw ExperienceRadioError.noLanguages
+        }
+        let eligibilityLanguages: Set<MusicLanguage> = languageProfile == nil ? languages : []
         do {
             return try await PlaybackDeadline.run(seconds: Self.startTimeout) {
-                try await startWithinBudget(experience, selection: selection, disliked: disliked, languages: languages)
+                try await startWithinBudget(experience, selection: selection, disliked: disliked, languages: eligibilityLanguages,
+                                            languageProfile: languageProfile)
             }
         } catch {
             try Task.checkCancellation()
@@ -47,35 +53,73 @@ struct ExperienceRadioEngine: Sendable {
     }
 
     private func startWithinBudget(_ experience: RadioExperience, selection: RadioExperience.Selection,
-                                   disliked: [DislikedSong], languages: Set<MusicLanguage>) async throws -> Batch {
+                                   disliked: [DislikedSong], languages: Set<MusicLanguage>,
+                                   languageProfile: ListeningLanguageProfile?) async throws -> Batch {
         let intents = Array(selection.seeds.prefix(Self.maximumSeedSearches))
         let pages = try await fetch(intents.map(Request.search))
         let matched = zip(intents, pages).compactMap {
             Self.matchedSeed($0, in: $1 ?? [], disliked: disliked, languages: languages)
         }
         let styleSeeds = try await datedTracks(matched, intents: intents, era: experience.defaultEra,
-                                              disliked: disliked, languages: languages)
+                                              disliked: disliked, languages: languages, languageProfile: languageProfile)
         var hints = RadioConfiguration(station: experience, languages: languages)
         hints.era = experience.defaultEra
         hints.artists = experience.artistHints.filter { artist in !styleSeeds.contains { Self.isCredited($0, to: artist) } }
-        let resolvedHints = try await resolveArtists(hints, disliked: disliked, excludingQueries: Set(intents.map(\.query)))
+        let resolvedHints = try await resolveArtists(hints, disliked: disliked, excludingQueries: Set(intents.map(\.query)),
+                                                     languageProfile: languageProfile)
         let hintSeeds = styleSeeds.filter { track in experience.artistHints.contains { Self.isCredited(track, to: $0) } }
             + resolvedHints.flatMap(\.seeds).compactMap(\.recording)
-        // Missing cue songs should trigger mood discovery before an artist hint defines the whole station.
-        let initial = styleSeeds.isEmpty ? []
-            : Self.startingSeeds(style: styleSeeds, hints: hintSeeds, excluding: [], disliked: disliked, languages: languages)
+        // Recording evidence can contradict a cue's targeting tag; let style discovery lead in that case too.
+        let mismatchedCues = languageProfile.map { profile in
+            styleSeeds.allSatisfy { track in
+                guard let language = profile.language(for: track) else { return false }
+                return language != profile.orderedLanguages.first
+            }
+        } ?? false
+        let initial = styleSeeds.isEmpty || mismatchedCues ? []
+            : Self.startingSeeds(style: styleSeeds, hints: hintSeeds, excluding: [], disliked: disliked, languages: languages,
+                                 languageProfile: languageProfile)
         var lanes = try await radioLanes(initial, remainingBudget: Self.maximumRadioRequests)
-        if let batch = Self.startingBatch(lanes: lanes, styleTracks: [], disliked: disliked, languages: languages) { return batch }
+        if let batch = Self.startingBatch(lanes: lanes, styleTracks: [], disliked: disliked, languages: languages,
+                                          languageProfile: languageProfile) { return batch }
 
-        let styleTracks = try await discoverStyle(selection, era: experience.defaultEra, disliked: disliked, languages: languages)
-        if let batch = Self.startingBatch(lanes: lanes, styleTracks: styleTracks, disliked: disliked, languages: languages) { return batch }
-        let fallbackSeeds = try await datedTracks(styleTracks, intents: intents, era: experience.defaultEra,
-                                                 disliked: disliked, languages: languages)
+        let styleTracks = try await discoverStyle(selection, era: experience.defaultEra, disliked: disliked, languages: languages,
+                                                 languageProfile: languageProfile)
+        if let batch = Self.startingBatch(lanes: lanes, styleTracks: styleTracks, disliked: disliked, languages: languages,
+                                          languageProfile: languageProfile) { return batch }
+        var fallbackTracks = styleTracks
+        var fallbackIntents = intents
+        // A cold cue-only station can borrow another active language's cues after its synthesized wording is exhausted.
+        // The backup shares the cue-search budget and never replaces a learned profile's preferred style discovery.
+        if styleTracks.isEmpty, experience.styleQueries.isEmpty, let languageProfile, !languageProfile.isLearned,
+           intents.count < Self.maximumSeedSearches {
+            let activeLanguages = languageProfile.orderedLanguages.compactMap { language -> MusicLanguage? in
+                switch language {
+                case .hindi: .hindi
+                case .english: .english
+                case .bengali, .tamil, .telugu: nil
+                }
+            }
+            var searched = Set(intents.map(\.query))
+            let backups = activeLanguages.flatMap { experience.selection(for: Set([$0]))?.seeds ?? [] }
+                .filter { searched.insert($0.query).inserted }
+            let backupIntents = Array(backups.prefix(Self.maximumSeedSearches - intents.count))
+            let pages = try await fetch(backupIntents.map(Request.search))
+            fallbackTracks = zip(backupIntents, pages).compactMap {
+                Self.matchedSeed($0, in: $1 ?? [], disliked: disliked, languages: languages)
+            }
+            fallbackIntents += backupIntents
+        }
+        var fallbackSeeds = try await datedTracks(fallbackTracks, intents: fallbackIntents, era: experience.defaultEra,
+                                                 disliked: disliked, languages: languages, languageProfile: languageProfile)
+        // A station without cues has only its wording; when no discovery can be dated, undated songs still anchor lanes.
+        if fallbackSeeds.isEmpty, intents.isEmpty { fallbackSeeds = styleTracks }
         let attempted = Set(lanes.map(\.anchor.id))
         let alternatives = Self.startingSeeds(style: fallbackSeeds + styleSeeds, hints: hintSeeds, excluding: attempted,
-                                             disliked: disliked, languages: languages)
+                                             disliked: disliked, languages: languages, languageProfile: languageProfile)
         lanes += try await radioLanes(alternatives, remainingBudget: Self.maximumRadioRequests - lanes.count)
-        if let batch = Self.startingBatch(lanes: lanes, styleTracks: styleTracks, disliked: disliked, languages: languages) { return batch }
+        if let batch = Self.startingBatch(lanes: lanes, styleTracks: styleTracks, disliked: disliked, languages: languages,
+                                          languageProfile: languageProfile) { return batch }
 
         // Valid catalog audio can still be unusable here, so recovery must not replay the same cached response.
         let retries = try await radioLanes(Array(lanes.prefix(2).map(\.anchor)), remainingBudget: Self.maximumRadioRequests - lanes.count,
@@ -83,18 +127,25 @@ struct ExperienceRadioEngine: Sendable {
         for retry in retries {
             if let index = lanes.firstIndex(where: { $0.anchor.id == retry.anchor.id }) {
                 lanes[index].tracks = Self.selection(buckets: [retry.tracks, lanes[index].tracks], disliked: disliked,
-                                                    limit: 60, languages: languages).tracks
+                                                    limit: 60, languages: languages, languageProfile: languageProfile).tracks
             }
         }
-        if let batch = Self.startingBatch(lanes: lanes, styleTracks: styleTracks, disliked: disliked, languages: languages) { return batch }
+        if let batch = Self.startingBatch(lanes: lanes, styleTracks: styleTracks, disliked: disliked, languages: languages,
+                                          languageProfile: languageProfile) { return batch }
         throw lanes.isEmpty ? ExperienceRadioError.noSeeds : ExperienceRadioError.unavailable
     }
 
     private static func startingSeeds(style: [Track], hints: [Track], excluding: Set<String>,
-                                      disliked: [DislikedSong], languages: Set<MusicLanguage>) -> [Track] {
-        let defaults = RecommendationEngine.select(style.filter { !excluding.contains($0.id) }, limit: 24, artistCap: 1)
-        let preferred = RecommendationEngine.select(hints.filter { !excluding.contains($0.id) }, limit: maximumHintSeeds, artistCap: 1)
-        let ordered = selection(buckets: [defaults, preferred], disliked: disliked, limit: 24, languages: languages).tracks
+                                      disliked: [DislikedSong], languages: Set<MusicLanguage>,
+                                      languageProfile: ListeningLanguageProfile?) -> [Track] {
+        let style = style.filter { !excluding.contains($0.id) }
+        let hints = hints.filter { !excluding.contains($0.id) }
+        let rankedStyle = languageProfile.map { weightedCandidates(in: [style], profile: $0).map(\.track) } ?? style
+        let rankedHints = languageProfile.map { weightedCandidates(in: [hints], profile: $0).map(\.track) } ?? hints
+        let defaults = RecommendationEngine.select(rankedStyle, limit: 24, artistCap: 1)
+        let preferred = RecommendationEngine.select(rankedHints, limit: maximumHintSeeds, artistCap: 1)
+        let ordered = selection(buckets: [defaults, preferred], disliked: disliked, limit: 24, languages: languages,
+                                languageProfile: languageProfile).tracks
         return RecommendationEngine.select(ordered, limit: maximumRadioSeeds, artistCap: 1)
     }
 
@@ -105,19 +156,23 @@ struct ExperienceRadioEngine: Sendable {
     }
 
     private static func startingBatch(lanes: [(anchor: Track, tracks: [Track])], styleTracks: [Track],
-                                      disliked: [DislikedSong], languages: Set<MusicLanguage>) -> Batch? {
+                                      disliked: [DislikedSong], languages: Set<MusicLanguage>,
+                                      languageProfile: ListeningLanguageProfile?) -> Batch? {
         // Genre results can fill the queue, but a verified starting seed still anchors the session.
         guard !lanes.isEmpty else { return nil }
         let anchors = Set(lanes.map(\.anchor.id))
         let useful = lanes.map { lane in
             lane.tracks.contains { !anchors.contains($0.id) && isUsable($0, languages: languages) && !isDisliked($0, disliked: disliked) }
         }
+        let weights = lanes.map { languageProfile?.multiplier(for: $0.anchor) ?? 1 }
         let ranked = lanes.enumerated().sorted {
             if useful[$0.offset] != useful[$1.offset] { return useful[$0.offset] }
+            if weights[$0.offset] != weights[$1.offset] { return weights[$0.offset] > weights[$1.offset] }
             return $0.offset < $1.offset
         }.map(\.element)
         let pools = ranked.map { [$0.anchor] + $0.tracks } + [styleTracks]
-        let picks = selection(buckets: pools, disliked: disliked, languages: languages)
+        let picks = select(buckets: pools, excluding: [], disliked: disliked, limit: queueLimit, languages: languages,
+                           preservingAnchors: languageProfile == nil ? 0 : ranked.count, languageProfile: languageProfile)
         let discoveryIDs = Set(lanes.flatMap(\.tracks).map(\.id)).subtracting(anchors).union(styleTracks.map(\.id))
         guard picks.tracks.count >= minimumQueueSize, picks.tracks.contains(where: { discoveryIDs.contains($0.id) }) else { return nil }
         let ids = Set(picks.tracks.map(\.id))
@@ -131,7 +186,8 @@ struct ExperienceRadioEngine: Sendable {
 
     func continueRadio(buckets: [Bucket], round: Int, queue: [Track], disliked: [DislikedSong],
                        languages: Set<MusicLanguage> = Set(MusicLanguage.allCases), experience: RadioExperience? = nil,
-                       forceRefresh: Bool = false) async throws -> Batch {
+                       forceRefresh: Bool = false, languageProfile: ListeningLanguageProfile? = nil) async throws -> Batch {
+        let languages: Set<MusicLanguage> = languageProfile == nil ? languages : []
         let eligible = Array(buckets.filter {
             Self.isUsable($0.anchor, languages: languages) && !Self.isDisliked($0.anchor, disliked: disliked)
         }.prefix(Self.maximumRadioSeeds))
@@ -145,19 +201,26 @@ struct ExperienceRadioEngine: Sendable {
                                  ? bucket.anchor : bucket.frontier, forceRefresh: forceRefresh)
         }
         let radios = try await fetch(requests)
-        var selection = Self.selection(buckets: radios.map { $0 ?? [] }, excluding: queue, disliked: disliked, languages: languages)
+        var selection = Self.selection(buckets: radios.map { $0 ?? [] }, excluding: queue, disliked: disliked, languages: languages,
+                                       languageProfile: languageProfile)
         if selection.tracks.isEmpty, eligible.count == 1, case .radio(let requested, _) = requests[0],
            requested.id != eligible[0].frontier.id, Self.isUsable(eligible[0].frontier, languages: languages),
            !Self.isDisliked(eligible[0].frontier, disliked: disliked) {
             let frontier = try await fetch([.radio(eligible[0].frontier, forceRefresh: forceRefresh)])
-            selection = Self.selection(buckets: frontier.map { $0 ?? [] }, excluding: queue, disliked: disliked, languages: languages)
+            selection = Self.selection(buckets: frontier.map { $0 ?? [] }, excluding: queue, disliked: disliked, languages: languages,
+                                       languageProfile: languageProfile)
         }
-        if selection.tracks.isEmpty, let intent = experience?.selection(for: languages) {
-            let related = try await discoverStyle(intent, era: .anytime, disliked: disliked, languages: languages)
+        let intent = experience.flatMap { experience in
+            languageProfile.map { experience.selection(for: $0) } ?? experience.selection(for: languages)
+        }
+        if selection.tracks.isEmpty, let intent {
+            let related = try await discoverStyle(intent, era: .anytime, disliked: disliked, languages: languages,
+                                                  languageProfile: languageProfile)
             let pools = eligible.indices.map { lane in
                 related.enumerated().filter { $0.offset % eligible.count == lane }.map(\.element)
             }
-            selection = Self.selection(buckets: pools, excluding: queue, disliked: disliked, languages: languages)
+            selection = Self.selection(buckets: pools, excluding: queue, disliked: disliked, languages: languages,
+                                       languageProfile: languageProfile)
         }
         guard !selection.tracks.isEmpty else { throw ExperienceRadioError.unavailable }
         let advanced = eligible.enumerated().map { index, bucket in
@@ -198,9 +261,9 @@ struct ExperienceRadioEngine: Sendable {
     // MARK: Style discovery and recording dates
 
     private func discoverStyle(_ selection: RadioExperience.Selection, era: RadioEra,
-                               disliked: [DislikedSong], languages: Set<MusicLanguage>) async throws -> [Track] {
-        let suffix = switch era { case .anytime: ""; case .older: " before 2000"; case .newer: " 2015 and later" }
-        let queries = Array(selection.styleQueries.prefix(Self.maximumStyleQueries)).map { $0 + suffix }
+                               disliked: [DislikedSong], languages: Set<MusicLanguage>,
+                               languageProfile: ListeningLanguageProfile?) async throws -> [Track] {
+        let queries = Array(selection.styleQueries.prefix(Self.maximumStyleQueries)).map { $0 + era.styleQuerySuffix }
         let requests = queries.flatMap { query in [(query, SearchFilter.songs), (query, SearchFilter.playlists)] }
         let pages = try await boundedMap(requests) { query, filter -> CatalogPage? in
             do { return try await request { try await catalog.search(query: query, filter: filter, continuation: nil) } }
@@ -216,13 +279,15 @@ struct ExperienceRadioEngine: Sendable {
             catch { try Task.checkCancellation(); if error is CancellationError { throw error }; return nil }
         }
         return Self.selection(buckets: (pages + collections).compactMap { $0?.tracks }, disliked: disliked,
-                              limit: 60, languages: languages).tracks
+                              limit: 60, languages: languages, languageProfile: languageProfile).tracks
     }
 
     private func datedTracks(_ tracks: [Track], intents: [RadioExperience.Seed], era: RadioEra,
-                             disliked: [DislikedSong], languages: Set<MusicLanguage>) async throws -> [Track] {
+                             disliked: [DislikedSong], languages: Set<MusicLanguage>,
+                             languageProfile: ListeningLanguageProfile?) async throws -> [Track] {
         // Year words in a query narrow discovery; only recording or matching album metadata proves the era.
-        let eligible = Self.selection(buckets: [tracks], disliked: disliked, limit: 60, languages: languages).tracks
+        let eligible = Self.selection(buckets: [tracks], disliked: disliked, limit: 60, languages: languages,
+                                       languageProfile: languageProfile).tracks
         guard era != .anytime else { return eligible }
         var seen = Set<String>()
         let artistIDs = Array(eligible.filter { Self.knownOriginal($0, intents: intents) == nil }.compactMap(\.artistID)
@@ -264,8 +329,9 @@ struct ExperienceRadioEngine: Sendable {
     // MARK: Optional artist hints
 
     func resolveArtists(_ configuration: RadioConfiguration, disliked: [DislikedSong],
-                        excludingQueries: Set<String> = []) async throws -> [RadioArtistResolution] {
-        guard !configuration.languages.isEmpty else { return [] }
+                        excludingQueries: Set<String> = [],
+                        languageProfile: ListeningLanguageProfile? = nil) async throws -> [RadioArtistResolution] {
+        guard languageProfile != nil || !configuration.languages.isEmpty else { return [] }
         var seen = Set<String>()
         let artists = Array(configuration.artists.filter {
             !RadioConfiguration.artistKey($0).isEmpty && seen.insert(RadioConfiguration.artistKey($0)).inserted
@@ -274,7 +340,8 @@ struct ExperienceRadioEngine: Sendable {
             do {
                 // Optional hints get a short budget so slow artist or album lookups cannot exhaust startup.
                 return try await PlaybackDeadline.run(seconds: Self.artistHintTimeout) {
-                    try await resolveArtist(artist, configuration: configuration, disliked: disliked, excludingQueries: excludingQueries)
+                    try await resolveArtist(artist, configuration: configuration, disliked: disliked, excludingQueries: excludingQueries,
+                                            languageProfile: languageProfile)
                 }
             } catch {
                 try Task.checkCancellation()
@@ -285,8 +352,12 @@ struct ExperienceRadioEngine: Sendable {
     }
 
     private func resolveArtist(_ artist: ArtistCredit, configuration: RadioConfiguration,
-                               disliked: [DislikedSong], excludingQueries: Set<String>) async throws -> RadioArtistResolution {
-        let curated = (configuration.station.selection(for: configuration.languages)?.seeds ?? []).filter {
+                               disliked: [DislikedSong], excludingQueries: Set<String>,
+                               languageProfile: ListeningLanguageProfile?) async throws -> RadioArtistResolution {
+        let languages: Set<MusicLanguage> = languageProfile == nil ? configuration.languages : []
+        let selection = languageProfile.map { configuration.station.selection(for: $0) }
+            ?? configuration.station.selection(for: configuration.languages)
+        let curated = (selection?.seeds ?? []).filter {
             RadioConfiguration.artistKey($0.artist) == RadioConfiguration.artistKey(artist)
                 && !excludingQueries.contains($0.query)
                 && (configuration.era == .anytime || ($0.yearSource != nil && configuration.era.accepts(year: $0.year)))
@@ -298,7 +369,7 @@ struct ExperienceRadioEngine: Sendable {
                 let page = try await request { try await catalog.search(query: intent.query, filter: .songs, continuation: nil) }
                 try Task.checkCancellation()
                 let originals = page.tracks.filter { Self.canUseOriginalYear(for: $0.title) }
-                if let track = Self.matchedSeed(intent, in: originals, disliked: disliked, languages: configuration.languages) {
+                if let track = Self.matchedSeed(intent, in: originals, disliked: disliked, languages: languages) {
                     seeds.append(.init(recording: track, artist: artist, year: intent.year, yearSource: intent.yearSource))
                 }
             } catch {
@@ -329,8 +400,8 @@ struct ExperienceRadioEngine: Sendable {
         guard page.id == artistID else { throw MusicServiceError.invalidResponse }
 
         if configuration.era == .anytime {
-            seeds = Self.setupSeeds(page.topSongs, artist: linked, languages: configuration.languages, era: .anytime,
-                                    disliked: disliked, release: nil, year: nil)
+            seeds = Self.setupSeeds(page.topSongs, artist: linked, languages: languages, era: .anytime,
+                                    disliked: disliked, release: nil, year: nil, languageProfile: languageProfile)
             if !seeds.isEmpty { return RadioArtistResolution(artist: artist, seeds: seeds) }
         }
 
@@ -353,8 +424,8 @@ struct ExperienceRadioEngine: Sendable {
         }
         for release in releases {
             let matching = page.topSongs.filter { $0.albumID == release.collection.id }
-            seeds += Self.setupSeeds(matching, artist: linked, languages: configuration.languages, era: configuration.era,
-                                     disliked: disliked, release: release.collection, year: release.year)
+            seeds += Self.setupSeeds(matching, artist: linked, languages: languages, era: configuration.era,
+                                     disliked: disliked, release: release.collection, year: release.year, languageProfile: languageProfile)
         }
         if !seeds.isEmpty {
             return RadioArtistResolution(artist: artist, seeds: Self.uniqueSetupSeeds(seeds))
@@ -364,8 +435,8 @@ struct ExperienceRadioEngine: Sendable {
             do {
                 let album = try await request { try await catalog.browse(id: release.collection.id) }
                 try Task.checkCancellation()
-                seeds += Self.setupSeeds(album.tracks, artist: linked, languages: configuration.languages, era: configuration.era,
-                                         disliked: disliked, release: release.collection, year: release.year)
+                seeds += Self.setupSeeds(album.tracks, artist: linked, languages: languages, era: configuration.era,
+                                         disliked: disliked, release: release.collection, year: release.year, languageProfile: languageProfile)
                 if seeds.count >= Self.setupCandidatesPerArtist { break }
             } catch {
                 try Task.checkCancellation()
@@ -377,8 +448,11 @@ struct ExperienceRadioEngine: Sendable {
     }
 
     private static func setupSeeds(_ tracks: [Track], artist: ArtistCredit, languages: Set<MusicLanguage>, era: RadioEra,
-                                   disliked: [DislikedSong], release: MusicCollection?, year: Int?) -> [RadioExperience.Seed] {
-        let seeds = tracks.prefix(60).filter {
+                                   disliked: [DislikedSong], release: MusicCollection?, year: Int?,
+                                   languageProfile: ListeningLanguageProfile?) -> [RadioExperience.Seed] {
+        let candidates = Array(tracks.prefix(60))
+        let ordered = languageProfile.map { weightedCandidates(in: [candidates], profile: $0).map(\.track) } ?? candidates
+        let seeds = ordered.filter {
             isUsable($0, languages: languages) && isCredited($0, to: artist) && !isDisliked($0, disliked: disliked)
                 && (release == nil || $0.albumID == nil || $0.albumID == release?.id)
         }
@@ -421,12 +495,50 @@ struct ExperienceRadioEngine: Sendable {
     }
 
     static func selection(buckets: [[Track]], excluding queue: [Track] = [], disliked: [DislikedSong],
-                          limit: Int = queueLimit, languages: Set<MusicLanguage> = []) -> Selection {
+                          limit: Int = queueLimit, languages: Set<MusicLanguage> = [],
+                          languageProfile: ListeningLanguageProfile? = nil) -> Selection {
+        select(buckets: buckets, excluding: queue, disliked: disliked, limit: limit, languages: languages,
+               preservingAnchors: 0, languageProfile: languageProfile)
+    }
+
+    private static func select(buckets: [[Track]], excluding queue: [Track], disliked: [DislikedSong], limit: Int,
+                               languages: Set<MusicLanguage>, preservingAnchors: Int,
+                               languageProfile: ListeningLanguageProfile?) -> Selection {
+        let languages: Set<MusicLanguage> = languageProfile == nil ? languages : []
         var selection = Selection()
         var ids = Set(queue.map(\.id)).union(disliked.map(\.id))
         var titles = Set((queue.map(\.title) + disliked.map(\.title)).map(SongTitle.core))
         var artistCounts: [String: Int] = [:]
         let pools = buckets.map { Array($0.prefix(60)) }
+
+        func append(_ track: Track, bucket: Int) -> Bool {
+            let core = SongTitle.core(track.title)
+            let artist = RecommendationEngine.primaryArtistKey(track)
+            guard selection.tracks.count < limit, isUsable(track, languages: languages),
+                  !ids.contains(track.id), !titles.contains(core), artistCounts[artist, default: 0] < artistLimit else { return false }
+            ids.insert(track.id)
+            titles.insert(core)
+            artistCounts[artist, default: 0] += 1
+            selection.tracks.append(track)
+            selection.lastByBucket[bucket] = track
+            return true
+        }
+
+        if let languageProfile {
+            // Startup reserves viable lane anchors before weighting neighbors, including low-weight or unknown anchors.
+            for index in pools.indices.prefix(preservingAnchors) {
+                if let anchor = pools[index].first { _ = append(anchor, bucket: index) }
+            }
+            let eligible = pools.map { pool in
+                pool.filter { isUsable($0, languages: languages) && !ids.contains($0.id) && !titles.contains(SongTitle.core($0.title)) }
+            }
+            for candidate in weightedCandidates(in: eligible, profile: languageProfile) {
+                guard selection.tracks.count < limit else { break }
+                _ = append(candidate.track, bucket: candidate.bucket)
+            }
+            return selection
+        }
+
         var positions = [Int](repeating: 0, count: pools.count)
         while selection.tracks.count < max(0, limit) {
             var added = false
@@ -434,15 +546,7 @@ struct ExperienceRadioEngine: Sendable {
                 while positions[index] < pools[index].count {
                     let track = pools[index][positions[index]]
                     positions[index] += 1
-                    let core = SongTitle.core(track.title)
-                    let artist = RecommendationEngine.primaryArtistKey(track)
-                    guard isUsable(track, languages: languages), !ids.contains(track.id), !titles.contains(core),
-                          artistCounts[artist, default: 0] < artistLimit else { continue }
-                    ids.insert(track.id)
-                    titles.insert(core)
-                    artistCounts[artist, default: 0] += 1
-                    selection.tracks.append(track)
-                    selection.lastByBucket[index] = track
+                    guard append(track, bucket: index) else { continue }
                     added = true
                     break
                 }
@@ -450,6 +554,20 @@ struct ExperienceRadioEngine: Sendable {
             if !added { break }
         }
         return selection
+    }
+
+    private static func weightedCandidates(in buckets: [[Track]], profile: ListeningLanguageProfile) -> [(bucket: Int, track: Track)] {
+        // Reciprocal provider rank keeps style relevance while language weights compete across lanes before truncation.
+        let candidates = buckets.enumerated().flatMap { bucket, tracks in
+            tracks.prefix(60).enumerated().map { rank, track in
+                (bucket: bucket, track: track, rank: rank, score: profile.multiplier(for: track) / Double(rank + 1))
+            }
+        }
+        return candidates.sorted {
+            if $0.score != $1.score { return $0.score > $1.score }
+            if $0.rank != $1.rank { return $0.rank < $1.rank }
+            return $0.bucket < $1.bucket
+        }.map { (bucket: $0.bucket, track: $0.track) }
     }
 
     private enum Request: Sendable {
@@ -513,14 +631,14 @@ struct ExperienceRadioEngine: Sendable {
 }
 
 enum ExperienceRadioError: LocalizedError, Equatable, Sendable {
-    case noSeeds, tooFewSongs, unavailable, noMatchingLanguages
+    case noSeeds, tooFewSongs, unavailable, noLanguages
 
     var errorDescription: String? {
         switch self {
         case .noSeeds: "No starting songs matched these preferences. Try another era or try again."
         case .tooFewSongs: "Too few songs are available right now. Try again."
         case .unavailable: "Radio couldn’t load songs. Check your connection and try again."
-        case .noMatchingLanguages: "This station isn’t in your discovery languages. Choose another radio."
+        case .noLanguages: "Choose at least one language to start this radio."
         }
     }
 }

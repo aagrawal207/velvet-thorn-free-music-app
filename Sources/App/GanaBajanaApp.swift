@@ -7,9 +7,9 @@ import UserNotifications
 struct GanaBajanaApp: App {
     static let releaseRefreshTask = "com.agraabhi.ganabajana.releases"
 
-    @Environment(\.scenePhase) private var scenePhase
     @State private var model: MusicAppModel
     private let notificationPresenter = ForegroundNotificationPresenter()
+    private let watchPhoneSession: WatchPhoneSession?
 
     init() {
         #if DEBUG
@@ -19,6 +19,26 @@ struct GanaBajanaApp: App {
         let model = MusicAppModel()
         #endif
         _model = State(initialValue: model)
+        #if DEBUG
+        if !Self.isTesting { model.startWidgetUpdates() }
+        else { DebugWidgetSupport.startSharing(model) }
+        #else
+        model.startWidgetUpdates()
+        #endif
+        let companionPlayback = CompanionPlaybackController(model: model)
+        CompanionRuntime.playback = companionPlayback
+        #if DEBUG
+        let startsWatchSession = !Self.isTesting || DebugBootstrap.usesPairedWatchFixture
+        #else
+        let startsWatchSession = !Self.isTesting
+        #endif
+        if !startsWatchSession {
+            watchPhoneSession = nil
+        } else {
+            let session = WatchPhoneSession(playback: companionPlayback)
+            watchPhoneSession = session
+            session.start()
+        }
         UNUserNotificationCenter.current().delegate = notificationPresenter
         Self.registerReleaseRefresh(model)
     }
@@ -27,18 +47,12 @@ struct GanaBajanaApp: App {
         WindowGroup {
             RootView()
                 .environment(model)
-                .onChange(of: scenePhase) { _, phase in
-                    if phase != .active { model.player.flushListeningProgress() }
-                    if phase == .background { Self.scheduleReleaseRefresh() }
-                    if phase == .active { Task { await model.checkForNewReleases() } }
-                }
+                .modifier(PhoneSceneLifecycle(model: model))
                 .onOpenURL { url in
-                    guard url.scheme == "ganabajana", url.host == "search",
-                          let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                            .queryItems?.first(where: { $0.name == "q" })?.value else { return }
-                    model.openSearch(query)
+                    model.handleOpenURL(url)
                 }
                 .task {
+                    if !Self.isTesting { model.activateDeviceServices() }
                     #if DEBUG
                     await DebugBootstrap.performLaunchAction(model)
                     #endif
@@ -54,16 +68,41 @@ struct GanaBajanaApp: App {
     }
 
     /// Opportunistic: iOS decides when (or whether) the refresh runs, so foreground checks remain the primary path.
-    private static func scheduleReleaseRefresh() {
+    fileprivate static func scheduleReleaseRefresh() {
         guard Bundle.main.bundleIdentifier != nil, !isTesting else { return }
         let request = BGAppRefreshTaskRequest(identifier: releaseRefreshTask)
         request.earliestBeginDate = Date().addingTimeInterval(ReleaseWatcher.checkInterval)
         try? BGTaskScheduler.shared.submit(request)
     }
 
-    private static var isTesting: Bool {
+    fileprivate static var isTesting: Bool {
+        #if DEBUG
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             || ProcessInfo.processInfo.arguments.contains("--uitesting")
+        #else
+        false
+        #endif
+    }
+}
+
+@MainActor
+private struct PhoneSceneLifecycle: ViewModifier {
+    // Read inside the window content so an active CarPlay scene cannot mask the phone window's own phase.
+    @Environment(\.scenePhase) private var scenePhase
+    let model: MusicAppModel
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: scenePhase) { _, phase in
+                if phase != .active { model.player.flushListeningProgress() }
+                if phase == .background { GanaBajanaApp.scheduleReleaseRefresh() }
+                if phase == .active {
+                    if !GanaBajanaApp.isTesting { model.activateDeviceServices() }
+                    Task { await model.checkForNewReleases() }
+                } else {
+                    model.deactivateDeviceServices()
+                }
+            }
     }
 }
 

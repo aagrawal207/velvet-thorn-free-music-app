@@ -114,6 +114,164 @@ final class PlaybackAutoplayContinuationTests: XCTestCase {
         }
     }
 
+    func testEmptyEarlyAnswerEarnsExactlyOneMoreRequestWhenTheQueueEnds() async throws {
+        for finalAnswer in [[], [second]] {
+            let player = try makePlayer()
+            defer { player.pause() }
+            let gate = AppModelRequestGate<Track, [Track]>()
+            addTeardownBlock { await gate.close() }
+            var requests: [String] = []
+            player.onQueueExhausted = { track in
+                requests.append(track.id)
+                // The early request answers empty at once; the end-of-queue request is held by the gate.
+                guard requests.count > 1 else { return [] }
+                return (try? await gate.receive(track)) ?? []
+            }
+            player.play([first])
+            try await PlaybackTestSupport.waitUntil { requests == [self.first.id] }
+            try await Task.sleep(for: .milliseconds(300))
+            XCTAssertEqual(requests, [first.id], "An empty early answer is not retried while the song still plays")
+            try await waitForEndedQueue(player)
+            let request = try await gate.request(at: 0)
+            XCTAssertEqual(requests, [first.id, first.id], "The end of the queue asks once more")
+            XCTAssertEqual(request.input, first)
+            try await gate.complete(request, with: .success(finalAnswer))
+            if finalAnswer.isEmpty {
+                try await PlaybackTestSupport.waitUntil { !player.isLoading }
+                try await Task.sleep(for: .milliseconds(300))
+                XCTAssertFalse(player.isPlaying)
+                XCTAssertEqual(player.queue, [first])
+                XCTAssertEqual(requests.count, 2, "A second empty answer ends Autoplay for this song")
+                XCTAssertGreaterThanOrEqual(player.position, 1.99)
+            } else {
+                try await PlaybackTestSupport.waitUntil { player.currentTrack == self.second && player.isPlaying && player.position > 0.2 }
+                XCTAssertEqual(player.queue, [first, second])
+                XCTAssertEqual(player.autoplayTrackIDs, [second.id])
+                player.pause()
+            }
+            XCTAssertNil(player.errorMessage)
+        }
+    }
+
+    func testTheEndOfQueueRequestIsCancelledByPauseOrTurningAutoplayOff() async throws {
+        for turnsAutoplayOff in [false, true] {
+            let player = try makePlayer()
+            defer { player.pause() }
+            let gate = AppModelRequestGate<Track, [Track]>()
+            addTeardownBlock { await gate.close() }
+            var requests = 0
+            var delivered = false
+            player.onQueueExhausted = { track in
+                requests += 1
+                guard requests == 2 else { return [] }
+                let tracks = (try? await gate.receive(track)) ?? []
+                delivered = true
+                return tracks
+            }
+            player.play([first])
+            try await waitForEndedQueue(player)
+            let request = try await gate.request(at: 0)
+            XCTAssertEqual(requests, 2)
+            if turnsAutoplayOff {
+                var settings = player.settings
+                settings.autoplay = false
+                player.apply(settings)
+            } else {
+                player.togglePlayback()
+            }
+            XCTAssertFalse(player.isLoading)
+            try await PlaybackTestSupport.eventually { await gate.cancellations.contains(request.id) }
+            try await gate.complete(request, with: .success([second]))
+            try await PlaybackTestSupport.waitUntil { delivered }
+            XCTAssertFalse(player.queue.contains(second), "A cancelled end-of-queue request cannot append")
+            XCTAssertTrue(player.autoplayTrackIDs.isEmpty)
+            XCTAssertFalse(player.isPlaying)
+            XCTAssertFalse(player.isLoading)
+            XCTAssertEqual(player.currentTrack, first)
+            XCTAssertEqual(requests, 2, "Cancelling the end-of-queue request schedules no further request")
+        }
+    }
+
+    func testTheFinalRequestGoesThroughOnQueueEndedAndNeverHappensForRadioSessions() async throws {
+        for isRadio in [false, true] {
+            let player = try makePlayer()
+            defer { player.pause() }
+            var early: [String] = []
+            var atEnd: [String] = []
+            player.onQueueExhausted = { early.append($0.id); return [] }
+            player.onQueueEnded = { atEnd.append($0.id); return [] }
+            player.play([first], isRadio: isRadio)
+            try await waitForSettledEnd(player)
+            XCTAssertEqual(early, [first.id])
+            XCTAssertEqual(atEnd, isRadio ? [] : [first.id],
+                           isRadio ? "A station keeps its own queue-sheet retry and gets no end-of-queue request"
+                                   : "The end of the queue asks through the fresh-results callback")
+            XCTAssertEqual(player.queue, [first])
+            XCTAssertNil(player.errorMessage)
+        }
+    }
+
+    func testManualContinuationAfterTheQueueEndedPlaysTheFirstNewSongInsteadOfReplayingTheLast() async throws {
+        for isRadio in [false, true] {
+            let player = try makePlayer()
+            defer { player.pause() }
+            var requests = 0
+            var starts: [String] = []
+            player.onTrackStarted = { starts.append($0.id) }
+            player.onQueueExhausted = { _ in requests += 1; return [] }
+            player.play([first], isRadio: isRadio)
+            try await waitForSettledEnd(player)
+            XCTAssertEqual(requests, isRadio ? 1 : 2)
+            XCTAssertEqual(starts, [first.id])
+
+            player.appendAutoplay([first, second])
+            XCTAssertEqual(player.queue, [first, second])
+            XCTAssertEqual(player.currentTrack, second, "The listener asked for more songs, not a replay of the finished one")
+            XCTAssertEqual(player.currentIndex, 1)
+            XCTAssertEqual(player.autoplayTrackIDs, [second.id])
+            XCTAssertEqual(player.isRadioSession, isRadio)
+            try await PlaybackTestSupport.waitUntil { player.currentTrack == self.second && player.isPlaying && player.position > 0.2 }
+            XCTAssertEqual(starts, [first.id, second.id])
+            player.pause()
+            XCTAssertNil(player.errorMessage)
+        }
+    }
+
+    func testManualContinuationBeforeTheEndOrDuringAnInterruptionDoesNotStartPlayback() async throws {
+        let paused = try makePlayer()
+        defer { paused.pause() }
+        paused.onQueueExhausted = { _ in [] }
+        paused.play([first])
+        try await PlaybackTestSupport.waitUntil { paused.isPlaying && paused.position > 0.3 }
+        paused.pause()
+        paused.appendAutoplay([second])
+        XCTAssertEqual(paused.queue, [first, second])
+        XCTAssertEqual(paused.currentTrack, first, "A queue that has not ended only grows")
+        XCTAssertFalse(paused.isPlaying)
+        XCTAssertFalse(paused.isLoading)
+
+        let interrupted = try makePlayer()
+        defer { interrupted.pause() }
+        var starts: [String] = []
+        interrupted.onTrackStarted = { starts.append($0.id) }
+        interrupted.onQueueExhausted = { _ in [] }
+        interrupted.play([first])
+        try await waitForSettledEnd(interrupted)
+        interrupted.handleInterruption(began: true)
+        interrupted.appendAutoplay([second])
+        XCTAssertEqual(interrupted.currentTrack, second, "The new song is selected so the finished one is not replayed later")
+        XCTAssertFalse(interrupted.isPlaying)
+        XCTAssertFalse(interrupted.isLoading)
+        interrupted.handleInterruption(began: false, shouldResume: true)
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(interrupted.isPlaying, "Nothing was playing when the interruption began, so nothing resumes by itself")
+        XCTAssertEqual(starts, [first.id])
+        interrupted.resumePlayback()
+        try await PlaybackTestSupport.waitUntil { interrupted.currentTrack == self.second && interrupted.isPlaying && interrupted.position > 0.2 }
+        XCTAssertEqual(starts, [first.id, second.id])
+        XCTAssertNil(interrupted.errorMessage)
+    }
+
     private func makePlayer() throws -> PlayerController {
         let url = try PlaybackTestSupport.audioFile(seconds: 2)
         addTeardownBlock { try FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -129,6 +287,13 @@ final class PlaybackAutoplayContinuationTests: XCTestCase {
 
     private func waitForEndedQueue(_ player: PlayerController) async throws {
         try await PlaybackTestSupport.waitUntil { !player.isPlaying && player.isLoading && player.position >= 1.99 }
+    }
+
+    /// The queue has ended and every continuation request, including a final one, has been answered.
+    private func waitForSettledEnd(_ player: PlayerController) async throws {
+        try await PlaybackTestSupport.waitUntil { !player.isPlaying && !player.isLoading && player.position >= 1.99 }
+        try await Task.sleep(for: .milliseconds(250))
+        XCTAssertFalse(player.isLoading)
     }
 
     private enum SupersedingAction: CaseIterable {

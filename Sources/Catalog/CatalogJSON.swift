@@ -139,6 +139,21 @@ enum CatalogText {
         return seconds.isFinite && seconds > 0 && seconds <= 359_999 ? seconds : nil
     }
 
+    static func iso8601Duration(_ value: String) -> TimeInterval? {
+        guard value.utf8.count <= 64, !value.hasSuffix("T"),
+              let expression = try? NSRegularExpression(pattern: #"^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$"#),
+              let match = expression.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
+              match.range.length == value.utf16.count else { return nil }
+        let factors: [Double] = [86_400, 3_600, 60, 1]
+        var seconds: Double = 0
+        for index in 1...4 {
+            guard let range = Range(match.range(at: index), in: value) else { continue }
+            guard let amount = Double(value[range]) else { return nil }
+            seconds += amount * factors[index - 1]
+        }
+        return seconds.isFinite && seconds > 0 && seconds <= 359_999 ? seconds : nil
+    }
+
     static func artwork(_ value: CatalogJSON, videoID: String? = nil) -> URL? {
         let thumbnails = value.values(for: "thumbnails").flatMap(\.array)
         let ranked = thumbnails.enumerated().sorted {

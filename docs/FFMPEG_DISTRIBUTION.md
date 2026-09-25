@@ -1,6 +1,15 @@
 # FFmpegBridge source and distribution
 
-**Local rebuilding, repackaging, and verification are complete; recipient source/relink delivery is pending.** The 2.16 MiB framework and matching source bundle are recorded in provenance. No public source URL or usable recipient relink path is established. This dependency remains alongside the [content-rights hold](app-store/RELEASE_STATUS.md#submission-hold).
+**Library source and rebuild materials are public; recipient application relinking remains pending.** The owner authorized the separate [Breezy-FFmpegBridge repository](https://github.com/aagrawal207/Breezy-FFmpegBridge). Its [9.0.2-patch2 release](https://github.com/aagrawal207/Breezy-FFmpegBridge/releases/tag/9.0.2-patch2) was published September 25 UTC and verified through an anonymous download. The application source and credentials remain private. This dependency remains alongside the [content-rights hold](app-store/RELEASE_STATUS.md#submission-hold).
+
+## Public source delivery
+
+- [Complete corresponding-source archive](https://github.com/aagrawal207/Breezy-FFmpegBridge/releases/download/9.0.2-patch2/FFmpegBridge-9.0.2-source-ad454b1bc22d2b462619a393e9598a2553d0df01465569f9631438ca290588a1.tar.xz): **11,788,692 bytes**, SHA-256 `ad454b1bc22d2b462619a393e9598a2553d0df01465569f9631438ca290588a1`.
+- [Public rebuild instructions](https://github.com/aagrawal207/Breezy-FFmpegBridge#build-the-library), license text and notices accompany the source.
+- [SOURCE-DISTRIBUTION.json](https://github.com/aagrawal207/Breezy-FFmpegBridge/blob/main/SOURCE-DISTRIBUTION.json) maps the public repack to the original build provenance. One Xcode per-user scheme file was omitted; all **10,413** retained files are byte-identical, including every compiled source, patch and wrapper input.
+- Standalone source preparation in the public checkout reproduced source-tree SHA-256 `0106cdb70aa8d5788503239fc4357661c9f55217d4c0f9911d54c52517bbde67`. Existing three-slice binary verification also passed; no new three-slice rebuild is claimed.
+
+`artifacts/Authorization-20260925/ffmpeg-publication.json` records the public commit, six uploaded assets and anonymous checksum/byte comparison. The original archive and packaged framework provenance remain intact.
 
 ## Authoritative package records
 
@@ -29,7 +38,7 @@ artifacts/FFmpegBuild/FFmpegBridge-9.0.2-source-933effa8f979bfc29d20e967628542fb
 
 The current rebuilt package records **patch policy 2** and both required patches: `0001-no-auto-bitstream-filters.patch` and `0002-skip-unused-matroska-metadata.patch`. Preparation checks every patch forward or reverse, including explicit source overrides, and fails on conflict. Verification checks current build-script and patch hashes rather than accepting an older configure marker as proof of the full patch set.
 
-The bundle contains the prepared FFmpeg tree, both patches, C wrapper/header, notices, package documentation, and build recipe. The [official upstream source](https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz) supplies only the upstream portion. The verified bundle remains a **local artifact**, not a public download or completed recipient source offer.
+The original bundle contains the prepared FFmpeg tree, both patches, C wrapper/header, notices, package documentation, build recipe and one Xcode per-user scheme file. The public repack above omits only that non-build file. The [official upstream source](https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz) alone supplies only the upstream portion.
 
 ## Rebuild and relink materials
 
@@ -39,10 +48,10 @@ Binary distribution must retain the notices/full license and provide the exact c
 
 | Delivery item | Current state |
 | --- | --- |
-| Corresponding-source archive and provenance | Rebuilt, repackaged, and verified locally; public URL **TBD** |
+| Corresponding-source archive and provenance | Public versioned release; anonymous download, checksums and retained file contents verified |
 | Full LGPL text, wrapper license, and notice | Present in the package/framework; preserve in the distributed binary |
-| User-facing acknowledgement | `Resources/Acknowledgements.txt`; exact source URL still pending |
-| Recipient rebuild/relink instructions | Available locally in the package README; public delivery and usable recipient path pending |
+| User-facing acknowledgement | Current `Resources/Acknowledgements.txt` links the public release; uploaded build 5 retains its original acknowledgement |
+| Recipient library rebuild instructions | Public and source-preparation verified; usable application replacement/signing path remains pending |
 | Relinkable application materials, if required | Delivery method/materials not established |
 
-The verified source-to-binary record is available locally. Public URLs and the recipient installation/relink path remain unresolved; the private repository and local development IPA do not complete delivery.
+Public library source delivery is complete. Recipient application installation/relinking is not verified; no application objects, application source or signing credentials were published. The local development IPA and dynamic linkage alone do not resolve that remaining requirement.

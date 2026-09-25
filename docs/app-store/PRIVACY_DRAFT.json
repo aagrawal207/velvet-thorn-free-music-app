@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Local record of the incomplete browser-saved App Privacy draft, not a complete declaration or an asc web privacy payload.",
+  "appId": "6815025307",
+  "status": "DATA_TYPES_SAVED_SETUP_INCOMPLETE",
+  "collectsData": true,
+  "published": false,
+  "inventoryComplete": false,
+  "browserSaveAndReloadVerified": true,
+  "latestBrowserReadback": "artifacts/Authorization-20260925/02-signed-in-privacy.png",
+  "latestBrowserCheckDateUTC": "2026-09-25",
+  "savedDataTypes": [
+    {
+      "name": "Search History",
+      "setupStatus": "REQUIRED",
+      "basis": "Online query text reaches Google; its policy describes retained search/activity information."
+    },
+    {
+      "name": "User ID",
+      "setupStatus": "REQUIRED",
+      "basis": "Optional sign-in and account-cookie-bearing player requests identify the user's Google account."
+    },
+    {
+      "name": "Product Interaction",
+      "setupStatus": "REQUIRED",
+      "basis": "Recording and artist requests reveal music interactions; provider policies describe retained activity or request logs."
+    }
+  ],
+  "supportHandling": {
+    "ownerConfirmed": true,
+    "use": "Respond to the sender's support request only",
+    "marketing": false,
+    "analytics": false,
+    "sale": false,
+    "sharingBeyondNormalEmailDelivery": false
+  },
+  "pendingAssessment": [
+    "Complete the data-type inventory for the actual sign-in and provider paths, including identifier/IP-derived data where applicable",
+    "Resolve each type's complete purpose set; app functionality alone does not rule out provider analytics, personalization or advertising",
+    "Resolve the required user-linkage and tracking answers for the actual integration",
+    "Reconcile the final declarations and privacy manifest with the shipping implementation before publication",
+    "Confirm LRCLIB and optional remote-extractor retention/use rather than treating unavailable policy information as no collection (MetaBrainz's practices are now recorded in providerFacts.musicbrainz)"
+  ],
+  "evidenceDocument": "docs/app-store/PRIVACY_REVIEW.md",
+  "resolverPolicyAssessment": {
+    "source": "https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/",
+    "checkedDateUTC": "2026-09-25",
+    "ordinaryLogsAndTruncatedIPRetentionHours": 25,
+    "qualifications": "Policy separately describes sampled troubleshooting packets and indefinite aggregate statistics. It does not apply to YouTubeKit's Cloudflare Workers service.",
+    "appleCategoryPurposeMappingComplete": false
+  },
+  "browserReceipt": "artifacts/AppStore-1.0.0-5/privacy-draft-20260924.json",
+  "providerFacts": {
+    "musicbrainz": {
+      "source": "artifacts/Authorization-20260925/metabrainz-reply.md",
+      "dateUTC": "2026-09-25",
+      "dataReceivedByProvider": "IP address, User-Agent (Breezy/1.0 plus the developer contact URL), requested endpoint and query (cleaned title, artist names, duration range, recording/work IDs)",
+      "use": "Internal traffic analysis only",
+      "sharingOrSale": "None, per provider",
+      "retention": "Until logs rotate, typically a few days",
+      "linkedToBreezyUser": false,
+      "tracking": false,
+      "declarationDecision": "PENDING_OWNER: decide whether short-lived operational request logs at a third-party server are declared, and under which type/purpose"
+    }
+  }
+}

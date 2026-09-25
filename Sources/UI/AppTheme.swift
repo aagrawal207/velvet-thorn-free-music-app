@@ -2,41 +2,47 @@ import ImageIO
 import SwiftUI
 import UIKit
 
-enum AppTheme {
-    // Pure black dark mode, white light mode, neutral greys, one vivid accent; gold and violet are language tints only.
-    // RootView supplies the palette; SwiftUI resolves this color in each view's environment.
-    static var accent: Color { .accentColor }
-    static let gold = adaptive(light: 0xA87400, dark: 0xF7C948)
-    static let violet = adaptive(light: 0x6858D6, dark: 0xA78BFA)
-    static let background = adaptive(light: 0xFFFFFF, dark: 0x000000)
-    // Every palette pairs its opaque fill with the page color, including the brighter dark-mode accents.
-    static let onAccent = background
-    static let surface = adaptive(light: 0xF4F4F7, dark: 0x121214)
-    static let raised = adaptive(light: 0xE8E8EE, dark: 0x1E1E22)
-    static let primaryText = adaptive(light: 0x0B0B10, dark: 0xFFFFFF)
-    static let secondaryText = adaptive(light: 0x6D6D78, dark: 0x9A9AA3)
+/// Corner radii shared by containers; Home tiles keep their own 4/6-point corners.
+enum AppCorner {
+    /// Compact containers: player artwork, small cards, and pinned control capsules' inner shapes.
+    static let compact: CGFloat = 10
+    static let card: CGFloat = 16
+    /// Grouped rows inside sheets, including the artist picker and the options pages.
+    static let sheetCard: CGFloat = 20
+}
 
-    fileprivate static func adaptive(light: UInt, dark: UInt) -> Color {
-        Color(uiColor: UIColor { traits in
-            let hex = traits.userInterfaceStyle == .dark ? dark : light
-            return UIColor(red: CGFloat((hex >> 16) & 255) / 255,
-                           green: CGFloat((hex >> 8) & 255) / 255,
-                           blue: CGFloat(hex & 255) / 255, alpha: 1)
-        })
+extension View {
+    /// Every sheet shows the grabber on the page color with the shared palette, so chrome never differs per sheet.
+    func appSheetChrome() -> some View {
+        presentationDragIndicator(.visible)
+            .presentationBackground(AppTheme.background)
+            .foregroundStyle(AppTheme.primaryText)
+            .tint(AppTheme.accent)
+    }
+
+    /// Standard trailing Done for a sheet's navigation bar.
+    func appSheetDoneButton(id: String, action: @escaping () -> Void) -> some View {
+        toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                AppSheetDoneButton(id: id, action: action)
+            }
+        }
     }
 }
 
-extension AppAccent {
-    var color: Color {
-        switch self {
-        case .coral: AppTheme.adaptive(light: 0xDC3159, dark: 0xFF5A7A)
-        case .mint: AppTheme.adaptive(light: 0x007A59, dark: 0x4DE0B0)
-        case .ocean: AppTheme.adaptive(light: 0x086BCE, dark: 0x64B5FF)
-        case .violet: AppTheme.adaptive(light: 0x7446D1, dark: 0xB79AFF)
-        case .amber: AppTheme.adaptive(light: 0x936000, dark: 0xFFC15A)
-        case .rose: AppTheme.adaptive(light: 0xB93080, dark: 0xFF83BB)
-        case .teal: AppTheme.adaptive(light: 0x007A83, dark: 0x53D7E0)
+/// The one Done style for sheets: semibold body text with a real 44-point hit region.
+struct AppSheetDoneButton: View {
+    let id: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text("Done")
+                .appFont(.body, weight: .semibold)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
         }
+        .accessibilityIdentifier(id)
     }
 }
 
@@ -193,6 +199,9 @@ actor ArtworkLoader {
             let testing = false
             #endif
             let configuration = testing ? URLSessionConfiguration.ephemeral : .default
+            #if DEBUG
+            if DebugArtworkURLProtocol.isEnabled { configuration.protocolClasses = [DebugArtworkURLProtocol.self] }
+            #endif
             configuration.urlCache = URLCache(memoryCapacity: 24 << 20, diskCapacity: testing ? 0 : 256 << 20,
                                                diskPath: testing ? nil : "artwork")
             configuration.requestCachePolicy = .returnCacheDataElseLoad
@@ -267,6 +276,30 @@ actor ArtworkLoader {
                 cacheKeys.insert(key)
                 cacheKeys = cacheKeys.filter { cache.object(forKey: $0 as NSString) != nil }
                 return image
+            }
+        }
+        return nil
+    }
+
+    func cachedThumbnail(for url: URL, maxPixels: Int = WidgetLibrarySnapshot.maximumArtworkPixels,
+                         maximumBytes: Int = WidgetLibrarySnapshot.maximumArtworkBytes) -> Data? {
+        guard !Task.isCancelled, clearingTask == nil, let responseCache, maxPixels > 0, maximumBytes > 0 else { return nil }
+        let pixels = min(maxPixels, WidgetLibrarySnapshot.maximumArtworkPixels)
+        let byteLimit = min(maximumBytes, WidgetLibrarySnapshot.maximumArtworkBytes)
+        var seen = Set<URL>()
+        let candidates = [ArtworkURL.Tier.thumbnail, .standard, .large].flatMap { ArtworkURL.candidates(for: url, tier: $0) } + [url]
+        for candidate in candidates where seen.insert(candidate).inserted {
+            guard !Task.isCancelled else { return nil }
+            // Inspect cached responses directly: even returnCacheDataDontLoad would create a URLSession request.
+            guard let cached = responseCache.cachedResponse(for: URLRequest(url: candidate)),
+                  let response = cached.response as? HTTPURLResponse, response.statusCode == 200,
+                  response.expectedContentLength <= Int64(Self.maximumResponseBytes),
+                  !cached.data.isEmpty, cached.data.count <= Self.maximumResponseBytes,
+                  let image = Self.downsample(cached.data, maxPixels: pixels) else { continue }
+            for quality in [0.8, 0.6, 0.4] {
+                guard !Task.isCancelled else { return nil }
+                if let data = image.jpegData(compressionQuality: CGFloat(quality)), data.count <= byteLimit,
+                   WidgetLibrarySnapshot.isValidArtwork(data) { return data }
             }
         }
         return nil
@@ -349,6 +382,10 @@ actor ArtworkLoader {
               let (data, response) = try? await session.boundedData(for: URLRequest(url: url), maximumBytes: maximumResponseBytes),
               !Task.isCancelled,
               let http = response as? HTTPURLResponse, http.statusCode == 200, !data.isEmpty else { return nil }
+        return downsample(data, maxPixels: maxPixels)
+    }
+
+    private nonisolated static func downsample(_ data: Data, maxPixels: Int) -> UIImage? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
@@ -387,6 +424,7 @@ private struct ArtworkPlaceholder: View {
 
 /// Section title with optional trailing actions. Subtitles belong in detail views, not on Home.
 struct SectionHeader<Trailing: View>: View {
+    @Environment(\.secondaryTextColor) private var secondaryTextColor
     var title: String
     var subtitle: String? = nil
     @ViewBuilder var trailing: Trailing
@@ -403,7 +441,7 @@ struct SectionHeader<Trailing: View>: View {
                 Text(title).appFont(.title2, weight: .bold)
                     .foregroundStyle(AppTheme.primaryText).accessibilityAddTraits(.isHeader)
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).appFont(.subheadline).foregroundStyle(AppTheme.secondaryText)
+                    Text(subtitle).appFont(.subheadline).foregroundStyle(secondaryTextColor)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -420,6 +458,7 @@ extension SectionHeader where Trailing == EmptyView {
 }
 
 struct EmptyStateView: View {
+    @Environment(\.secondaryTextColor) private var secondaryText
     var symbol: String
     var title: String
     var message: String
@@ -428,7 +467,7 @@ struct EmptyStateView: View {
             Image(systemName: symbol).font(.system(size: 34, weight: .light)).foregroundStyle(AppTheme.accent)
                 .frame(width: 80, height: 80).background(AppTheme.surface, in: Circle())
             Text(title).appFont(.title3, weight: .semibold).foregroundStyle(AppTheme.primaryText)
-            Text(message).appFont(.subheadline).foregroundStyle(AppTheme.secondaryText)
+            Text(message).appFont(.subheadline).foregroundStyle(secondaryText)
                 .frame(maxWidth: 350)
         }
         .multilineTextAlignment(.center)

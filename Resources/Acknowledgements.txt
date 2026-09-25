@@ -16,8 +16,12 @@ https://music.youtube.com
 LyricFind and Musixmatch are credited when identified by YouTube Music.
 Breezy does not request lyrics directly from either publisher.
 
-Recording/work language metadata, when enabled: MusicBrainz
+Recording and work metadata, when enabled: MusicBrainz, a project of the
+MetaBrainz Foundation
 https://musicbrainz.org
+https://metabrainz.org
+MusicBrainz data is used with attribution; requests follow the MusicBrainz
+API rate limits and identify Breezy with a developer contact URL.
 
 Optional remote extraction: YouTubeKit remote service
 https://remote-production.youtubekit.dev
@@ -103,12 +107,19 @@ Vendor/FFmpegBridge/Sources/FFmpegBridge.c
 Vendor/FFmpegBridge/README.md (Build provenance and LGPL rebuilds)
 docs/FFMPEG_DISTRIBUTION.md
 
-The matching archive exists locally under artifacts/FFmpegBuild. Its public
-download URL and recipient rebuild/relink delivery are pending. The private
-app repository and upstream-only URL do not complete that distribution.
-Binary distribution must provide the exact source and required relinking
-materials, retain the notices, and permit the modification/debugging rights
-required by LGPL section 6. Dynamic linkage alone does not establish fulfillment.
+The complete corresponding source and library rebuild instructions are public:
+https://github.com/aagrawal207/Breezy-FFmpegBridge/releases/tag/9.0.2-patch2
+https://github.com/aagrawal207/Breezy-FFmpegBridge
+Source archive SHA-256:
+ad454b1bc22d2b462619a393e9598a2553d0df01465569f9631438ca290588a1
+
+The public archive omits only non-build Xcode user metadata. The prepared FFmpeg
+source, wrapper, patches, licenses and build recipe are retained unchanged.
+Recipient application replacement/relinking remains pending; no application
+source, relinkable application objects or signing credentials are included.
+Binary distribution must retain notices and permit the modification/debugging
+rights required by LGPL section 6. Library source delivery and dynamic linkage
+alone do not establish fulfillment of every distribution condition.
 
 Source and license questions:
 https://gist.github.com/aagrawal207/95acc71ba167fb754c435de17d256e59#file-support-md

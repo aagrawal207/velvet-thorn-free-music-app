@@ -118,7 +118,7 @@ struct ResolvedStream: Sendable {
     var expiresAt: Date?
     /// Provider loudness relative to its reference level, in dB. Positive means louder than reference.
     var loudnessDb: Double?
-    /// Worldwide play count reported alongside the stream, when the provider includes it.
+    /// Views of this recording/upload, not the provider's aggregate song plays. Cached streams retain old views.
     var viewCount: Int64?
     var quality: SourceAudioQuality?
 

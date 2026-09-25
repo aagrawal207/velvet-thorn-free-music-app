@@ -151,7 +151,7 @@ actor CatalogTransport {
         throw MusicServiceError.invalidResponse
     }
 
-    private static func retryDelay(_ response: HTTPURLResponse, now: Date) -> TimeInterval? {
+    static func retryDelay(_ response: HTTPURLResponse, now: Date) -> TimeInterval? {
         guard let header = response.value(forHTTPHeaderField: "Retry-After") else { return nil }
         if let seconds = Double(header), seconds.isFinite, seconds >= 0 { return min(seconds, 86_400 * 365) }
         let formatter = DateFormatter()

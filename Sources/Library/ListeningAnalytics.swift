@@ -90,6 +90,35 @@ enum ListeningAnalytics {
         return result
     }
 
+    static func languageSummary(
+        events: [ListeningEvent], for window: ListeningWindow, now: Date, calendar: Calendar = .current,
+        evidence: [LyricsRequestKey: ArtistSongLanguageResult] = [:], overrides: [String: String] = [:]
+    ) -> ListeningLanguageSummary {
+        let listening = summary(events: events, for: window, now: now, calendar: calendar)
+        guard listening.plays > 0 else { return ListeningLanguageSummary() }
+        var result = ListeningLanguageSummary(totalPlays: listening.plays)
+        var languages: [ArtistSongLanguage: LanguageListeningStat] = [:]
+        for ranked in listening.topTracks where ranked.plays > 0 {
+            result.totalSongs += 1
+            let track = ranked.track
+            let automatic = evidence[LyricsRequestKey(track)].map { [track.id: $0] } ?? [:]
+            guard let language = ArtistSpotlight.languageResult(for: track, in: automatic, overrides: overrides)?.language else {
+                result.unclassifiedPlays += ranked.plays
+                result.unclassifiedSongs += 1
+                continue
+            }
+            var row = languages[language] ?? LanguageListeningStat(language: language, plays: 0, songs: 0, share: 0)
+            row.plays += ranked.plays
+            row.songs += 1
+            row.share = Double(row.plays) / Double(listening.plays)
+            languages[language] = row
+        }
+        result.rows = languages.values.sorted {
+            $0.plays == $1.plays ? $0.id < $1.id : $0.plays > $1.plays
+        }
+        return result
+    }
+
     static func currentStreakDays(in listenedDays: Set<Date>, now: Date, calendar: Calendar) -> Set<Date> {
         var streakDay = calendar.startOfDay(for: now)
         var streak = Set<Date>()

@@ -10,23 +10,45 @@ struct PlaybackQueue {
     private(set) var original: [Entry] = []
     private(set) var selectedID: UUID?
     private(set) var shuffled = false
+    // Legacy checkpoints retain the absent field until occurrence order or selection actually changes.
+    private var persistsOccurrenceMapping = false
 
     var tracks: [Track] { entries.map(\.track) }
     var index: Int { entries.firstIndex { $0.id == selectedID } ?? 0 }
     var current: Track? { entries.first { $0.id == selectedID }?.track }
 
-    mutating func replace(_ tracks: [Track], startingAt index: Int = 0, shuffled: Bool = false) {
+    mutating func replace(_ tracks: [Track], startingAt index: Int = 0, shuffled: Bool = false,
+                         using shuffle: ([Entry]) -> [Entry] = { $0.shuffled() }) {
         entries = tracks.map { Entry(id: UUID(), track: $0) }
         original = entries
         selectedID = entries.isEmpty ? nil : entries[min(max(0, index), entries.count - 1)].id
+        persistsOccurrenceMapping = true
         self.shuffled = false
-        if shuffled { toggleShuffle() }
+        if shuffled { toggleShuffle(using: shuffle) }
+    }
+
+    mutating func replaceShuffled(_ tracks: [Track], using shuffle: ([Entry]) -> [Entry] = { $0.shuffled() }) {
+        replace(tracks)
+        // The first occurrence is sampled with the tail; the source order remains available for unshuffle.
+        entries = shuffle(entries)
+        selectedID = entries.first?.id
+        shuffled = true
     }
 
     mutating func restore(_ snapshot: PlaybackSnapshot) {
         replace(snapshot.queue, startingAt: snapshot.currentIndex)
+        persistsOccurrenceMapping = snapshot.originalQueueIndices != nil
         // A persisted shuffled queue is already in playback order; shuffling again changes its continuation.
         shuffled = snapshot.shuffleEnabled
+        if let indices = snapshot.originalQueueIndices {
+            guard (try? LibraryValidation.validateOriginalQueueIndices(snapshot)) != nil else { return }
+            var restoredOrder = entries
+            for (queueIndex, originalIndex) in indices.enumerated() {
+                restoredOrder[originalIndex] = entries[queueIndex]
+            }
+            original = restoredOrder
+            return
+        }
         guard shuffled, let savedOrder = snapshot.originalQueue, savedOrder.count == entries.count else { return }
         var remaining = Dictionary(grouping: entries.reversed(), by: { $0.track.id })
         var restoredOrder: [Entry] = []
@@ -42,20 +64,27 @@ struct PlaybackQueue {
     }
 
     func snapshot(position: TimeInterval, repeatMode: RepeatMode) -> PlaybackSnapshot {
-        PlaybackSnapshot(queue: tracks, currentIndex: index, position: PlaybackTiming.position(position),
-                         shuffleEnabled: shuffled, repeatMode: repeatMode, originalQueue: original.map(\.track))
+        var snapshot = PlaybackSnapshot(queue: tracks, currentIndex: index, position: PlaybackTiming.position(position),
+                                        shuffleEnabled: shuffled, repeatMode: repeatMode, originalQueue: original.map(\.track))
+        guard persistsOccurrenceMapping else { return snapshot }
+        var originalIndices: [UUID: Int] = [:]
+        for (index, entry) in original.enumerated() { originalIndices[entry.id] = index }
+        // Missing occurrence identity must fail validation rather than save a guessed original position.
+        snapshot.originalQueueIndices = entries.map { originalIndices[$0.id] ?? -1 }
+        return snapshot
     }
 
-    mutating func toggleShuffle() {
+    mutating func toggleShuffle(using shuffle: ([Entry]) -> [Entry] = { $0.shuffled() }) {
         if shuffled {
             entries = original
         } else {
             original = entries
             let current = entries.first { $0.id == selectedID }
             entries = current.map { [$0] } ?? []
-            entries += original.filter { $0.id != selectedID }.shuffled()
+            entries += shuffle(original.filter { $0.id != selectedID })
         }
         shuffled.toggle()
+        persistsOccurrenceMapping = true
     }
 
     mutating func enqueue(_ track: Track, next: Bool) {
@@ -65,6 +94,7 @@ struct PlaybackQueue {
         let originalIndex = original.firstIndex { $0.id == selectedID }
         original.insert(entry, at: next ? originalIndex.map { $0 + 1 } ?? original.count : original.count)
         if selectedID == nil { selectedID = entry.id }
+        persistsOccurrenceMapping = true
     }
 
     mutating func remove(at index: Int) {
@@ -74,11 +104,14 @@ struct PlaybackQueue {
         if removed.id == selectedID {
             selectedID = entries.isEmpty ? nil : entries[min(index, entries.count - 1)].id
         }
+        persistsOccurrenceMapping = true
     }
 
     mutating func move(from offsets: IndexSet, to destination: Int) {
         let indexes = offsets.filter { entries.indices.contains($0) }
         guard !indexes.isEmpty else { return }
+        let previousEntries = entries.map(\.id)
+        let previousOriginal = original.map(\.id)
         let moving = indexes.map { entries[$0] }
         let destination = min(max(0, destination), entries.count)
         let insertion = destination - indexes.filter { $0 < destination }.count
@@ -93,6 +126,9 @@ struct PlaybackQueue {
         } else {
             original = entries
         }
+        if entries.map(\.id) != previousEntries || original.map(\.id) != previousOriginal {
+            persistsOccurrenceMapping = true
+        }
     }
 
     @discardableResult
@@ -100,11 +136,15 @@ struct PlaybackQueue {
         guard !entries.isEmpty else { return false }
         if automatic && repeatMode == .one { return true }
         if index + 1 < entries.count {
-            selectedID = entries[index + 1].id
+            let nextID = entries[index + 1].id
+            if selectedID != nextID { persistsOccurrenceMapping = true }
+            selectedID = nextID
             return true
         }
         if repeatMode == .all {
-            selectedID = entries[0].id
+            let nextID = entries[0].id
+            if selectedID != nextID { persistsOccurrenceMapping = true }
+            selectedID = nextID
             return true
         }
         return false
@@ -113,6 +153,8 @@ struct PlaybackQueue {
     mutating func previous(repeatMode: RepeatMode) {
         guard !entries.isEmpty else { return }
         let previous = index > 0 ? index - 1 : (repeatMode == .all ? entries.count - 1 : 0)
-        selectedID = entries[previous].id
+        let previousID = entries[previous].id
+        if selectedID != previousID { persistsOccurrenceMapping = true }
+        selectedID = previousID
     }
 }

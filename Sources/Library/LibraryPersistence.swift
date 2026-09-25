@@ -1,12 +1,13 @@
 import Foundation
 
-struct LibraryDocument: Codable {
+struct LibraryDocument: Codable, Sendable {
     var version = LibraryPersistence.currentVersion
     var favorites: [Track] = []
     var playlists: [UserPlaylist] = []
     var events: [ListeningEvent] = []
     var recentlyPlayed: [RecentListen] = []
     var recentSearches: [String] = []
+    var recentSearchSelections: [SearchSelection] = []
     var playback = PlaybackSnapshot()
     var preferences = UserPreferences()
     var lyricsOffsets: [String: TimeInterval] = [:]
@@ -18,14 +19,16 @@ struct LibraryDocument: Codable {
     var recordingLanguageOverrides: [String: String] = [:]
     var listeningHistoryEpoch: UUID?
     var pendingReleaseNotificationIDs: [String] = []
+    var syncState: LibrarySyncState?
 
     init() { }
 
     private enum CodingKeys: String, CodingKey {
         case version, favorites, playlists, events, recentlyPlayed, playback, preferences, lyricsOffsets
-        case followedArtists, releases, mixes, disliked, recentSearches
+        case followedArtists, releases, mixes, disliked, recentSearches, recentSearchSelections
         case tipTransactions, recordingLanguageOverrides
         case listeningHistoryEpoch, pendingReleaseNotificationIDs
+        case syncState
     }
 
     // Fields added after the first release decode leniently so stores written before them still open.
@@ -37,6 +40,7 @@ struct LibraryDocument: Codable {
         events = try values.decode([ListeningEvent].self, forKey: .events)
         recentlyPlayed = try values.decode([RecentListen].self, forKey: .recentlyPlayed)
         recentSearches = try values.decodeIfPresent([String].self, forKey: .recentSearches) ?? []
+        recentSearchSelections = try values.decodeIfPresent([SearchSelection].self, forKey: .recentSearchSelections) ?? []
         playback = try values.decode(PlaybackSnapshot.self, forKey: .playback)
         preferences = try values.decode(UserPreferences.self, forKey: .preferences)
         lyricsOffsets = try values.decode([String: TimeInterval].self, forKey: .lyricsOffsets)
@@ -48,6 +52,7 @@ struct LibraryDocument: Codable {
         recordingLanguageOverrides = try values.decodeIfPresent([String: String].self, forKey: .recordingLanguageOverrides) ?? [:]
         listeningHistoryEpoch = try values.decodeIfPresent(UUID.self, forKey: .listeningHistoryEpoch)
         pendingReleaseNotificationIDs = try values.decodeIfPresent([String].self, forKey: .pendingReleaseNotificationIDs) ?? []
+        syncState = try values.decodeIfPresent(LibrarySyncState.self, forKey: .syncState)
     }
 }
 
@@ -63,11 +68,13 @@ enum SearchHistory {
 }
 
 enum LibraryPersistence {
-    static let currentVersion = 1
+    static let currentVersion = 3
     static let fileName = "library.json"
     static let releaseLimit = 60
+    // The local file also carries device-only data and the materialized library beside its sync journal.
+    static let maximumFileBytes = 128 * 1024 * 1024
 
-    private struct VersionHeader: Decodable {
+    struct VersionHeader: Decodable {
         var version: Int
     }
 
@@ -83,21 +90,48 @@ enum LibraryPersistence {
     }
 
     static func read(_ url: URL) throws -> Data? {
+        var url = url
+        url.removeAllCachedResourceValues()
         do {
-            return try Data(contentsOf: url)
-        } catch CocoaError.fileReadNoSuchFile {
+            let resources = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard resources.isRegularFile == true, resources.isSymbolicLink != true else {
+                throw LibraryStorageError.invalidData("library file type")
+            }
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var data = Data()
+            while let chunk = try handle.read(upToCount: min(1024 * 1024, maximumFileBytes - data.count + 1)), !chunk.isEmpty {
+                guard chunk.count <= maximumFileBytes - data.count else { throw LibraryStorageError.tooLarge }
+                data.append(chunk)
+            }
+            return data
+        } catch CocoaError.fileReadNoSuchFile, CocoaError.fileNoSuchFile {
             return nil
         }
     }
 
     static func decode(_ data: Data, now: Date) throws -> LibraryDocument {
+        guard data.count <= maximumFileBytes else { throw LibraryStorageError.tooLarge }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
         let version = try decoder.decode(VersionHeader.self, from: data).version
         guard version <= currentVersion else { throw LibraryStorageError.newerVersion }
-        guard version == currentVersion else { throw LibraryStorageError.unsupportedVersion }
-        let document = try decoder.decode(LibraryDocument.self, from: data)
+        guard (1...currentVersion).contains(version) else { throw LibraryStorageError.unsupportedVersion }
+        var document = try decoder.decode(LibraryDocument.self, from: data)
+        if version < 3, !document.recentSearchSelections.isEmpty {
+            throw LibraryStorageError.invalidData("search selection format version")
+        }
+        // Migration is committed with the next real edit or sync preparation, never over an unvalidated file.
+        document.version = currentVersion
         try LibraryValidation.validate(document, now: now)
+        if !document.recentSearchSelections.isEmpty {
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let payload = object["recentSearchSelections"] else {
+                throw LibraryStorageError.invalidData("search selection payload")
+            }
+            try LibraryValidation.validateSearchSelectionPayload(payload, matching: document.recentSearchSelections)
+        }
+        try LibrarySyncValidation.validateLocal(document, now: now)
         return document
     }
 
@@ -109,6 +143,7 @@ enum LibraryPersistence {
     }
 
     static func write(_ data: Data, to url: URL, replacing expected: Data?) throws {
+        guard data.count <= maximumFileBytes else { throw LibraryStorageError.tooLarge }
         // A stale store must not replace another session's library or an externally recovered file.
         guard try read(url) == expected else { throw LibraryStorageError.changedOnDisk }
         try FileManager.default.createDirectory(
@@ -129,6 +164,7 @@ enum LibraryStorageError: LocalizedError {
     case invalidData(String)
     case changedOnDisk
     case missingFile
+    case tooLarge
 
     var errorDescription: String? {
         switch self {
@@ -144,6 +180,8 @@ enum LibraryStorageError: LocalizedError {
             "Your saved library changed outside this session. Reload the saved library to use those changes. The saved file has not been replaced."
         case .missingFile:
             "The saved library couldn’t be found. Restore the file before reloading it. No replacement file has been created."
+        case .tooLarge:
+            "The saved library exceeds Breezy’s safe storage size limit. The original file has been kept."
         }
     }
 }
@@ -173,6 +211,52 @@ enum LibraryValidation {
         }
     }
 
+    static func isValidSearchSelectionID(_ id: String) -> Bool {
+        guard id.utf8.count <= 16_384 else { return false }
+        let rawID: Substring
+        if id.hasPrefix("track:") {
+            rawID = id.dropFirst("track:".count)
+        } else if id.hasPrefix("collection:") {
+            let parts = id.dropFirst("collection:".count).split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2, CollectionKind(rawValue: String(parts[0])) != nil else { return false }
+            rawID = parts[1]
+        } else {
+            return false
+        }
+        let providerID = String(rawID)
+        return isValidID(providerID) && providerID == providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+            && providerID.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
+    }
+
+    static func validateSearchSelection(_ selection: SearchSelection) throws {
+        guard isValidSearchSelectionID(selection.id), isValidID(selection.title) else {
+            throw LibraryStorageError.invalidData("search selection identity")
+        }
+        switch selection {
+        case .track(let track): try validateTrack(track)
+        case .collection(let collection):
+            guard collection.tracks.isEmpty else { throw LibraryStorageError.invalidData("search selection song snapshot") }
+        }
+        if let url = selection.artworkURL {
+            let host = url.host?.lowercased() ?? ""
+            guard url.scheme?.lowercased() == "https", !host.isEmpty, url.user == nil, url.password == nil,
+                  host != "googlevideo.com", !host.hasSuffix(".googlevideo.com"), url.path != "/videoplayback" else {
+                throw LibraryStorageError.invalidData("search selection artwork")
+            }
+        }
+    }
+
+    static func validateSearchSelectionPayload<Value: Encodable>(_ raw: Any, matching value: Value) throws {
+        let expected = try JSONSerialization.jsonObject(with: LibrarySyncCodec.encode(value))
+        let options: JSONSerialization.WritingOptions = [.sortedKeys, .withoutEscapingSlashes]
+        // Unknown metadata must not survive in journal bytes while the typed projection silently discards it.
+        guard JSONSerialization.isValidJSONObject(raw),
+              try JSONSerialization.data(withJSONObject: raw, options: options)
+                == JSONSerialization.data(withJSONObject: expected, options: options) else {
+            throw LibraryStorageError.invalidData("search selection payload")
+        }
+    }
+
     static func validatePosition(_ position: TimeInterval) throws {
         // Catalog duration is not the resolved recording's duration; it must not truncate resume state.
         guard position.isFinite, position >= 0, PlaybackTiming.position(position) == position else {
@@ -190,6 +274,7 @@ enum LibraryValidation {
                 throw LibraryStorageError.invalidData("original queue contents")
             }
         }
+        try validateOriginalQueueIndices(snapshot)
         if snapshot.queue.isEmpty {
             guard snapshot.currentIndex == 0, snapshot.position == 0 else {
                 throw LibraryStorageError.invalidData("empty queue position")
@@ -202,11 +287,31 @@ enum LibraryValidation {
         }
     }
 
+    static func validateOriginalQueueIndices(_ snapshot: PlaybackSnapshot) throws {
+        guard let indices = snapshot.originalQueueIndices else { return }
+        guard let original = snapshot.originalQueue, original.count == snapshot.queue.count,
+              indices.count == snapshot.queue.count else {
+            throw LibraryStorageError.invalidData("original queue occurrence mapping")
+        }
+        var seen = Set<Int>()
+        for (queueIndex, originalIndex) in indices.enumerated() {
+            // An unshuffled snapshot is already in original occurrence order, even when Track values are identical.
+            guard original.indices.contains(originalIndex), seen.insert(originalIndex).inserted,
+                  snapshot.queue[queueIndex].id == original[originalIndex].id,
+                  snapshot.shuffleEnabled || queueIndex == originalIndex else {
+                throw LibraryStorageError.invalidData("original queue occurrence mapping")
+            }
+        }
+    }
+
     static func validate(_ document: LibraryDocument, now: Date) throws {
         guard document.version == LibraryPersistence.currentVersion else {
             throw LibraryStorageError.unsupportedVersion
         }
         try validateUniqueTracks(document.favorites)
+        guard Set(document.favorites.map(\.id)).isDisjoint(with: document.disliked.map(\.id)) else {
+            throw LibraryStorageError.invalidData("conflicting song reactions")
+        }
         guard Set(document.playlists.map(\.id)).count == document.playlists.count else {
             throw LibraryStorageError.invalidData("duplicate playlists")
         }
@@ -241,12 +346,17 @@ enum LibraryValidation {
         }
         guard document.recentSearches.count <= SearchHistory.limit,
               document.recentSearches.allSatisfy({
-                  !$0.isEmpty && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines)
-                      && !SearchHistory.key($0).isEmpty
+                  isValidID($0) && $0 == $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                      && isValidID(SearchHistory.key($0)) && SearchHistory.key($0).utf8.count <= 16_384
               }),
               Set(document.recentSearches.map(SearchHistory.key)).count == document.recentSearches.count else {
             throw LibraryStorageError.invalidData("recent searches")
         }
+        guard document.recentSearchSelections.count <= SearchHistory.limit,
+              Set(document.recentSearchSelections.map(\.id)).count == document.recentSearchSelections.count else {
+            throw LibraryStorageError.invalidData("recent search selections")
+        }
+        try document.recentSearchSelections.forEach(validateSearchSelection)
         try validatePlayback(document.playback)
         for (trackID, offset) in document.lyricsOffsets {
             guard isValidID(trackID), offset.isFinite, PlaybackTiming.position(abs(offset)) == abs(offset) else {
@@ -299,6 +409,11 @@ enum LibraryValidation {
             // Canonical decimal keys prevent multiple spellings from crediting the same transaction twice.
             guard !id.isEmpty, let transactionID = UInt64(id), String(transactionID) == id else {
                 throw LibraryStorageError.invalidData("tip transaction identifiers")
+            }
+        }
+        for (id, code) in document.recordingLanguageOverrides {
+            guard isValidID(id), !code.isEmpty, code.utf8.count <= 64 else {
+                throw LibraryStorageError.invalidData("recording language corrections")
             }
         }
     }

@@ -6,6 +6,18 @@ import UIKit
 @MainActor
 enum DebugBootstrap {
     private static var isMonitoringLayout = false
+    private(set) static var fixtureAudioDirectory: URL?
+
+    static var requestsReducedMotion: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.contains("--uitesting") && arguments.contains("--seed-ui") && arguments.contains("--reduce-motion")
+    }
+
+    static var usesPairedWatchFixture: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.contains("--uitesting") && arguments.contains("--seed-ui")
+            && arguments.contains("--ui-watch-connectivity")
+    }
 
     static func installUITestGeometryRequests() {
         let arguments = ProcessInfo.processInfo.arguments
@@ -64,11 +76,15 @@ enum DebugBootstrap {
     }
 
     static func makeModel() -> MusicAppModel {
+        DebugArtworkURLProtocol.install()
         let arguments = ProcessInfo.processInfo.arguments
         let unitTestHost = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             && !arguments.contains("--uitesting")
         let testing = arguments.contains("--uitesting") || unitTestHost
-        let fixtures = unitTestHost || (testing && arguments.contains("--seed-ui"))
+        let seededUITest = arguments.contains("--uitesting") && arguments.contains("--seed-ui")
+        let welcomeFixture = arguments.contains("--uitesting") && !arguments.contains("--seed-ui")
+            && !arguments.contains("--skip-welcome") && !arguments.contains("--play-live") && !arguments.contains("--search-results")
+        let fixtures = unitTestHost || seededUITest || welcomeFixture
         var directory: URL?
         if testing {
             let name = ProcessInfo.processInfo.environment["GANABAJANA_TEST_STORE"] ?? (unitTestHost ? "unit-test-host" : "default")
@@ -83,22 +99,39 @@ enum DebugBootstrap {
         let existingTestStore = directory.map {
             FileManager.default.fileExists(atPath: $0.appendingPathComponent("library.json").path)
         } ?? false
+        fixtureAudioDirectory = fixtures ? directory?.appendingPathComponent("FixtureAudio", isDirectory: true) : nil
         let library = LibraryStore(directory: directory)
         if arguments.contains("--skip-welcome") || unitTestHost { library.preferences.hasCompletedWelcome = true }
         if arguments.contains("--light") { library.preferences.appearance = .light }
         if fixtures {
-            if !existingTestStore { DebugMusicFixtures.seed(library) }
+            if !existingTestStore, unitTestHost || seededUITest { DebugMusicFixtures.seed(library) }
+            if !existingTestStore { DebugWidgetSupport.seed(library) }
+            if seededUITest, !existingTestStore, arguments.contains("--listening-languages-unknown") {
+                library.setRecordingLanguageOverride("und", for: "xTvyyoF_LZY")
+            }
+            let connectivity = ConnectivityMonitor(initialStatus: seededUITest && arguments.contains("--offline-fixture") ? .offline : .online,
+                                                   monitorsSystem: false)
+            let cachedResolver = directory.flatMap {
+                DebugCachedAudioFixture.makeResolver(directory: $0, initializingStore: !existingTestStore,
+                                                     connectivity: connectivity, arguments: arguments)
+            }
+            if cachedResolver != nil, !existingTestStore {
+                var preferences = library.preferences
+                preferences.autoplay = false
+                preferences.allowRemoteFallback = false
+                preferences.useEncryptedDNS = false
+                library.preferences = preferences
+                if arguments.contains("--cache-fixture-in-use") {
+                    library.updatePlayback(PlaybackSnapshot(queue: Array(DebugMusicFixtures.tracks.prefix(2)), position: 32))
+                }
+            }
             let resolver: any StreamResolving
-            if arguments.contains("--fail-audio-once") {
+            if let cachedResolver {
+                resolver = cachedResolver
+            } else if arguments.contains("--fail-audio-once") {
                 resolver = DebugFailOnceAudioResolver(delay: arguments.contains("--slow-audio") ? .seconds(4) : .milliseconds(300))
             } else {
                 resolver = arguments.contains("--slow-audio") ? DebugDelayedAudioResolver() : DebugMusicFixtures()
-            }
-            if arguments.contains("--artist-spotlight-fixture") {
-                let provider = ArtistSpotlightFixtureProvider()
-                return MusicAppModel(library: library, player: PlayerController(resolver: resolver),
-                                     catalog: provider, charts: DebugMusicFixtures(), lyrics: provider,
-                                     account: YouTubeAccountStore(secrets: MemorySecretStore(), registry: YouTubeSessionRegistry()))
             }
             let radioControl = DebugExperienceRadioControl(
                 delay: arguments.contains("--slow-experience-radio") ? .seconds(3) : .milliseconds(120),
@@ -113,13 +146,30 @@ enum DebugBootstrap {
                 library.updatePlayback(PlaybackSnapshot(queue: Array(DebugMusicFixtures.tracks.prefix(3)), currentIndex: 1,
                                                         position: 32, repeatMode: .all))
             }
+            var catalog: any MusicCatalogProviding
+            let lyrics: any LyricsProviding
+            if arguments.contains("--artist-spotlight-fixture") {
+                let provider = ArtistSpotlightFixtureProvider()
+                catalog = provider
+                lyrics = provider
+            } else {
+                let provider = DebugMusicFixtures(experienceRadioControl: radioControl,
+                                                  artistLookupDelay: artistNavigationFixture ? .seconds(3) : .milliseconds(100))
+                catalog = provider
+                lyrics = provider
+            }
+            if seededUITest, arguments.contains("--slow-search") || arguments.contains("--fail-search-once") {
+                catalog = DebugSearchFixtureCatalog(base: catalog,
+                    control: DebugSearchControl(delay: arguments.contains("--slow-search") ? .seconds(1) : .zero,
+                                                failOnce: arguments.contains("--fail-search-once")))
+            }
             // Fixtures never touch the device keychain, so UI runs start signed out and leave nothing behind.
             let model = MusicAppModel(library: library, player: PlayerController(resolver: resolver),
-                                      catalog: DebugMusicFixtures(experienceRadioControl: radioControl,
-                                                                 artistLookupDelay: artistNavigationFixture ? .seconds(3) : .milliseconds(100)),
-                                      charts: DebugMusicFixtures(), lyrics: DebugMusicFixtures(),
+                                      catalog: catalog, charts: DebugMusicFixtures(), lyrics: lyrics,
                                       account: YouTubeAccountStore(secrets: MemorySecretStore(), registry: YouTubeSessionRegistry()),
-                                      generatesMixes: !libraryRecoveryFixture)
+                                      recordingLanguageService: ArtistSpotlightLanguageService(provider: lyrics), connectivity: connectivity,
+                                      generatesMixes: !libraryRecoveryFixture && !DebugWidgetSupport.isEnabled)
+            DebugCachedAudioFixture.attach(to: model)
             if libraryRecoveryFixture, !existingTestStore, let directory {
                 // The second writer changes storage after the live player has restored its own selection.
                 let external = LibraryStore(directory: directory)
@@ -144,7 +194,12 @@ enum DebugBootstrap {
 
     static func performLaunchAction(_ model: MusicAppModel) async {
         let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("--uitesting"), let index = arguments.firstIndex(of: "--search-results"),
+        if DebugWidgetSupport.previewsWidget { model.isWidgetPreviewPresented = true }
+        if DebugCachedAudioFixture.isActive {
+            await DebugCachedAudioFixture.prepare()
+            if let error = DebugCachedAudioFixture.setupError { model.showToast(error); return }
+        }
+        if arguments.contains("--uitesting"), arguments.contains("--seed-ui"), let index = arguments.firstIndex(of: "--search-results"),
            arguments.indices.contains(index + 1) {
             model.openSearch(arguments[index + 1])
         } else if let index = arguments.firstIndex(of: "--play-live"), arguments.indices.contains(index + 1) {
@@ -155,7 +210,7 @@ enum DebugBootstrap {
                     model.isPlayerPresented = true
                 }
             } catch { model.showToast(error.localizedDescription) }
-        } else if arguments.contains("--seed-ui"), arguments.contains("--player") {
+        } else if arguments.contains("--uitesting"), arguments.contains("--seed-ui"), arguments.contains("--player") {
             model.player.restore(PlaybackSnapshot(queue: DebugMusicFixtures.tracks, currentIndex: 0, position: 32))
             model.isPlayerPresented = true
         }
@@ -165,6 +220,12 @@ enum DebugBootstrap {
 struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsProviding, StreamResolving {
     var experienceRadioControl: DebugExperienceRadioControl? = nil
     var artistLookupDelay: Duration = .milliseconds(100)
+
+    private static var hasPendingArtistArtwork: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.contains("--uitesting") && arguments.contains("--seed-ui")
+            && arguments.contains("--artist-artwork-pending")
+    }
 
     // Ids follow the provider shape (24 characters, "UC" prefix) so artist id validation accepts them.
     static let arijitSingh = ArtistCredit(name: "Arijit Singh", id: "UCfixtureArijitSingh0001")
@@ -176,11 +237,25 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
     static var credits: [ArtistCredit] { [arijitSingh, alkaYagnik, theWeeknd, edSheeran] }
 
     static var tracks: [Track] {
-        [Track(id: "fsiPzT50ZiM", title: "Tum Hi Ho", credits: [arijitSingh], albumTitle: "Aashiqui 2", duration: 262, language: .hindi),
-         Track(id: "NJAv_7lHUIU", title: "Kesariya", credits: [arijitSingh], albumTitle: "Brahmastra", duration: 269, language: .hindi),
-         Track(id: "FOA9iyxsW_A", title: "Agar Tum Saath Ho", credits: [alkaYagnik, arijitSingh], albumTitle: "Tamasha", duration: 342, language: .hindi),
-         Track(id: "J7p4bzqLvCw", title: "Blinding Lights", credits: [theWeeknd], albumTitle: "After Hours", duration: 202, language: .english),
-         Track(id: "xTvyyoF_LZY", title: "Shape of You", credits: [edSheeran], albumTitle: "Divide", duration: 234, language: .english)]
+        var tracks = [Track(id: "fsiPzT50ZiM", title: "Tum Hi Ho", credits: [arijitSingh], albumTitle: "Aashiqui 2", duration: 262, language: .hindi, isAudioRecording: true),
+         Track(id: "NJAv_7lHUIU", title: "Kesariya", credits: [arijitSingh], albumTitle: "Brahmastra", duration: 269, language: .hindi, isAudioRecording: true),
+         Track(id: "FOA9iyxsW_A", title: "Agar Tum Saath Ho", credits: [alkaYagnik, arijitSingh], albumTitle: "Tamasha", duration: 342, language: .hindi, isAudioRecording: true),
+         Track(id: "J7p4bzqLvCw", title: "Blinding Lights", credits: [theWeeknd], albumTitle: "After Hours", duration: 202, language: .english, isAudioRecording: true),
+          Track(id: "xTvyyoF_LZY", title: "Shape of You", credits: [edSheeran], albumTitle: "Divide", duration: 234, language: .english, isAudioRecording: true)]
+        if hasPendingArtistArtwork { tracks[2].title = "Pending artist photo fixture" }
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--uitesting"), arguments.contains("--seed-ui"),
+           arguments.contains("--player-browse-fixture") {
+            tracks[2].title = "Album and artists fixture"
+            tracks[2].albumID = albumID
+            tracks[2].albumTitle = "Evening favorites"
+            tracks[2].credits = [alkaYagnik, arijitSingh, theWeeknd, edSheeran,
+                                 ArtistCredit(name: "A. R. Rahman"), radioSetupNorah]
+        }
+        if let artwork = DebugArtworkURLProtocol.url("album") {
+            for index in tracks.indices { tracks[index].artworkURL = artwork }
+        }
+        return tracks
     }
 
     static func credit(id: String) -> ArtistCredit? { credits.first { $0.id == id } }
@@ -191,10 +266,67 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
 
     static var experienceSeeds: [RadioExperience.Seed] { RadioExperience.stations.flatMap(\.seeds) }
 
-    static var experienceTracks: [Track] {
-        experienceSeeds.enumerated().map { index, seed in
-            Track(id: "fixture.experience.seed.\(index)", title: seed.title, credits: [seed.artist],
-                  albumTitle: seed.album, duration: 240, isAudioRecording: true)
+    /// Fixture ids come from the seed's own query, so reordering or adding stations never renames a fixture.
+    static func slug(_ text: String) -> String {
+        let lowered = text.lowercased()
+        var slug = ""
+        var pendingSeparator = false
+        for scalar in lowered.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) && scalar.isASCII {
+                if pendingSeparator, !slug.isEmpty { slug.append("-") }
+                pendingSeparator = false
+                slug.append(Character(scalar))
+            } else {
+                pendingSeparator = true
+            }
+        }
+        return slug
+    }
+
+    static func experienceTrack(for seed: RadioExperience.Seed) -> Track {
+        Track(id: "fixture.experience.seed.\(slug(seed.query))", title: seed.title, credits: [seed.artist],
+              albumTitle: seed.album, duration: 240, isAudioRecording: true)
+    }
+
+    static var experienceTracks: [Track] { experienceSeeds.map(experienceTrack) }
+
+    static func experienceSeed(slug key: String) -> RadioExperience.Seed? {
+        experienceSeeds.first { slug($0.query) == key }
+    }
+
+    /// Every station's wording in every language, keyed for lookup; era suffixes are stripped before matching.
+    static let styleQueriesByKey: [String: String] = {
+        var queries: [String: String] = [:]
+        for station in RadioExperience.stations {
+            for language in MusicLanguage.allCases {
+                for query in station.styleQueries(for: language) { queries[SearchHistory.key(query)] = query }
+            }
+        }
+        return queries
+    }()
+
+    static func styleQuery(matching query: String) -> String? {
+        for era in RadioEra.allCases {
+            let suffix = era.styleQuerySuffix
+            guard !suffix.isEmpty, query.hasSuffix(suffix) else { continue }
+            if let base = styleQueriesByKey[SearchHistory.key(String(query.dropLast(suffix.count)))] { return base }
+        }
+        return styleQueriesByKey[SearchHistory.key(query)]
+    }
+
+    /// Deterministic audio songs for a style query, each by a different artist so anchor selection keeps them all.
+    static func styleSongs(for query: String) -> [Track] {
+        let key = slug(query)
+        return (0..<6).map { index in
+            Track(id: "fixture.style.\(key).\(index)", title: "\(query) fixture \(index + 1)",
+                  credits: [ArtistCredit(name: "Style artist \(index + 1) \(key)")], duration: 240, isAudioRecording: true)
+        }
+    }
+
+    static func styleRadio(seed: String, key: String, from firstNeighbor: Int) -> [Track] {
+        (firstNeighbor..<(firstNeighbor + 6)).map { index in
+            Track(id: "fixture.style.\(key).radio.\(seed).\(index)", title: "Style radio fixture \(key) \(seed) \(index + 1)",
+                  credits: [ArtistCredit(name: "Style neighbor \(seed) \(index + 1) \(key)")], duration: 240, isAudioRecording: true)
         }
     }
 
@@ -241,8 +373,12 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
 
     func search(query: String, filter: SearchFilter, continuation: String?) async throws -> CatalogPage {
         try await Task.sleep(for: filter == .artists ? artistLookupDelay : .milliseconds(100))
-        if filter == .songs, let index = Self.experienceSeeds.firstIndex(where: { SearchHistory.key($0.query) == SearchHistory.key(query) }) {
-            return CatalogPage(tracks: [Self.experienceTracks[index]])
+        if filter == .songs, let seed = Self.experienceSeeds.first(where: { SearchHistory.key($0.query) == SearchHistory.key(query) }) {
+            return CatalogPage(tracks: [Self.experienceTrack(for: seed)])
+        }
+        // Station wording resolves to synthetic songs so wording-only stations start; other queries keep the empty state.
+        if filter == .songs, let style = Self.styleQuery(matching: query) {
+            return CatalogPage(tracks: Self.styleSongs(for: style))
         }
         if filter == .artists {
             let key = SearchRelevance.normalize(query)
@@ -257,7 +393,7 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
         let kind: CollectionKind = switch filter { case .artists: .artist; case .playlists: .playlist; default: .album }
         // Like the provider, search collections carry no songs; the page fetches them and the album's credits.
         return CatalogPage(collections: [MusicCollection(id: Self.albumID, title: "Evening favorites",
-            subtitle: "Breezy test collection", kind: kind)])
+            subtitle: "Breezy test collection", artworkURL: DebugArtworkURLProtocol.url(kind == .artist ? "artist" : "album"), kind: kind)])
     }
 
     func browse(id: String) async throws -> CatalogPage {
@@ -270,6 +406,7 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
     }
 
     func artist(id: String) async throws -> ArtistPage {
+        if Self.hasPendingArtistArtwork { try await Task.sleep(for: .seconds(30)) }
         if let credit = Self.radioSetupArtists.first(where: { $0.id == id }) {
             try await Task.sleep(for: .milliseconds(100))
             let songs = Self.radioSetupSongs(credit)
@@ -280,7 +417,7 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
             let page = try await browse(id: id)
             return ArtistPage(id: id, name: page.title ?? "", topSongs: page.tracks)
         }
-        return ArtistPage(id: id, name: credit.name, topSongs: Self.songs(crediting: credit))
+        return ArtistPage(id: id, name: credit.name, artworkURL: DebugArtworkURLProtocol.url("artist"), topSongs: Self.songs(crediting: credit))
     }
 
     func recommendations(seed: Track, language: MusicLanguage) async throws -> [Track] { Self.tracks.filter { $0.language == language } }
@@ -293,23 +430,32 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
                       duration: 240, language: .english, isAudioRecording: true)
             }
         }
-        let seedIndex: Int?
+        if seed.id.hasPrefix("fixture.style.") {
+            // fixture.style.<query>.<n> or fixture.style.<query>.radio.<n>.<k>; the query slug never contains a dot.
+            let parts = seed.id.split(separator: ".").map(String.init)
+            guard parts.count == 4 || (parts.count == 6 && parts[3] == "radio") else { return [] }
+            try await experienceRadioControl?.beforeRequest()
+            let firstNeighbor = parts.count == 6 ? (Int(parts[5]) ?? 0) + 1 : 0
+            return Self.styleRadio(seed: parts.count == 6 ? parts[4] : parts[3], key: parts[2], from: firstNeighbor)
+        }
+        let key: String
         let firstNeighbor: Int
-        if let index = Self.experienceTracks.firstIndex(where: { $0.id == seed.id }) {
-            seedIndex = index
+        if seed.id.hasPrefix("fixture.experience.seed.") {
+            key = String(seed.id.dropFirst("fixture.experience.seed.".count))
             firstNeighbor = 0
         } else if seed.id.hasPrefix("fixture.experience.radio.") {
             let parts = seed.id.split(separator: ".")
-            seedIndex = parts.count == 5 ? Int(parts[3]) : nil
-            firstNeighbor = (parts.last.flatMap { Int($0) } ?? 0) + 1
+            guard parts.count == 5 else { return [] }
+            key = String(parts[3])
+            firstNeighbor = (Int(parts[4]) ?? 0) + 1
         } else {
             return Self.tracks.filter { $0.id != seed.id }
         }
-        guard let seedIndex, Self.experienceTracks.indices.contains(seedIndex) else { return [] }
+        guard let intent = Self.experienceSeed(slug: key) else { return [] }
         try await experienceRadioControl?.beforeRequest()
-        let original = Self.experienceTracks[seedIndex]
+        let original = Self.experienceTrack(for: intent)
         return (firstNeighbor..<(firstNeighbor + 6)).map { number in
-            Track(id: "fixture.experience.radio.\(seedIndex).\(number)",
+            Track(id: "fixture.experience.radio.\(key).\(number)",
                   title: "\(original.artistName) radio fixture \(number + 1)", credits: original.credits,
                   duration: 240, isAudioRecording: true)
         }
@@ -344,18 +490,13 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
     }
 
     func resolve(track: Track, forceRefresh: Bool) async throws -> ResolvedStream {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ganabajana-ui-silence.wav")
-        if !FileManager.default.fileExists(atPath: url.path) {
-            let sampleCount: UInt32 = 8_000 * 360
-            let bytes = sampleCount * 2
-            var data = Data("RIFF".utf8)
-            func append<T: FixedWidthInteger>(_ value: T) { var little = value.littleEndian; withUnsafeBytes(of: &little) { data.append(contentsOf: $0) } }
-            append(bytes + 36); data.append(Data("WAVEfmt ".utf8)); append(UInt32(16)); append(UInt16(1))
-            append(UInt16(1)); append(UInt32(8_000)); append(UInt32(16_000)); append(UInt16(2)); append(UInt16(16))
-            data.append(Data("data".utf8)); append(bytes); data.append(Data(count: Int(bytes)))
-            try data.write(to: url, options: .atomic)
-        }
+        let directory = await DebugBootstrap.fixtureAudioDirectory ?? FileManager.default.temporaryDirectory
+        let url = try await Self.fileURL(in: directory)
         return ResolvedStream(url: url, duration: track.duration, expiresAt: nil)
+    }
+
+    static func fileURL(in directory: URL) async throws -> URL {
+        try await DebugFixtureAudio.waveform(in: directory)
     }
 
     @MainActor static func seed(_ library: LibraryStore) {
@@ -369,6 +510,47 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
         }
         let id = library.createPlaylist(name: "Late night favorites")
         tracks.forEach { library.add($0, to: id) }
+    }
+}
+
+private actor DebugSearchControl {
+    let delay: Duration
+    private var failuresRemaining: Int
+
+    init(delay: Duration, failOnce: Bool) {
+        self.delay = delay
+        failuresRemaining = failOnce ? 1 : 0
+    }
+
+    func beforeRequest() async throws {
+        try await Task.sleep(for: delay)
+        try Task.checkCancellation()
+        if failuresRemaining > 0 {
+            failuresRemaining -= 1
+            throw MusicServiceError.network("Synthetic catalog search failure. Try again.")
+        }
+    }
+}
+
+private struct DebugSearchFixtureCatalog: MusicCatalogProviding, AlbumDescriptionProviding {
+    let base: any MusicCatalogProviding
+    let control: DebugSearchControl
+
+    func search(query: String, filter: SearchFilter, continuation: String?) async throws -> CatalogPage {
+        try await control.beforeRequest()
+        return try await base.search(query: query, filter: filter, continuation: continuation)
+    }
+
+    func browse(id: String) async throws -> CatalogPage { try await base.browse(id: id) }
+    func artist(id: String) async throws -> ArtistPage { try await base.artist(id: id) }
+    func recommendations(seed: Track, language: MusicLanguage) async throws -> [Track] {
+        try await base.recommendations(seed: seed, language: language)
+    }
+    func radio(seed: Track) async throws -> [Track] { try await base.radio(seed: seed) }
+    func radio(seed: Track, forceRefresh: Bool) async throws -> [Track] { try await base.radio(seed: seed, forceRefresh: forceRefresh) }
+    func discovery(languages: Set<MusicLanguage>) async throws -> [DiscoverySection] { try await base.discovery(languages: languages) }
+    func albumDescription(id: String) async throws -> AlbumDescription? {
+        try await (base as? any AlbumDescriptionProviding)?.albumDescription(id: id)
     }
 }
 

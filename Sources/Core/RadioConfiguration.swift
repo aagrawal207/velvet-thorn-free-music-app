@@ -13,6 +13,15 @@ enum RadioEra: String, CaseIterable, Hashable, Identifiable, Sendable {
         }
     }
 
+    /// Appended to style queries. Wording narrows what a search returns; it never dates the songs it returns.
+    var styleQuerySuffix: String {
+        switch self {
+        case .anytime: ""
+        case .older: " before 2000"
+        case .newer: " 2015 and later"
+        }
+    }
+
     func accepts(year: Int?, currentYear: Int = Calendar(identifier: .gregorian).component(.year, from: Date())) -> Bool {
         if self == .anytime { return true }
         guard currentYear >= 1900, let year, (1900...currentYear).contains(year) else { return false }
@@ -30,12 +39,11 @@ struct RadioConfiguration: Hashable, Sendable {
     var languages: Set<MusicLanguage>
     var artists: [ArtistCredit]
 
-    init(station: RadioExperience, languages: Set<MusicLanguage>, id: UUID = UUID()) {
+    init(station: RadioExperience, languages: Set<MusicLanguage> = Set(MusicLanguage.allCases), id: UUID = UUID()) {
         self.id = id
         self.station = station
         self.era = station.defaultEra
-        let matching = station.discoveryLanguages.intersection(languages)
-        self.languages = matching.isEmpty ? languages : matching
+        self.languages = languages
         self.artists = []
     }
 
@@ -43,29 +51,26 @@ struct RadioConfiguration: Hashable, Sendable {
 
     static func defaultArtists(station: RadioExperience, languages: Set<MusicLanguage>) -> [ArtistCredit] {
         var seen = Set<String>()
-        return (station.selection(for: languages)?.seeds ?? []).map(\.artist)
+        let scope = languages.isEmpty ? Set(MusicLanguage.allCases) : languages
+        return (station.selection(for: scope)?.seeds ?? []).map(\.artist)
             .filter { !artistKey($0).isEmpty && seen.insert(artistKey($0)).inserted }
     }
 
     var validationMessage: String? {
-        if languages.isEmpty { return "Choose at least one language." }
-        if station.selection(for: languages) == nil {
-            let supported = MusicLanguage.allCases.filter { station.selection(for: [$0]) != nil }.map(\.title).joined(separator: " or ")
-            return supported.isEmpty ? "This station has no supported languages." : "Choose \(supported) for this station."
-        }
         let count = Set(artists.map(Self.artistKey).filter { !$0.isEmpty }).count
         if count > Self.maximumArtists { return "Choose up to four artist hints." }
         return nil
     }
 
     func experience() -> RadioExperience {
-        let audience = station.discoveryLanguages.intersection(languages)
-        let variants = station.variants.filter { !$0.discoveryLanguages.isDisjoint(with: audience) }
+        // Automatic drafts retain every cue; the radio engine applies the listening profile at startup.
+        let automatic = languages.isEmpty || languages == Set(MusicLanguage.allCases)
+        let variants = automatic ? station.variants : station.variants.filter { !$0.discoveryLanguages.isDisjoint(with: languages) }
         var seen = Set<String>()
         let chosen = Array(artists.filter { !Self.artistKey($0).isEmpty && seen.insert(Self.artistKey($0)).inserted }.prefix(Self.maximumArtists))
         return RadioExperience(id: "\(station.stationID).setup.\(id.uuidString)", title: station.title,
-            description: station.description, symbol: station.symbol,
-            discoveryLanguages: audience, variants: variants, tone: station.tone, discoveryRank: station.discoveryRank,
+            description: station.description, symbol: station.symbol, group: station.group, variants: variants,
+            queryTemplates: station.queryTemplates, tone: station.tone, discoveryRank: station.discoveryRank,
             defaultEra: era, sourceStationID: station.stationID, artistHints: chosen)
     }
 }

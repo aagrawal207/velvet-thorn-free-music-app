@@ -24,7 +24,7 @@ struct LyricsView: View {
     var body: some View {
         let requestedTrack = currentTrack
         VStack(spacing: 0) {
-            header(for: requestedTrack)
+            caption(for: requestedTrack)
             if loader.track != requestedTrack {
                 loading
             } else {
@@ -55,8 +55,6 @@ struct LyricsView: View {
                 .ignoresSafeArea()
         }
         .foregroundStyle(AppTheme.primaryText)
-        .navigationTitle("Lyrics")
-        .navigationBarTitleDisplayMode(.inline)
         .task(id: RequestID(track: requestedTrack, retry: retry)) {
             await loader.load(for: requestedTrack, using: model.lyrics)
         }
@@ -64,20 +62,18 @@ struct LyricsView: View {
         .accessibilityIdentifier("lyrics.screen")
     }
 
-    private func header(for track: Track) -> some View {
-        HStack(spacing: 14) {
-            ArtworkView(url: track.artworkURL, title: track.title, size: 52, cornerRadius: 10)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(track.title).appFont(.headline, weight: .semibold).lineLimit(2)
-                Text(track.artistName).appFont(.subheadline).foregroundStyle(AppTheme.secondaryText).lineLimit(2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
+    /// The sheet title already says Lyrics; one line names the song so the artwork header's space goes to lines.
+    private func caption(for track: Track) -> some View {
+        Text("\(track.title) · \(track.artistName)")
+            .appFont(.footnote, weight: .medium)
+            .foregroundStyle(AppTheme.secondaryText)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 28)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private var loading: some View {
@@ -166,41 +162,43 @@ private struct SyncedLyricsContent: View {
     private var isCurrentTrack: Bool { model.player.currentTrack?.id == track.id }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        if !isCurrentTrack {
-                            Text("Play this song to follow along.")
-                                .appFont(.callout).foregroundStyle(AppTheme.secondaryText)
-                        }
-                        Color.clear.frame(height: 48).accessibilityHidden(true)
-                        ForEach(document.lines) { line in
-                            lyricButton(line, proxy: proxy)
-                        }
-                        LyricsSourceView(document: document).padding(.top, 36)
-                        Color.clear.frame(height: 160).accessibilityHidden(true)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    if !isCurrentTrack {
+                        Text("Play this song to follow along.")
+                            .appFont(.callout).foregroundStyle(AppTheme.secondaryText)
                     }
-                    .padding(.horizontal, 28)
-                }
-                .scrollIndicators(.hidden)
-                .onScrollPhaseChange { _, phase in
-                    if phase == .tracking || phase == .interacting || phase == .decelerating {
-                        isFollowing = false
+                    Color.clear.frame(height: 12).accessibilityHidden(true)
+                    ForEach(document.lines) { line in
+                        lyricButton(line, proxy: proxy)
                     }
+                    LyricsSourceView(document: document).padding(.top, 36)
+                    // Room for the pinned timing capsule and for centering the last lines while following.
+                    Color.clear.frame(height: 140).accessibilityHidden(true)
                 }
-                .onChange(of: model.player.position, initial: true) { _, position in
-                    updateActiveLine(at: position)
+                .padding(.horizontal, 28)
+            }
+            .scrollIndicators(.hidden)
+            .onScrollPhaseChange { _, phase in
+                if phase == .tracking || phase == .interacting || phase == .decelerating {
+                    isFollowing = false
                 }
-                .onChange(of: offset) { _, _ in updateActiveLine(at: model.player.position) }
-                .onChange(of: isCurrentTrack) { _, _ in updateActiveLine(at: model.player.position) }
-                .onChange(of: currentLineID) { _, id in
-                    if isFollowing, let id { follow(id, proxy: proxy) }
-                }
-                .onChange(of: voiceOverEnabled, initial: true) { _, enabled in
-                    if enabled { isFollowing = false }
-                }
-                .overlay(alignment: .bottomTrailing) {
+            }
+            .onChange(of: model.player.position, initial: true) { _, position in
+                updateActiveLine(at: position)
+            }
+            .onChange(of: offset) { _, _ in updateActiveLine(at: model.player.position) }
+            .onChange(of: isCurrentTrack) { _, _ in updateActiveLine(at: model.player.position) }
+            .onChange(of: currentLineID) { _, id in
+                if isFollowing, let id { follow(id, proxy: proxy) }
+            }
+            .onChange(of: voiceOverEnabled, initial: true) { _, enabled in
+                if enabled { isFollowing = false }
+            }
+            .overlay(alignment: .bottom) {
+                // Both controls float over the lines so the lyrics keep the full height.
+                VStack(alignment: .trailing, spacing: 12) {
                     if !isFollowing, isCurrentTrack {
                         Button {
                             isFollowing = true
@@ -215,13 +213,15 @@ private struct SyncedLyricsContent: View {
                         .foregroundStyle(AppTheme.primaryText)
                         .background(AppTheme.raised, in: Capsule())
                         .overlay(Capsule().strokeBorder(AppTheme.accent.opacity(0.5)))
-                        .padding(20)
+                        .padding(.trailing, 4)
                         .accessibilityLabel("Return to current lyric")
                         .accessibilityIdentifier("lyrics.follow")
                     }
+                    timingControls
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
             }
-            timingControls
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("lyrics.synced")
@@ -262,48 +262,66 @@ private struct SyncedLyricsContent: View {
         .accessibilityIdentifier("lyrics.line.\(line.id)")
     }
 
+    /// One 44-point row in a glass capsule. Accessibility sizes stack the label above the buttons.
     private var timingControls: some View {
-        VStack(spacing: 4) {
-            if dynamicTypeSize.isAccessibilitySize { timingLabel }
-            HStack(spacing: 12) {
+        VStack(spacing: 2) {
+            if dynamicTypeSize.isAccessibilitySize { timingLabel.padding(.top, 8) }
+            HStack(spacing: 4) {
                 Button { setOffset(offset - LyricsTiming.step) } label: {
-                    Image(systemName: "minus").frame(width: 48, height: 48).contentShape(Rectangle())
+                    Image(systemName: "minus")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
                 }
                 .disabled(offset <= -LyricsTiming.maximumOffset)
+                .opacity(offset <= -LyricsTiming.maximumOffset ? 0.4 : 1)
                 .accessibilityLabel("Show lyrics half a second earlier")
                 .accessibilityIdentifier("lyrics.offset.earlier")
 
                 if !dynamicTypeSize.isAccessibilitySize { timingLabel }
 
                 Button { setOffset(offset + LyricsTiming.step) } label: {
-                    Image(systemName: "plus").frame(width: 48, height: 48).contentShape(Rectangle())
+                    Image(systemName: "plus")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Circle())
                 }
                 .disabled(offset >= LyricsTiming.maximumOffset)
+                .opacity(offset >= LyricsTiming.maximumOffset ? 0.4 : 1)
                 .accessibilityLabel("Show lyrics half a second later")
                 .accessibilityIdentifier("lyrics.offset.later")
 
-                Button("Reset") { setOffset(0) }
-                    .appFont(.callout)
-                    .frame(minWidth: 48, minHeight: 48)
-                    .disabled(offset == 0)
-                    .accessibilityLabel("Reset lyric timing")
+                if dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 0) }
+
+                Button { setOffset(0) } label: {
+                    Text("Reset")
+                        .appFont(.footnote, weight: .semibold)
+                        .padding(.horizontal, 10)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Capsule())
+                }
+                .disabled(offset == 0)
+                .opacity(offset == 0 ? 0.4 : 1)
+                .accessibilityLabel("Reset lyric timing")
             }
         }
         .buttonStyle(.plain)
+        .foregroundStyle(AppTheme.primaryText)
         .tint(AppTheme.accent)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(AppTheme.surface.opacity(0.96))
+        .padding(.horizontal, 6)
+        .frame(maxWidth: .infinity)
+        .appGlass(in: RoundedRectangle(cornerRadius: 22))
         .accessibilityElement(children: .contain)
     }
 
     private var timingLabel: some View {
-        VStack(spacing: 2) {
-            Text("Lyric timing").appFont(.caption).foregroundStyle(AppTheme.secondaryText)
-            Text(offsetLabel).monospacedDigit().appFont(.callout, weight: .semibold)
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
+        Text("Lyric timing · \(offsetLabel)")
+            .monospacedDigit()
+            .appFont(.footnote, weight: .medium)
+            .foregroundStyle(AppTheme.secondaryText)
+            .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
     }
 
     private var offsetLabel: String {

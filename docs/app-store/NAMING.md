@@ -1,6 +1,6 @@
-# App naming candidates
+# App naming record
 
-**Owner selection pending.** `Breezy - Stream Music & Chill` remains the current provisional App Store name, and the Home Screen still displays `Breezy`. This note records alternatives; it does not authorize a rename. **Leafnote is the selected default icon**, not the selected app name.
+**Selected by the owner:** `Breezy - Stream Music & Chill`, App Store Connect app `6815025307`. The Home Screen displays `Breezy`. The alternatives below are historical research. **Leafnote is the selected default icon**, not the app name.
 
 ## Shortlist
 
@@ -9,7 +9,7 @@
 | `Driftune - Music & Radio` | 24/30 | A relaxed-listening name with a direct music cue; the descriptor identifies the app's music and radio features |
 | `Windchord - Music & Radio` | 25/30 | A wind-and-music name that retains the current visual theme; the descriptor makes the product category explicit |
 
-The current `Breezy - Stream Music & Chill` name is 29/30 characters. Store listing and IAP copy continue to use Breezy until the owner chooses a name.
+The selected `Breezy - Stream Music & Chill` name is 29/30 characters and is verified in App Store Connect. Store listing and IAP copy use Breezy.
 
 ## Public lookup record
 

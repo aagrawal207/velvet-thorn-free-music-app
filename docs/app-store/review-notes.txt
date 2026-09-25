@@ -1,0 +1,25 @@
+Breezy 1.0.0 (5) is an iPhone and iPad music app with Home Screen widgets and a paired Apple Watch companion.
+
+Provider authorization for custom audio playback and recipient application relinking remain unresolved. FFmpeg library source: https://github.com/aagrawal207/Breezy-FFmpegBridge/releases/tag/9.0.2-patch2. No provider or music-rights-holder authorization is claimed. The YouTube Data API supplies recording metadata only.
+
+No Breezy account is required. Complete the welcome screen if shown. Search, library controls and the tip screen do not require YouTube sign-in. Optional Google sign-in can help some playback requests, but provider restrictions may still prevent playback. No demo credentials are supplied.
+
+Home has discovery and recent listening. Settings > Discovery > Customize Home saves section order and visibility. Personal mixes, recents and recap need listening history; an empty first-launch library is expected. Listening languages and Discovery balance guide future recommendations. Fewer repeats applies to new shuffles without replacing the queue.
+
+Song language checks use the recording's YouTube audio-language tag when available, skipping lyrics recognition. Missing tags use cached lyrics/MusicBrainz evidence. Title/description language is not treated as audio language. The API can fill a missing duration for those lookups. The restricted app credential is bundled; reviewers need no API-key setup. Manual song-language corrections take priority.
+
+Blank Search offers Liked songs, Cached songs, library shortcuts and Recently opened. Radio opens a separate page with 34 mood/genre stations. Languages follow listening history and saved adjustments; radio has an era preference and zero to four optional artist hints. No language selection is required.
+
+Open the mini-player for Now Playing. Its bottom row has AirPlay, Lyrics, Album and artists, and Queue. AirPlay opens Apple's route picker. Shuffle, Repeat and Save remaining songs are in Queue. Lyrics and timed seeking depend on provider data. Returning from the background preserves the previous screen.
+
+Touch and hold the Home Screen, choose Edit > Add Widget and search for Breezy. Recently played, Liked songs and Mix support three sizes. Edit Mix to choose Daily Mix or Discover Weekly. Empty states are expected before listening/liking. Song/Play mix actions open Breezy; headings and small Mix browse without replacing playback. iOS controls refresh timing.
+
+Cached songs lists complete stored audio. Compatible copies can play offline while retained; partial files cannot. Likes and playlists do not download audio. An uncached widget selection leaves existing playback in place and explains the unavailable song.
+
+Settings > Library & iCloud > iCloud sync manages shared library and preference data. It starts on only when this device has no saved sync configuration; a saved Off choice stays off. Sync needs iCloud Drive and the same Apple Account. The green cloud indicates enablement, not successful delivery. Playback position, sign-in, cached media and tip records remain device-local.
+
+Settings > About Breezy > Support development offers five optional, repeatable consumable tips: Small, Generous, Big, Grand and Patron. Tips unlock no music or features. Prices come from StoreKit; the review image shows loaded USA prices. Purchase/sandbox success is not claimed.
+
+The Watch companion controls playback and browses the library on its paired iPhone. It does not stream standalone audio. The standard build has no custom CarPlay entitlement.
+
+Phone/iPad screenshots show Home, Now Playing, album, artist, Recap and Liked songs with live catalog data and saved listening. They use the post-build-5 Debug source, including the newer artwork backgrounds, so a matching binary is required before review. Watch/IAP images retain build-3 provenance. Release excludes test fixtures and the local StoreKit catalog.

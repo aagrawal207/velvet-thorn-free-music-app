@@ -1,6 +1,8 @@
 #!/usr/bin/env swift
 // Original Breezy icons use CoreGraphics paths; fonts appear only in preview captions, never in icons.
-// swift tools/generate-artwork.swift [--preview path/contact-sheet.png] [--primary-preview path/icon-preview.png]
+
+// swift tools/generate-artwork.swift [--icons ID,ID] [--preview path/contact-sheet.png]
+//     [--primary-preview path/icon-preview.png] [--icon-previews path/directory]
 
 import CoreGraphics
 import CoreText
@@ -19,6 +21,7 @@ private enum ArtworkError: Error {
     case contextCreation
     case imageEncoding(URL)
     case invalidIcon(String)
+    case unknownIconID(String)
 }
 
 // MARK: - Drawing helpers (y grows downward; the renderer flips the context)
@@ -73,10 +76,271 @@ private func ellipse(_ center: CGPoint, _ rx: CGFloat, _ ry: CGFloat, rotation: 
     return CGPath(ellipseIn: CGRect(x: -rx, y: -ry, width: rx * 2, height: ry * 2), transform: &transform)
 }
 
-private func arc(_ center: CGPoint, _ radius: CGFloat, from start: CGFloat, to end: CGFloat) -> CGPath {
-    let path = CGMutablePath()
-    path.addArc(center: center, radius: radius, startAngle: start, endAngle: end, clockwise: false)
-    return path
+// MARK: - Rose and fountain pen drawing
+
+private func roseLeaf(_ context: CGContext, base: CGPoint, length: CGFloat, angle: CGFloat,
+                      pigment: UInt32, vein: UInt32) {
+    context.saveGState()
+    context.translateBy(x: base.x, y: base.y)
+    context.rotate(by: angle)
+    context.scaleBy(x: length / 180, y: length / 180)
+
+    let leaf = CGMutablePath()
+    leaf.move(to: .zero)
+    leaf.addCurve(to: CGPoint(x: 40, y: -37), control1: CGPoint(x: 10, y: -31), control2: CGPoint(x: 18, y: -41))
+    leaf.addLine(to: CGPoint(x: 49, y: -32))
+    leaf.addCurve(to: CGPoint(x: 74, y: -47), control1: CGPoint(x: 56, y: -47), control2: CGPoint(x: 63, y: -47))
+    leaf.addLine(to: CGPoint(x: 78, y: -39))
+    leaf.addCurve(to: CGPoint(x: 132, y: -32), control1: CGPoint(x: 100, y: -51), control2: CGPoint(x: 116, y: -44))
+    leaf.addLine(to: CGPoint(x: 130, y: -21))
+    leaf.addCurve(to: CGPoint(x: 180, y: 0), control1: CGPoint(x: 150, y: -19), control2: CGPoint(x: 160, y: -6))
+    leaf.addCurve(to: CGPoint(x: 139, y: 26), control1: CGPoint(x: 161, y: 11), control2: CGPoint(x: 157, y: 23))
+    leaf.addLine(to: CGPoint(x: 125, y: 22))
+    leaf.addLine(to: CGPoint(x: 114, y: 38))
+    leaf.addCurve(to: CGPoint(x: 71, y: 39), control1: CGPoint(x: 100, y: 46), control2: CGPoint(x: 84, y: 49))
+    leaf.addLine(to: CGPoint(x: 68, y: 29))
+    leaf.addLine(to: CGPoint(x: 48, y: 35))
+    leaf.addCurve(to: .zero, control1: CGPoint(x: 19, y: 34), control2: CGPoint(x: 9, y: 18))
+    leaf.closeSubpath()
+    fill(context, leaf, pigment)
+
+    let midrib = CGMutablePath()
+    midrib.move(to: CGPoint(x: 14, y: 0))
+    midrib.addCurve(to: CGPoint(x: 147, y: 0), control1: CGPoint(x: 63, y: 13), control2: CGPoint(x: 109, y: 2))
+    stroke(context, midrib, vein, width: 11)
+    let veins = CGMutablePath()
+    veins.move(to: CGPoint(x: 53, y: 6))
+    veins.addQuadCurve(to: CGPoint(x: 44, y: -20), control: CGPoint(x: 44, y: -3))
+    veins.move(to: CGPoint(x: 87, y: 5))
+    veins.addQuadCurve(to: CGPoint(x: 105, y: 29), control: CGPoint(x: 94, y: 20))
+    stroke(context, veins, vein, width: 6)
+    context.restoreGState()
+}
+
+private func fountainPen(_ context: CGContext, center: CGPoint, angle: CGFloat, scale: CGFloat = 1,
+                         barrel: UInt32, nib: UInt32, trim: UInt32, ink: UInt32) {
+    context.saveGState()
+    context.translateBy(x: center.x, y: center.y)
+    context.rotate(by: angle)
+    context.scaleBy(x: scale, y: scale)
+
+    let body = CGMutablePath()
+    body.move(to: CGPoint(x: -346, y: -47))
+    body.addCurve(to: CGPoint(x: -396, y: 0), control1: CGPoint(x: -380, y: -47), control2: CGPoint(x: -396, y: -26))
+    body.addCurve(to: CGPoint(x: -346, y: 47), control1: CGPoint(x: -396, y: 26), control2: CGPoint(x: -380, y: 47))
+    body.addLine(to: CGPoint(x: 150, y: 47))
+    body.addCurve(to: CGPoint(x: 177, y: 30), control1: CGPoint(x: 166, y: 47), control2: CGPoint(x: 177, y: 40))
+    body.addLine(to: CGPoint(x: 177, y: -30))
+    body.addCurve(to: CGPoint(x: 150, y: -47), control1: CGPoint(x: 177, y: -40), control2: CGPoint(x: 166, y: -47))
+    body.closeSubpath()
+    stroke(context, body, ink, width: 18)
+    fill(context, body, barrel)
+
+    let capSeam = CGMutablePath()
+    capSeam.move(to: CGPoint(x: -209, y: -44))
+    capSeam.addLine(to: CGPoint(x: -209, y: 44))
+    stroke(context, capSeam, ink, width: 11)
+    let clip = CGMutablePath()
+    clip.move(to: CGPoint(x: -348, y: -17))
+    clip.addCurve(to: CGPoint(x: -247, y: -22), control1: CGPoint(x: -340, y: -29), control2: CGPoint(x: -274, y: -27))
+    stroke(context, clip, ink, width: 13)
+
+    let grip = CGPath(roundedRect: CGRect(x: 108, y: -42, width: 86, height: 84),
+                      cornerWidth: 14, cornerHeight: 14, transform: nil)
+    fill(context, grip, ink)
+    fill(context, CGPath(rect: CGRect(x: 108, y: -42, width: 18, height: 84), transform: nil), trim)
+
+    // Broad shoulders, a large breather hole and split tines keep the nib readable at Home Screen size.
+    let point = CGMutablePath()
+    point.move(to: CGPoint(x: 176, y: -43))
+    point.addLine(to: CGPoint(x: 207, y: -64))
+    point.addCurve(to: CGPoint(x: 251, y: -82), control1: CGPoint(x: 221, y: -79), control2: CGPoint(x: 235, y: -86))
+    point.addCurve(to: CGPoint(x: 420, y: 0), control1: CGPoint(x: 299, y: -48), control2: CGPoint(x: 357, y: -17))
+    point.addCurve(to: CGPoint(x: 251, y: 82), control1: CGPoint(x: 357, y: 17), control2: CGPoint(x: 299, y: 48))
+    point.addCurve(to: CGPoint(x: 207, y: 64), control1: CGPoint(x: 235, y: 86), control2: CGPoint(x: 221, y: 79))
+    point.addLine(to: CGPoint(x: 176, y: 43))
+    point.closeSubpath()
+    stroke(context, point, ink, width: 18)
+    fillGradient(context, point, [(0, nib), (0.6, nib), (1, trim)],
+                 from: CGPoint(x: 260, y: -82), to: CGPoint(x: 290, y: 82))
+
+    let wings = CGMutablePath()
+    wings.move(to: CGPoint(x: 211, y: -37))
+    wings.addCurve(to: CGPoint(x: 328, y: -19), control1: CGPoint(x: 232, y: -62), control2: CGPoint(x: 285, y: -38))
+    wings.move(to: CGPoint(x: 211, y: 37))
+    wings.addCurve(to: CGPoint(x: 328, y: 19), control1: CGPoint(x: 232, y: 62), control2: CGPoint(x: 285, y: 38))
+    stroke(context, wings, ink, width: 7, alpha: 0.7)
+    let sheen = CGMutablePath()
+    sheen.move(to: CGPoint(x: -340, y: 24))
+    sheen.addLine(to: CGPoint(x: 83, y: 24))
+    stroke(context, sheen, trim, width: 9)
+
+    context.saveGState()
+    context.addPath(point)
+    context.clip()
+    let slit = CGMutablePath()
+    slit.move(to: CGPoint(x: 271, y: 0))
+    slit.addLine(to: CGPoint(x: 424, y: 0))
+    stroke(context, slit, ink, width: 17)
+    fill(context, circle(CGPoint(x: 271, y: 0), 21), ink)
+    context.restoreGState()
+    context.restoreGState()
+}
+
+/// Colors for the shared rose-and-pen composition. Ink doubles as every outline, vein, and pen detail, so it
+/// should sit close to the background: on dark art it reads as shadowed seams, on paper as light paper gaps.
+private struct RosePalette {
+    let backgroundTop: UInt32
+    let backgroundBottom: UInt32
+    let ink: UInt32
+    let stem: UInt32
+    let leafLeft: UInt32
+    let leafRight: UInt32
+    let leafLower: UInt32
+    let bloom: [(CGFloat, UInt32)]
+    let outerFold: UInt32
+    let leftPetal: [(CGFloat, UInt32)]
+    let lowerPetal: [(CGFloat, UInt32)]
+    let rightPetal: [(CGFloat, UInt32)]
+    let heart: [(CGFloat, UInt32)]
+    let engraving: UInt32
+    let penBarrel: UInt32
+    let penNib: UInt32
+    let penTrim: UInt32
+}
+
+/// One fixed composition for every rose variant so the choices differ by mood alone. Draw order is part of
+/// the design: the pen sits between the outer bloom and the cupped front petals to make the crossing tangible.
+private func rosePen(_ c: CGContext, palette: RosePalette) {
+    background(c, palette.backgroundTop, palette.backgroundBottom)
+    let ink = palette.ink
+    let stem = CGMutablePath()
+    stem.move(to: CGPoint(x: 385, y: 590))
+    stem.addCurve(to: CGPoint(x: 743, y: 756),
+                  control1: CGPoint(x: 597, y: 650), control2: CGPoint(x: 599, y: 784))
+    stroke(c, stem, palette.stem, width: 20)
+    roseLeaf(c, base: CGPoint(x: 321, y: 448), length: 222, angle: -2.48, pigment: palette.leafLeft, vein: ink)
+    roseLeaf(c, base: CGPoint(x: 593, y: 588), length: 226, angle: 0.2, pigment: palette.leafRight, vein: ink)
+    roseLeaf(c, base: CGPoint(x: 583, y: 695), length: 174, angle: 0.88, pigment: palette.leafLower, vein: ink)
+
+    let thorns = CGMutablePath()
+    thorns.move(to: CGPoint(x: 624, y: 724))
+    thorns.addQuadCurve(to: CGPoint(x: 648, y: 674), control: CGPoint(x: 649, y: 711))
+    thorns.addQuadCurve(to: CGPoint(x: 653, y: 743), control: CGPoint(x: 673, y: 718))
+    thorns.closeSubpath()
+    thorns.move(to: CGPoint(x: 548, y: 669))
+    thorns.addQuadCurve(to: CGPoint(x: 527, y: 714), control: CGPoint(x: 550, y: 696))
+    thorns.addQuadCurve(to: CGPoint(x: 577, y: 687), control: CGPoint(x: 561, y: 714))
+    thorns.closeSubpath()
+    fill(c, thorns, palette.stem)
+
+    c.saveGState()
+    c.translateBy(x: 451, y: 459)
+    let bloom = CGMutablePath()
+    bloom.move(to: CGPoint(x: -182, y: 32))
+    bloom.addCurve(to: CGPoint(x: -213, y: -71), control1: CGPoint(x: -246, y: -4), control2: CGPoint(x: -240, y: -46))
+    bloom.addCurve(to: CGPoint(x: -139, y: -149), control1: CGPoint(x: -198, y: -118), control2: CGPoint(x: -202, y: -145))
+    bloom.addCurve(to: CGPoint(x: -26, y: -192), control1: CGPoint(x: -133, y: -204), control2: CGPoint(x: -53, y: -217))
+    bloom.addCurve(to: CGPoint(x: 84, y: -173), control1: CGPoint(x: 14, y: -227), control2: CGPoint(x: 68, y: -209))
+    bloom.addCurve(to: CGPoint(x: 169, y: -103), control1: CGPoint(x: 149, y: -195), control2: CGPoint(x: 195, y: -157))
+    bloom.addCurve(to: CGPoint(x: 208, y: -16), control1: CGPoint(x: 225, y: -86), control2: CGPoint(x: 246, y: -53))
+    bloom.addCurve(to: CGPoint(x: 195, y: 84), control1: CGPoint(x: 250, y: 31), control2: CGPoint(x: 236, y: 70))
+    bloom.addCurve(to: CGPoint(x: 107, y: 171), control1: CGPoint(x: 204, y: 135), control2: CGPoint(x: 157, y: 190))
+    bloom.addCurve(to: CGPoint(x: -14, y: 203), control1: CGPoint(x: 66, y: 211), control2: CGPoint(x: 28, y: 218))
+    bloom.addCurve(to: CGPoint(x: -141, y: 158), control1: CGPoint(x: -65, y: 211), control2: CGPoint(x: -126, y: 204))
+    bloom.addCurve(to: CGPoint(x: -208, y: 96), control1: CGPoint(x: -207, y: 163), control2: CGPoint(x: -241, y: 130))
+    bloom.addCurve(to: CGPoint(x: -182, y: 32), control1: CGPoint(x: -229, y: 70), control2: CGPoint(x: -215, y: 53))
+    bloom.closeSubpath()
+    fillGradient(c, bloom, palette.bloom, from: CGPoint(x: -170, y: -190), to: CGPoint(x: 169, y: 190))
+    stroke(c, bloom, ink, width: 18)
+    let outerFolds = CGMutablePath()
+    outerFolds.move(to: CGPoint(x: -132, y: -145))
+    outerFolds.addCurve(to: CGPoint(x: 41, y: -148), control1: CGPoint(x: -88, y: -185), control2: CGPoint(x: -10, y: -179))
+    outerFolds.move(to: CGPoint(x: 103, y: -139))
+    outerFolds.addQuadCurve(to: CGPoint(x: 177, y: -78), control: CGPoint(x: 164, y: -147))
+    stroke(c, outerFolds, palette.outerFold, width: 10, alpha: 0.75)
+    c.restoreGState()
+
+    fountainPen(c, center: CGPoint(x: 514, y: 531), angle: .pi * 3 / 4,
+                barrel: palette.penBarrel, nib: palette.penNib, trim: palette.penTrim, ink: ink)
+
+    c.saveGState()
+    c.translateBy(x: 451, y: 459)
+    let leftPetal = CGMutablePath()
+    leftPetal.move(to: CGPoint(x: -167, y: -75))
+    leftPetal.addCurve(to: CGPoint(x: -87, y: -93), control1: CGPoint(x: -137, y: -119), control2: CGPoint(x: -102, y: -111))
+    leftPetal.addCurve(to: CGPoint(x: -26, y: -27), control1: CGPoint(x: -49, y: -86), control2: CGPoint(x: -43, y: -71))
+    leftPetal.addCurve(to: CGPoint(x: 13, y: 74), control1: CGPoint(x: -44, y: 28), control2: CGPoint(x: -31, y: 58))
+    leftPetal.addCurve(to: CGPoint(x: -127, y: 120), control1: CGPoint(x: -64, y: 116), control2: CGPoint(x: -105, y: 94))
+    leftPetal.addCurve(to: CGPoint(x: -190, y: 31), control1: CGPoint(x: -191, y: 107), control2: CGPoint(x: -218, y: 51))
+    leftPetal.addCurve(to: CGPoint(x: -167, y: -75), control1: CGPoint(x: -210, y: -17), control2: CGPoint(x: -204, y: -45))
+    leftPetal.closeSubpath()
+    fillGradient(c, leftPetal, palette.leftPetal, from: CGPoint(x: -180, y: -80), to: CGPoint(x: -30, y: 120))
+    stroke(c, leftPetal, ink, width: 16)
+
+    let lowerPetal = CGMutablePath()
+    lowerPetal.move(to: CGPoint(x: -154, y: 78))
+    lowerPetal.addCurve(to: CGPoint(x: -41, y: 103), control1: CGPoint(x: -112, y: 91), control2: CGPoint(x: -77, y: 101))
+    lowerPetal.addCurve(to: CGPoint(x: 66, y: 81), control1: CGPoint(x: 17, y: 116), control2: CGPoint(x: 26, y: 95))
+    lowerPetal.addCurve(to: CGPoint(x: 153, y: 19), control1: CGPoint(x: 92, y: 53), control2: CGPoint(x: 104, y: 15))
+    lowerPetal.addCurve(to: CGPoint(x: 160, y: 136), control1: CGPoint(x: 183, y: 52), control2: CGPoint(x: 187, y: 108))
+    lowerPetal.addCurve(to: CGPoint(x: -14, y: 197), control1: CGPoint(x: 133, y: 180), control2: CGPoint(x: 61, y: 221))
+    lowerPetal.addCurve(to: CGPoint(x: -154, y: 78), control1: CGPoint(x: -92, y: 189), control2: CGPoint(x: -172, y: 144))
+    lowerPetal.closeSubpath()
+    fillGradient(c, lowerPetal, palette.lowerPetal, from: CGPoint(x: -10, y: 72), to: CGPoint(x: 30, y: 213))
+    stroke(c, lowerPetal, ink, width: 17)
+
+    let rightPetal = CGMutablePath()
+    rightPetal.move(to: CGPoint(x: 40, y: -129))
+    rightPetal.addCurve(to: CGPoint(x: 169, y: -111), control1: CGPoint(x: 72, y: -166), control2: CGPoint(x: 128, y: -161))
+    rightPetal.addCurve(to: CGPoint(x: 168, y: -6), control1: CGPoint(x: 225, y: -66), control2: CGPoint(x: 206, y: -32))
+    rightPetal.addCurve(to: CGPoint(x: 66, y: 92), control1: CGPoint(x: 151, y: 42), control2: CGPoint(x: 140, y: 81))
+    rightPetal.addCurve(to: CGPoint(x: 16, y: 61), control1: CGPoint(x: 42, y: 127), control2: CGPoint(x: 17, y: 88))
+    rightPetal.addCurve(to: CGPoint(x: 49, y: -10), control1: CGPoint(x: 6, y: 23), control2: CGPoint(x: 46, y: 25))
+    rightPetal.addCurve(to: CGPoint(x: 40, y: -129), control1: CGPoint(x: 116, y: -33), control2: CGPoint(x: 91, y: -99))
+    rightPetal.closeSubpath()
+    fillGradient(c, rightPetal, palette.rightPetal, from: CGPoint(x: 109, y: -140), to: CGPoint(x: 51, y: 110))
+    stroke(c, rightPetal, ink, width: 17)
+
+    let heart = CGMutablePath()
+    heart.move(to: CGPoint(x: -100, y: -98))
+    heart.addCurve(to: CGPoint(x: 44, y: -130), control1: CGPoint(x: -71, y: -159), control2: CGPoint(x: 7, y: -151))
+    heart.addCurve(to: CGPoint(x: 104, y: -50), control1: CGPoint(x: 94, y: -139), control2: CGPoint(x: 129, y: -88))
+    heart.addCurve(to: CGPoint(x: 34, y: 22), control1: CGPoint(x: 116, y: 0), control2: CGPoint(x: 75, y: 21))
+    heart.addCurve(to: CGPoint(x: -56, y: 42), control1: CGPoint(x: 13, y: 66), control2: CGPoint(x: -30, y: 73))
+    heart.addCurve(to: CGPoint(x: -106, y: -35), control1: CGPoint(x: -111, y: 47), control2: CGPoint(x: -122, y: 4))
+    heart.addCurve(to: CGPoint(x: -100, y: -98), control1: CGPoint(x: -142, y: -70), control2: CGPoint(x: -112, y: -101))
+    heart.closeSubpath()
+    fillGradient(c, heart, palette.heart, from: CGPoint(x: -56, y: -143), to: CGPoint(x: 29, y: 51))
+    stroke(c, heart, ink, width: 16)
+    let spiral = CGMutablePath()
+    spiral.move(to: CGPoint(x: -84, y: -63))
+    spiral.addCurve(to: CGPoint(x: 58, y: -91), control1: CGPoint(x: -42, y: -109), control2: CGPoint(x: 20, y: -112))
+    spiral.addCurve(to: CGPoint(x: 61, y: -14), control1: CGPoint(x: 95, y: -65), control2: CGPoint(x: 97, y: -41))
+    spiral.addCurve(to: CGPoint(x: -7, y: 1), control1: CGPoint(x: 39, y: 15), control2: CGPoint(x: 6, y: 18))
+    spiral.addCurve(to: CGPoint(x: -37, y: -44), control1: CGPoint(x: -45, y: -1), control2: CGPoint(x: -59, y: -35))
+    spiral.addCurve(to: CGPoint(x: 27, y: -47), control1: CGPoint(x: -22, y: -66), control2: CGPoint(x: 12, y: -69))
+    stroke(c, spiral, ink, width: 20)
+
+    let engraving = CGMutablePath()
+    engraving.move(to: CGPoint(x: -174, y: -26))
+    engraving.addQuadCurve(to: CGPoint(x: -149, y: 39), control: CGPoint(x: -180, y: 16))
+    engraving.move(to: CGPoint(x: -157, y: -26))
+    engraving.addQuadCurve(to: CGPoint(x: -128, y: 44), control: CGPoint(x: -163, y: 16))
+    engraving.move(to: CGPoint(x: -141, y: -18))
+    engraving.addQuadCurve(to: CGPoint(x: -109, y: 46), control: CGPoint(x: -144, y: 17))
+    engraving.move(to: CGPoint(x: 140, y: -94))
+    engraving.addQuadCurve(to: CGPoint(x: 149, y: -37), control: CGPoint(x: 164, y: -75))
+    engraving.move(to: CGPoint(x: 125, y: -87))
+    engraving.addQuadCurve(to: CGPoint(x: 131, y: -33), control: CGPoint(x: 145, y: -67))
+    engraving.move(to: CGPoint(x: -76, y: 138))
+    engraving.addQuadCurve(to: CGPoint(x: -16, y: 162), control: CGPoint(x: -48, y: 160))
+    engraving.move(to: CGPoint(x: -82, y: 151))
+    engraving.addQuadCurve(to: CGPoint(x: -18, y: 177), control: CGPoint(x: -53, y: 175))
+    engraving.move(to: CGPoint(x: 80, y: 139))
+    engraving.addQuadCurve(to: CGPoint(x: 128, y: 99), control: CGPoint(x: 114, y: 132))
+    stroke(c, engraving, palette.engraving, width: 6, alpha: 0.7)
+    c.restoreGState()
 }
 
 // MARK: - Recipes
@@ -113,30 +377,6 @@ private let recipes: [IconRecipe] = [
         flag.closeSubpath()
         fill(c, flag, 0xFF9B8F)
     },
-    IconRecipe(id: "Dhol", title: "Breeze") { c in
-        background(c, 0x1C2428, 0x0E1418)
-
-        // The open, curved vein echoes the breeze without adding fine detail that disappears at small sizes.
-        let leaf = CGMutablePath()
-        leaf.move(to: CGPoint(x: 814, y: 206))
-        leaf.addCurve(to: CGPoint(x: 319, y: 634),
-                      control1: CGPoint(x: 546, y: 205), control2: CGPoint(x: 223, y: 346))
-        leaf.addCurve(to: CGPoint(x: 688, y: 347),
-                      control1: CGPoint(x: 456, y: 591), control2: CGPoint(x: 580, y: 451))
-        leaf.addCurve(to: CGPoint(x: 383, y: 677),
-                      control1: CGPoint(x: 620, y: 486), control2: CGPoint(x: 502, y: 606))
-        leaf.addCurve(to: CGPoint(x: 814, y: 206),
-                      control1: CGPoint(x: 693, y: 777), control2: CGPoint(x: 869, y: 519))
-        leaf.closeSubpath()
-        fillGradient(c, leaf, [(0, 0xCBF7DE), (0.55, 0x88E5C1), (1, 0x49C2A5)],
-                     from: CGPoint(x: 300, y: 280), to: CGPoint(x: 790, y: 710))
-
-        let breeze = CGMutablePath()
-        breeze.move(to: CGPoint(x: 215, y: 727))
-        breeze.addCurve(to: CGPoint(x: 778, y: 594),
-                        control1: CGPoint(x: 375, y: 822), control2: CGPoint(x: 628, y: 778))
-        stroke(c, breeze, 0x85DBC0, width: 26, alpha: 0.75)
-    },
     IconRecipe(id: "Notes", title: "Drift") { c in
         background(c, 0xF9F0DF, 0xEDE1CC)
         let stems = CGMutablePath()
@@ -164,41 +404,6 @@ private let recipes: [IconRecipe] = [
                        control1: CGPoint(x: 648, y: 727), control2: CGPoint(x: 740, y: 654))
         fill(c, right, 0x275C59)
     },
-    IconRecipe(id: "Headphones", title: "Airwave") { c in
-        background(c, 0x345F9C, 0x223964)
-        let upper = CGMutablePath()
-        upper.move(to: CGPoint(x: 224, y: 398))
-        upper.addCurve(to: CGPoint(x: 696, y: 271),
-                       control1: CGPoint(x: 392, y: 239), control2: CGPoint(x: 483, y: 437))
-        stroke(c, upper, 0xCBEFEC, width: 62)
-        let middle = CGMutablePath()
-        middle.move(to: CGPoint(x: 205, y: 593))
-        middle.addCurve(to: CGPoint(x: 815, y: 394),
-                        control1: CGPoint(x: 427, y: 356), control2: CGPoint(x: 555, y: 655))
-        stroke(c, middle, 0xB6EACF, width: 72)
-        let lower = CGMutablePath()
-        lower.move(to: CGPoint(x: 324, y: 755))
-        lower.addCurve(to: CGPoint(x: 800, y: 608),
-                       control1: CGPoint(x: 514, y: 566), control2: CGPoint(x: 610, y: 787))
-        stroke(c, lower, 0x8CCEC9, width: 62)
-    },
-    IconRecipe(id: "Vinyl", title: "Groove") { c in
-        background(c, 0xBDE7D9, 0x91C9B8)
-        let center = CGPoint(x: 512, y: 512)
-        fill(c, circle(center, 318), 0x213E43)
-        for radius in [CGFloat(245), 181] {
-            stroke(c, arc(center, radius, from: 0.35, to: 2.48), 0x72B8A9, width: 17)
-            stroke(c, arc(center, radius, from: 3.49, to: 5.62), 0x72B8A9, width: 17)
-        }
-        fill(c, circle(center, 105), 0xFFAA91)
-        let label = CGMutablePath()
-        label.move(to: CGPoint(x: 567, y: 451))
-        label.addCurve(to: CGPoint(x: 458, y: 570),
-                       control1: CGPoint(x: 466, y: 449), control2: CGPoint(x: 443, y: 514))
-        label.addCurve(to: CGPoint(x: 567, y: 451),
-                       control1: CGPoint(x: 550, y: 575), control2: CGPoint(x: 579, y: 512))
-        fill(c, label, 0xFFF2D9)
-    },
     IconRecipe(id: "Boombox", title: "Moonleaf") { c in
         background(c, 0x2D2D50, 0x191D34)
         let moon = CGMutablePath()
@@ -225,29 +430,6 @@ private let recipes: [IconRecipe] = [
         leaf.addCurve(to: CGPoint(x: 692, y: 419),
                       control1: CGPoint(x: 641, y: 570), control2: CGPoint(x: 705, y: 509))
         fill(c, leaf, 0x9CDEC9)
-    },
-    IconRecipe(id: "Cassette", title: "Daybreak") { c in
-        background(c, 0xFFF1D9, 0xF2DFC7)
-        let sun = CGMutablePath()
-        sun.move(to: CGPoint(x: 284, y: 492))
-        sun.addCurve(to: CGPoint(x: 740, y: 492),
-                     control1: CGPoint(x: 284, y: 190), control2: CGPoint(x: 740, y: 190))
-        sun.closeSubpath()
-        fillGradient(c, sun, [(0, 0xFBA574), (1, 0xE77570)],
-                     from: CGPoint(x: 512, y: 267), to: CGPoint(x: 512, y: 492))
-        stroke(c, arc(CGPoint(x: 512, y: 492), 145, from: .pi + 0.14, to: .pi * 2 - 0.14), 0xFFE8C8, width: 18)
-        let upper = CGMutablePath()
-        upper.move(to: CGPoint(x: 220, y: 587))
-        upper.addCurve(to: CGPoint(x: 512, y: 587),
-                       control1: CGPoint(x: 320, y: 522), control2: CGPoint(x: 411, y: 652))
-        upper.addCurve(to: CGPoint(x: 804, y: 587),
-                       control1: CGPoint(x: 614, y: 522), control2: CGPoint(x: 705, y: 652))
-        stroke(c, upper, 0x365F5B, width: 39)
-        let lower = CGMutablePath()
-        lower.move(to: CGPoint(x: 324, y: 707))
-        lower.addCurve(to: CGPoint(x: 700, y: 707),
-                       control1: CGPoint(x: 451, y: 645), control2: CGPoint(x: 573, y: 770))
-        stroke(c, lower, 0x699A83, width: 33)
     },
     IconRecipe(id: "Speaker", title: "Ripple") { c in
         background(c, 0x194650, 0x102D3A)
@@ -282,109 +464,28 @@ private let recipes: [IconRecipe] = [
                       control1: CGPoint(x: 672, y: 837), control2: CGPoint(x: 360, y: 839))
         fill(c, wave, 0xFFF2DB)
     },
-    IconRecipe(id: "Peacock", title: "Zephyr") { c in
-        background(c, 0xDBE7F5, 0xB7CDDF)
-        // A hand-drawn b-shaped ribbon keeps the monogram independent of any font or system glyph.
-        let ribbon = CGMutablePath()
-        ribbon.move(to: CGPoint(x: 331, y: 244))
-        ribbon.addCurve(to: CGPoint(x: 322, y: 605),
-                        control1: CGPoint(x: 319, y: 385), control2: CGPoint(x: 322, y: 498))
-        ribbon.addCurve(to: CGPoint(x: 731, y: 601),
-                        control1: CGPoint(x: 322, y: 797), control2: CGPoint(x: 705, y: 799))
-        ribbon.addCurve(to: CGPoint(x: 368, y: 497),
-                        control1: CGPoint(x: 761, y: 379), control2: CGPoint(x: 514, y: 342))
-        stroke(c, ribbon, 0x315671, width: 94)
-        let air = CGMutablePath()
-        air.move(to: CGPoint(x: 471, y: 622))
-        air.addCurve(to: CGPoint(x: 636, y: 534),
-                     control1: CGPoint(x: 536, y: 633), control2: CGPoint(x: 583, y: 597))
-        stroke(c, air, 0x739DAB, width: 29)
+    IconRecipe(id: "Thorn", title: "Thorn") { c in
+        rosePen(c, palette: RosePalette(
+            backgroundTop: 0x17141C, backgroundBottom: 0x080F18, ink: 0x21151F, stem: 0x914451,
+            leafLeft: 0x914451, leafRight: 0xA34A57, leafLower: 0x80404E,
+            bloom: [(0, 0xC5404D), (0.5, 0xA82A42), (1, 0x73233B)], outerFold: 0xEF8174,
+            leftPetal: [(0, 0xED6260), (0.55, 0xD23B4C), (1, 0xA52B42)],
+            lowerPetal: [(0, 0xE15259), (1, 0xA32740)],
+            rightPetal: [(0, 0xEC5E60), (1, 0xB72C43)],
+            heart: [(0, 0xF5796C), (0.45, 0xE34B54), (1, 0xC53247)], engraving: 0xFFC0A0,
+            penBarrel: 0xF0E1C6, penNib: 0xFFF3DB, penTrim: 0xCBA779))
     },
-    IconRecipe(id: "Mic", title: "Sway") { c in
-        background(c, 0xE5DEF1, 0xC8BDE3)
-        let band = CGMutablePath()
-        band.move(to: CGPoint(x: 256, y: 576))
-        band.addCurve(to: CGPoint(x: 512, y: 251),
-                      control1: CGPoint(x: 239, y: 355), control2: CGPoint(x: 350, y: 251))
-        band.addCurve(to: CGPoint(x: 768, y: 576),
-                      control1: CGPoint(x: 674, y: 251), control2: CGPoint(x: 785, y: 355))
-        stroke(c, band, 0x4C3E65, width: 51)
-
-        let left = CGMutablePath()
-        left.move(to: CGPoint(x: 245, y: 500))
-        left.addCurve(to: CGPoint(x: 344, y: 783),
-                      control1: CGPoint(x: 151, y: 551), control2: CGPoint(x: 206, y: 720))
-        left.addCurve(to: CGPoint(x: 245, y: 500),
-                      control1: CGPoint(x: 434, y: 666), control2: CGPoint(x: 357, y: 543))
-        fill(c, left, 0x4C3E65)
-        let right = CGMutablePath()
-        right.move(to: CGPoint(x: 779, y: 500))
-        right.addCurve(to: CGPoint(x: 680, y: 783),
-                       control1: CGPoint(x: 873, y: 551), control2: CGPoint(x: 818, y: 720))
-        right.addCurve(to: CGPoint(x: 779, y: 500),
-                       control1: CGPoint(x: 590, y: 666), control2: CGPoint(x: 667, y: 543))
-        fill(c, right, 0x4C3E65)
-    },
-    IconRecipe(id: "Tabla", title: "Hush") { c in
-        background(c, 0xECF0DD, 0xD4DECB)
-        let left = CGMutablePath()
-        left.move(to: CGPoint(x: 459, y: 233))
-        left.addCurve(to: CGPoint(x: 412, y: 790),
-                      control1: CGPoint(x: 212, y: 355), control2: CGPoint(x: 225, y: 650))
-        left.addCurve(to: CGPoint(x: 459, y: 233),
-                      control1: CGPoint(x: 508, y: 576), control2: CGPoint(x: 387, y: 442))
-        fill(c, left, 0x305E52)
-        let right = CGMutablePath()
-        right.move(to: CGPoint(x: 626, y: 234))
-        right.addCurve(to: CGPoint(x: 579, y: 791),
-                       control1: CGPoint(x: 814, y: 374), control2: CGPoint(x: 826, y: 669))
-        right.addCurve(to: CGPoint(x: 626, y: 234),
-                       control1: CGPoint(x: 530, y: 558), control2: CGPoint(x: 673, y: 424))
-        fill(c, right, 0x739883)
-    },
-    IconRecipe(id: "Sargam", title: "Flutter") { c in
-        background(c, 0x244D41, 0x17372F)
-        let stem = CGMutablePath()
-        stem.move(to: CGPoint(x: 539, y: 414))
-        stem.addCurve(to: CGPoint(x: 460, y: 735),
-                      control1: CGPoint(x: 549, y: 559), control2: CGPoint(x: 522, y: 655))
-        stroke(c, stem, 0xE2ECCE, width: 37)
-        fill(c, ellipse(CGPoint(x: 409, y: 726), 89, 61, rotation: -0.38), 0xE2ECCE)
-        let left = CGMutablePath()
-        left.move(to: CGPoint(x: 537, y: 455))
-        left.addCurve(to: CGPoint(x: 205, y: 269),
-                      control1: CGPoint(x: 512, y: 251), control2: CGPoint(x: 329, y: 222))
-        left.addCurve(to: CGPoint(x: 537, y: 455),
-                      control1: CGPoint(x: 247, y: 472), control2: CGPoint(x: 411, y: 547))
-        fill(c, left, 0xF7BC9B)
-        let right = CGMutablePath()
-        right.move(to: CGPoint(x: 534, y: 477))
-        right.addCurve(to: CGPoint(x: 824, y: 292),
-                       control1: CGPoint(x: 538, y: 326), control2: CGPoint(x: 687, y: 264))
-        right.addCurve(to: CGPoint(x: 534, y: 477),
-                       control1: CGPoint(x: 807, y: 478), control2: CGPoint(x: 676, y: 566))
-        fill(c, right, 0xB7E7CC)
-    },
-    IconRecipe(id: "Bansuri", title: "Loop") { c in
-        background(c, 0xF9908D, 0xD76679)
-        let loop = CGMutablePath()
-        loop.move(to: CGPoint(x: 512, y: 510))
-        loop.addCurve(to: CGPoint(x: 234, y: 412),
-                      control1: CGPoint(x: 414, y: 343), control2: CGPoint(x: 311, y: 304))
-        loop.addCurve(to: CGPoint(x: 512, y: 510),
-                      control1: CGPoint(x: 96, y: 651), control2: CGPoint(x: 350, y: 798))
-        loop.addCurve(to: CGPoint(x: 790, y: 612),
-                      control1: CGPoint(x: 674, y: 222), control2: CGPoint(x: 928, y: 374))
-        loop.addCurve(to: CGPoint(x: 512, y: 510),
-                      control1: CGPoint(x: 715, y: 722), control2: CGPoint(x: 610, y: 678))
-        stroke(c, loop, 0xFFF1D9, width: 83)
-        let leaf = CGMutablePath()
-        leaf.move(to: CGPoint(x: 369, y: 437))
-        leaf.addCurve(to: CGPoint(x: 270, y: 578),
-                      control1: CGPoint(x: 273, y: 447), control2: CGPoint(x: 251, y: 506))
-        leaf.addCurve(to: CGPoint(x: 369, y: 437),
-                      control1: CGPoint(x: 365, y: 567), control2: CGPoint(x: 391, y: 501))
-        fill(c, leaf, 0xFFF1D9)
+    IconRecipe(id: "Sonnet", title: "Sonnet") { c in
+        // Paper ink and mauve petals keep the cream mood; the petals stay dark enough to read on the paper.
+        rosePen(c, palette: RosePalette(
+            backgroundTop: 0xFFF3E2, backgroundBottom: 0xEFE0CD, ink: 0xF8EBDA, stem: 0xAD7A68,
+            leafLeft: 0xBA8776, leafRight: 0xC58D7C, leafLower: 0xA8756A,
+            bloom: [(0, 0x9E5468), (0.5, 0x7E3A52), (1, 0x52243A)], outerFold: 0xDDA9B3,
+            leftPetal: [(0, 0xBE7385), (0.55, 0x9C4F66), (1, 0x76354B)],
+            lowerPetal: [(0, 0xB4667B), (1, 0x7A3750)],
+            rightPetal: [(0, 0xBC7083), (1, 0x86405A)],
+            heart: [(0, 0xCE8593), (0.45, 0xB0607A), (1, 0x944762)], engraving: 0xEEC3CB,
+            penBarrel: 0x733949, penNib: 0x773549, penTrim: 0xA96770))
     },
 ]
 
@@ -464,7 +565,7 @@ private func drawCaption(_ text: String, font: CTFont, color: CGColor, centerX: 
     CTLineDraw(lineRef, context)
 }
 
-private func savePrimaryPreview(_ image: CGImage, to url: URL) throws {
+private func saveIconPreview(_ image: CGImage, to url: URL) throws {
     let context = try bitmap(size: 640)
     let font = CTFontCreateWithName("Helvetica" as CFString, 18, nil)
     for (row, backgroundHex) in [UInt32(0xF2F1EE), 0x111317].enumerated() {
@@ -496,7 +597,7 @@ private func saveContactSheet(_ images: [(IconRecipe, CGImage)], to url: URL) th
     context.fill(CGRect(x: 0, y: 0, width: width, height: height))
     drawCaption("Breezy", font: CTFontCreateWithName("Helvetica-Bold" as CFString, 32, nil), color: color(0xEFF4EF),
                 centerX: CGFloat(width) / 2, baseline: CGFloat(height - 49), context: context)
-    drawCaption("\(images.count) original music icons", font: CTFontCreateWithName("Helvetica" as CFString, 16, nil), color: color(0xA7B9B5),
+    drawCaption("\(images.count) original icon choices", font: CTFontCreateWithName("Helvetica" as CFString, 16, nil), color: color(0xA7B9B5),
                 centerX: CGFloat(width) / 2, baseline: CGFloat(height - 76), context: context)
     let font = CTFontCreateWithName("Helvetica-Bold" as CFString, 20, nil)
     for (index, (recipe, image)) in images.enumerated() {
@@ -517,23 +618,42 @@ private func saveContactSheet(_ images: [(IconRecipe, CGImage)], to url: URL) th
 let arguments = Array(CommandLine.arguments.dropFirst())
 guard arguments.count.isMultiple(of: 2) else { throw ArtworkError.invalidArguments }
 var previewURLs: [String: URL] = [:]
+var selectedIDs: Set<String>?
 for index in stride(from: 0, to: arguments.count, by: 2) {
     let flag = arguments[index]
-    guard ["--preview", "--primary-preview"].contains(flag), previewURLs[flag] == nil else { throw ArtworkError.invalidArguments }
-    previewURLs[flag] = URL(fileURLWithPath: arguments[index + 1])
+    let value = arguments[index + 1]
+    guard !value.isEmpty else { throw ArtworkError.invalidArguments }
+    if flag == "--icons" {
+        guard selectedIDs == nil else { throw ArtworkError.invalidArguments }
+        let ids = value.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+        guard !ids.isEmpty, !ids.contains(""), Set(ids).count == ids.count else { throw ArtworkError.invalidArguments }
+        for id in ids where !recipes.contains(where: { $0.id == id }) {
+            throw ArtworkError.unknownIconID(id)
+        }
+        selectedIDs = Set(ids)
+    } else {
+        guard ["--preview", "--primary-preview", "--icon-previews"].contains(flag), previewURLs[flag] == nil else {
+            throw ArtworkError.invalidArguments
+        }
+        previewURLs[flag] = URL(fileURLWithPath: value)
+    }
 }
+private let primaryRecipe = recipes[0]
+private let selectedRecipes = recipes.filter { selectedIDs?.contains($0.id) ?? true }
 
-// Stale sets from earlier recipe lists are removed so the catalog only contains current options.
-for entry in try FileManager.default.contentsOfDirectory(at: assets, includingPropertiesForKeys: nil)
-where entry.lastPathComponent.hasPrefix("AppIcon-") || entry.lastPathComponent.hasPrefix("IconPreview-") || entry.lastPathComponent == "BrandMark.imageset" {
-    try FileManager.default.removeItem(at: entry)
+// A selected render cannot retire catalog entries belonging to the other choices.
+if selectedIDs == nil {
+    for entry in try FileManager.default.contentsOfDirectory(at: assets, includingPropertiesForKeys: nil)
+    where entry.lastPathComponent.hasPrefix("AppIcon-") || entry.lastPathComponent.hasPrefix("IconPreview-") || entry.lastPathComponent == "BrandMark.imageset" {
+        try FileManager.default.removeItem(at: entry)
+    }
 }
 
 private var rendered: [(IconRecipe, CGImage)] = []
-for (index, recipe) in recipes.enumerated() {
+for recipe in selectedRecipes {
     let image = try render(recipe)
     // The primary retains its named alternate asset so saved iOS selections survive a default change.
-    let iconNames = index == 0 ? ["AppIcon", "AppIcon-\(recipe.id)"] : ["AppIcon-\(recipe.id)"]
+    let iconNames = recipe.id == primaryRecipe.id ? ["AppIcon", "AppIcon-\(recipe.id)"] : ["AppIcon-\(recipe.id)"]
     for name in iconNames {
         let iconSet = assets.appendingPathComponent("\(name).appiconset", isDirectory: true)
         try FileManager.default.createDirectory(at: iconSet, withIntermediateDirectories: true)
@@ -554,14 +674,25 @@ for (index, recipe) in recipes.enumerated() {
     rendered.append((recipe, image))
 }
 
-print("Created \(recipes.count) visible choices and \(recipes.count + 1) icon sets: " + recipes.map { "\($0.id)=\($0.title)" }.joined(separator: ", "))
-if let primary = recipes.first {
-    print("Primary: AppIcon (\(primary.id)=\(primary.title)); hidden compatibility alternate: AppIcon-\(primary.id)")
-}
+let iconSetCount = rendered.count + (selectedRecipes.contains { $0.id == primaryRecipe.id } ? 1 : 0)
+print("Created \(rendered.count) visible choices and \(iconSetCount) icon sets: " + selectedRecipes.map { "\($0.id)=\($0.title)" }.joined(separator: ", "))
+print("Catalog: \(recipes.count) visible choices, \(recipes.count + 1) icon sets")
+print("Primary: AppIcon (\(primaryRecipe.id)=\(primaryRecipe.title)); hidden compatibility alternate: AppIcon-\(primaryRecipe.id)")
 print("Alternate icon names: " + recipes.map { "AppIcon-\($0.id)" }.joined(separator: " "))
 if let url = previewURLs["--preview"] {
     try saveContactSheet(rendered, to: url)
 }
-if let url = previewURLs["--primary-preview"], let primary = rendered.first {
-    try savePrimaryPreview(primary.1, to: url)
+if let directory = previewURLs["--icon-previews"] {
+    for (recipe, image) in rendered {
+        try saveIconPreview(image, to: directory.appendingPathComponent("\(recipe.id)-preview.png"))
+    }
+}
+if let url = previewURLs["--primary-preview"] {
+    let image: CGImage
+    if let primary = rendered.first(where: { $0.0.id == primaryRecipe.id }) {
+        image = primary.1
+    } else {
+        image = try render(primaryRecipe)
+    }
+    try saveIconPreview(image, to: url)
 }

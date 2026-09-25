@@ -21,7 +21,7 @@ final class RadioSetupModelTests: XCTestCase {
         setup.setLanguage(.english, selected: false)
         setup.toggleArtist(setup.artistChoices[0])
         XCTAssertEqual(setup.era, .anytime)
-        XCTAssertEqual(setup.languages, [.english])
+        XCTAssertEqual(setup.languages, [.hindi, .english])
         XCTAssertTrue(setup.selectedArtists.isEmpty)
         let searches = await catalog.searchRequests
         let radio = await catalog.radioRequests
@@ -78,8 +78,9 @@ final class RadioSetupModelTests: XCTestCase {
         XCTAssertEqual(setup.selectedArtists.map(\.name), ["Kanye West"])
         XCTAssertEqual(setup.artistChoices.map(\.name), ["Kanye West", "Tyler, The Creator"])
         setup.setLanguage(.english, selected: false)
-        XCTAssertFalse(setup.canStart)
-        XCTAssertEqual(setup.startHelp, "Choose at least one language.")
+        XCTAssertTrue(setup.canStart, "An empty legacy scope is automatic rather than a required user choice")
+        XCTAssertNil(setup.configuration.validationMessage)
+        XCTAssertEqual(setup.configuration.experience().variants, setup.station.variants)
         setup.setLanguage(.hindi, selected: true)
         XCTAssertTrue(setup.canStart)
         XCTAssertTrue(setup.selectedArtists.isEmpty)
@@ -87,23 +88,39 @@ final class RadioSetupModelTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(setup.submit()).seeds.map(\.artist.name), ["Char Diwaari", "Seedhe Maut"])
     }
 
-    func testUnsupportedOnlyLanguagesDisableStartAndExplainHowToRecover() throws {
+    func testOtherLanguagesStartWithoutCuesAndWithoutAnArtistRequirement() throws {
         let setup = try makeSetup(stationID: "hindi-gym")
         setup.setLanguage(.english, selected: true)
         setup.setLanguage(.hindi, selected: false)
         XCTAssertEqual(setup.languages, [.english])
-        XCTAssertFalse(setup.canStart)
-        XCTAssertEqual(setup.startHelp, "Choose Hindi for this station.")
-        XCTAssertNil(setup.submit())
+        XCTAssertTrue(setup.canStart, "Every station starts in any non-empty language set")
+        XCTAssertEqual(setup.startHelp, "Start from the station’s mood. No artist hints needed.")
+        XCTAssertTrue(setup.artistChoices.isEmpty, "Hindi cues are not offered as English hints")
         setup.addArtist(MusicCollection(id: "UCoptionalArtist", title: "Optional Artist", kind: .artist))
-        XCTAssertFalse(setup.canStart, "An artist hint cannot make an unsupported station language valid")
-        setup.clearArtistHints()
-        setup.setLanguage(.hindi, selected: true)
         XCTAssertTrue(setup.canStart)
-        XCTAssertTrue(setup.selectedArtists.isEmpty)
+        XCTAssertEqual(setup.selectedArtists.map(\.name), ["Optional Artist"])
+        setup.clearArtistHints()
+        XCTAssertTrue(setup.canStart)
         let experience = try XCTUnwrap(setup.submit())
-        XCTAssertNil(experience.selection(for: [.english]))
-        XCTAssertEqual(experience.selection(for: [.hindi])?.contentLabel, "Hindi + Punjabi · Anytime")
+        XCTAssertTrue(experience.seeds.isEmpty)
+        let english = try XCTUnwrap(experience.selection(for: [.english]))
+        XCTAssertEqual(english.contentLabel, "English · Anytime")
+        XCTAssertEqual(english.styleQueries, setup.station.styleQueries(for: .english))
+        XCTAssertGreaterThanOrEqual(english.styleQueries.count, 2)
+    }
+
+    func testHindiOnlyMelancholyIsStartableAndOffersNoEnglishCuesAsHints() throws {
+        let setup = try makeSetup()
+        XCTAssertEqual(setup.languages, [.hindi, .english], "Automatic setup keeps all legacy cue variants available")
+        XCTAssertEqual(setup.artistChoices.count, 4)
+        setup.setLanguage(.english, selected: false)
+        XCTAssertEqual(setup.languages, [.hindi])
+        XCTAssertTrue(setup.canStart)
+        XCTAssertTrue(setup.artistChoices.isEmpty)
+        let experience = try XCTUnwrap(setup.submit())
+        XCTAssertTrue(experience.seeds.isEmpty)
+        XCTAssertEqual(experience.selection(for: [.hindi])?.contentLabel, "Hindi · Anytime")
+        XCTAssertEqual(experience.selection(for: [.hindi])?.styleQueries, setup.station.styleQueries(for: .hindi))
     }
 
     func testRapidTogglesAndEraChangesRemainIndependentOfPendingArtistSearch() async throws {
@@ -205,9 +222,23 @@ final class RadioSetupModelTests: XCTestCase {
         XCTAssertNil(setup.submit())
     }
 
+    func testEmptyLegacyLanguageScopeSubmitsEveryVariantWithNoRequiredArtistHints() throws {
+        let station = try XCTUnwrap(RadioExperience.stations.first { $0.id == "left-field-rap" })
+        let setup = RadioSetupModel(station: station, languages: [], catalog: ExperienceRadioCatalogFixture())
+        defer { setup.cancel() }
+        XCTAssertTrue(setup.canStart)
+        XCTAssertTrue(setup.selectedArtists.isEmpty)
+        XCTAssertFalse(setup.artistChoices.isEmpty)
+        let experience = try XCTUnwrap(setup.submit())
+        XCTAssertEqual(experience.variants, station.variants)
+        XCTAssertEqual(experience.seeds, station.seeds)
+        XCTAssertTrue(experience.artistHints.isEmpty)
+        XCTAssertNil(setup.submit())
+    }
+
     private func makeSetup(stationID: String = "melancholy", catalog: any MusicCatalogProviding = ExperienceRadioCatalogFixture()) throws -> RadioSetupModel {
         let station = try XCTUnwrap(RadioExperience.stations.first { $0.id == stationID })
-        let setup = RadioSetupModel(station: station, languages: [.hindi, .english], catalog: catalog)
+        let setup = RadioSetupModel(station: station, catalog: catalog)
         addTeardownBlock { @MainActor in setup.cancel() }
         return setup
     }

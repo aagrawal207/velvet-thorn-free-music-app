@@ -37,6 +37,7 @@ final class PlaybackSystemControls {
     }
 
     func deactivateSession() {
+        // Pausing yields the audio session but keeps the published, resumable Now Playing selection.
         do { try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation) }
         catch { log.debug("event=session_deactivation_deferred") }
     }

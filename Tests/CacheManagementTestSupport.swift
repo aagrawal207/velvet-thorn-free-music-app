@@ -8,8 +8,9 @@ final class CacheManagementFixture {
     let mock: CatalogMockSession
 
     init(capacityBytes: Int64 = 200 << 20, maximumFiles: Int = 40,
-         handler: CatalogMockState.Handler? = nil,
-         opusPreparation: @escaping AudioCache.OpusPreparation = { try await OpusNativeAudio.prepare(input: $0, output: $1) }) throws {
+          handler: CatalogMockState.Handler? = nil,
+          opusPreparation: @escaping AudioCache.OpusPreparation = { try await OpusNativeAudio.prepare(input: $0, output: $1) },
+          localDurationLoader: AudioCache.LocalDurationLoader? = nil, now: @escaping @Sendable () -> Date = { Date() }) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("GanaBajana-CacheManagement-\(UUID())", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -19,7 +20,7 @@ final class CacheManagementFixture {
         })
         cache = AudioCache(directory: root.appendingPathComponent("Audio", isDirectory: true),
                            capacityBytes: capacityBytes, maximumFiles: maximumFiles, session: mock.session,
-                           opusPreparation: opusPreparation)
+                            opusPreparation: opusPreparation, localDurationLoader: localDurationLoader, now: now)
     }
 
     @discardableResult

@@ -49,8 +49,25 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         try ui.selectSearchFilter("songs")
         try ui.clearSearch()
         try ui.dismissSearchKeyboard()
-        try ui.reveal(ui.app.staticTexts["Start somewhere good"])
+        try ui.requireHittable(ui.app.buttons["search.library.likes"])
+        try ui.requireHittable(ui.app.buttons["search.library.cached"])
+        XCTAssertFalse(ui.app.buttons["search.filter.songs"].exists)
+        XCTAssertFalse(ui.app.staticTexts["Start somewhere good"].exists)
         XCTAssertFalse(ui.app.buttons["track.play.\(AppUIFixture.tumHiHo)"].exists)
+
+        let recentPlaylist = ui.app.buttons["search.recent.collection:playlist:\(AppUIFixture.album)"]
+        try ui.reveal(recentPlaylist)
+        XCTAssertTrue(recentPlaylist.label.contains("Evening favorites, Playlist"))
+        XCTAssertFalse(ui.app.buttons["search.recent.arijit"].exists)
+        try ui.tap(recentPlaylist)
+        try ui.wait("A recent playlist must reopen the selected result rather than rerun its query") {
+            ui.app.staticTexts["PLAYLIST"].exists && ui.app.buttons["collection.play"].exists
+        }
+        try ui.tap(ui.app.navigationBars.buttons.firstMatch)
+        try ui.requireHittable(ui.app.textFields["search.field"])
+        let emptyField = ui.app.textFields["search.field"]
+        XCTAssertTrue((emptyField.value as? String ?? "").isEmpty || emptyField.value as? String == emptyField.placeholderValue)
+        XCTAssertFalse(ui.app.buttons["search.filter.songs"].exists)
 
         try ui.replaceSearchQuery("no-such-ganabajana-recording-72819")
         try ui.wait("An unmatched search must have an explicit empty state") {
@@ -248,12 +265,17 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         try ui.expectPosition(131, tolerance: 4)
         XCTAssertEqual(try ui.position() + ui.remaining(), 262, accuracy: 1)
 
+        // A tap a quarter of the way along the bar lands short of a quarter of the song: the trail continues
+        // around the heart, so the bar alone covers less than the whole recording.
+        let quarterBar = try ui.seekPosition(atNormalizedX: 0.25)
+        XCTAssertLessThan(quarterBar, 65.5)
+        XCTAssertGreaterThan(quarterBar, 40)
         ui.app.sliders["player.seek"].coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
-        try ui.expectPosition(65.5, tolerance: 1)
+        try ui.expectPosition(quarterBar, tolerance: 1)
         try ui.expectLabel(ui.app.buttons["player.playPause"], "Play")
         try ui.closePlayer()
         try ui.openPlayer()
-        try ui.expectPosition(65.5, tolerance: 1)
+        try ui.expectPosition(quarterBar, tolerance: 1)
 
         let slider = ui.app.sliders["player.seek"]
         let seekY = slider.frame.minY
@@ -267,7 +289,7 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
                               "Vertical swipes across the seek bar must scroll the player.")
         }
         try ui.reveal(ui.app.staticTexts["player.elapsed"], direction: .down)
-        try ui.expectPosition(65.5, tolerance: 1)
+        try ui.expectPosition(quarterBar, tolerance: 1)
         try ui.reveal(ui.app.buttons["player.next"])
         try ui.tap(ui.app.buttons["player.next"])
         try ui.expectCurrentTrack(AppUIFixture.kesariya)
@@ -286,21 +308,34 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         try ui.waitForAdvance(from: 0, by: 1)
         try ui.pause()
 
+        // Shuffle and repeat live in the Queue sheet; the fixed transport row keeps previous, play, and next.
+        XCTAssertFalse(ui.app.buttons["player.shuffle"].exists, "Shuffle must not sit in the main transport row.")
+        XCTAssertFalse(ui.app.buttons["player.repeat"].exists, "Repeat must not sit in the main transport row.")
+        try ui.openPlayerSheet("queue", title: "Queue")
         let shuffle = ui.app.buttons["player.shuffle"]
         try ui.expectLabel(shuffle, "Turn shuffle on")
+        XCTAssertFalse(shuffle.isSelected)
         try ui.tap(shuffle)
         try ui.expectLabel(shuffle, "Turn shuffle off")
         XCTAssertTrue(shuffle.isSelected)
-        try ui.expectCurrentTrack(AppUIFixture.tumHiHo)
+        try ui.wait("Turning shuffle on must keep the current song in place") {
+            ui.queueSong(id: AppUIFixture.tumHiHo).label.hasPrefix("Current song")
+        }
         try ui.tap(shuffle)
         try ui.expectLabel(shuffle, "Turn shuffle on")
+        XCTAssertFalse(shuffle.isSelected)
 
         let repeatButton = ui.app.buttons["player.repeat"]
         try ui.expectLabel(repeatButton, "Repeat off. Repeat queue next.")
+        XCTAssertFalse(repeatButton.isSelected)
         try ui.tap(repeatButton)
         try ui.expectLabel(repeatButton, "Repeating queue. Repeat song next.")
+        XCTAssertTrue(repeatButton.isSelected)
         try ui.tap(repeatButton)
         try ui.expectLabel(repeatButton, "Repeating song. Turn repeat off next.")
+        ui.capture("player-dark-queue-shuffle-repeat-controls")
+        try ui.closeSheet("Queue")
+        try ui.expectCurrentTrack(AppUIFixture.tumHiHo)
         try ui.seek(to: 0.99)
         try ui.wait("The seek must reach the recording's end before testing repeat") {
             (ui.positionIfVisible() ?? 0) >= 254
@@ -313,9 +348,11 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         }
         try ui.waitForAdvance(from: 0, by: 1)
         try ui.pause()
+        try ui.openPlayerSheet("queue", title: "Queue")
         try ui.tap(repeatButton)
         try ui.expectLabel(repeatButton, "Repeat off. Repeat queue next.")
-        ui.capture("player-dark-seek-shuffle-repeat-controls")
+        try ui.closeSheet("Queue")
+        ui.capture("player-dark-seek-transport-controls")
 
         try ui.openSleepTimerSheet()
         try ui.tap(ui.app.buttons["15 minutes"])
@@ -359,7 +396,17 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
 
         try ui.openPlayerSheet("lyrics", title: "Lyrics")
         try ui.requireSyncedLyrics()
-        for _ in 0..<4 { try ui.tap(ui.app.buttons["lyrics.offset.later"]) }
+        let earlier = ui.app.buttons["lyrics.offset.earlier"]
+        let later = ui.app.buttons["lyrics.offset.later"]
+        let resetTiming = ui.app.buttons["Reset lyric timing"]
+        try ui.requireHittable(earlier)
+        // The timing controls share one 44-point row so the lyrics keep the rest of the sheet.
+        XCTAssertEqual(earlier.frame.midY, later.frame.midY, accuracy: 1)
+        XCTAssertEqual(earlier.frame.midY, resetTiming.frame.midY, accuracy: 1)
+        XCTAssertGreaterThanOrEqual(earlier.frame.height, 44 - 1e-6)
+        XCTAssertLessThanOrEqual(earlier.frame.height, 48)
+        XCTAssertGreaterThanOrEqual(resetTiming.frame.width, 44 - 1e-6)
+        for _ in 0..<4 { try ui.tap(later) }
         try ui.expectLyricTiming("2s later")
         try ui.expectCurrentLyric("lyrics.line.1")
         try ui.reveal(line)
@@ -611,24 +658,18 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
     }
 
     @MainActor
-    func testWelcomeLanguagesAndLandscapeKeyboardReachability() throws {
+    func testWelcomeStartsWithoutLanguageSelectionAndLandscapeKeyboardRemainsReachable() throws {
         let ui = makeDriver()
         try ui.launch(skipWelcome: false)
-        let hindi = ui.app.buttons["welcome.hindi"]
-        let english = ui.app.buttons["welcome.english"]
-        try ui.expectValue(hindi, "Selected")
-        try ui.expectValue(english, "Selected")
-        ui.capture("welcome-dark-default-hindi-and-english")
-        try ui.reveal(english)
-        try ui.tap(english)
-        try ui.tap(hindi)
-        try ui.expectValue(hindi, "Selected")
-        try ui.tap(english)
-        try ui.tap(hindi)
-        try ui.expectValue(hindi, "Not selected")
-        try ui.expectValue(english, "Selected")
-        try ui.reveal(ui.app.buttons["welcome.continue"])
-        try ui.tap(ui.app.buttons["welcome.continue"])
+        let start = ui.app.buttons["welcome.continue"]
+        try ui.expectLabel(start, "Start listening")
+        XCTAssertTrue(start.isEnabled)
+        XCTAssertGreaterThanOrEqual(start.frame.width + 1e-6, 44)
+        XCTAssertGreaterThanOrEqual(start.frame.height + 1e-6, 44)
+        XCTAssertFalse(ui.app.buttons["welcome.hindi"].exists)
+        XCTAssertFalse(ui.app.buttons["welcome.english"].exists)
+        ui.capture("welcome-dark-single-start-action")
+        try ui.tap(start)
         try ui.requireHittable(ui.app.tabBars.buttons["Home"])
 
         try ui.relaunch()
@@ -637,13 +678,23 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         try ui.openSettings()
         let languages = ui.app.buttons["settings.languages"]
         try ui.reveal(languages, maxSwipes: 24)
-        XCTAssertTrue(languages.label.contains("English") && !languages.label.contains("Hindi"),
-                      "The settings row must summarize the welcome choice: \(languages.label)")
+        XCTAssertTrue(languages.label.contains("Listening languages"))
         try ui.tap(languages)
-        try ui.expectSwitch("settings.language.hindi", isOn: false)
-        try ui.expectSwitch("settings.language.english", isOn: true)
-        XCTAssertFalse(ui.app.switches["settings.language.english"].isEnabled)
-        try ui.tap(ui.app.navigationBars.buttons.firstMatch)
+        try ui.wait("Language statistics must open without a required preference form") {
+            ui.app.navigationBars["Listening languages"].exists
+        }
+        XCTAssertFalse(ui.app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "settings.language.")).firstMatch.exists)
+        let tuning = ui.app.buttons["listeningLanguages.tune"]
+        try ui.reveal(tuning)
+        try ui.expectValue(tuning, "Collapsed")
+        try ui.tap(tuning)
+        for code in ["hi", "en"] {
+            let menu = ui.app.buttons["listeningLanguages.nudge.\(code)"]
+            try ui.reveal(menu)
+            try ui.expectValue(menu, "Automatic")
+            XCTAssertTrue(menu.isEnabled)
+        }
+        try ui.tap(ui.app.navigationBars["Listening languages"].buttons.firstMatch)
         try ui.tap(ui.app.buttons["settings.done"])
 
         try ui.searchAndPlayTumHiHo()
@@ -675,7 +726,7 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
     }
 
     @MainActor
-    func testPlayerArtistButtonOpensTheArtistPageAndMultipleCreditsOfferAChoice() throws {
+    func testPlayerArtistNameOpensDirectlyAndBrowseOffersMultipleCredits() throws {
         let ui = makeDriver()
         try ui.launch()
         try ui.searchAndPlayTumHiHo()
@@ -683,7 +734,7 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         try ui.expectCurrentTrack(AppUIFixture.tumHiHo)
         let artistLine = ui.app.buttons["player.artistName"]
         try ui.expectLabel(artistLine, "Go to artist, Arijit Singh")
-        try ui.tap(ui.app.buttons["player.artist"])
+        try ui.tap(artistLine)
         try ui.expectArtistPage(named: "Arijit Singh")
         ui.capture("search-dark-artist-page-from-player")
 
@@ -697,10 +748,18 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         try ui.openPlayer()
         try ui.expectCurrentTrack(AppUIFixture.agarTumSaathHo)
         try ui.expectLabel(artistLine, "Go to artist, Alka Yagnik, Arijit Singh")
-        try ui.tap(ui.app.buttons["player.artist"])
-        try ui.wait("Several credits must offer a choice of artist") {
+        try ui.tap(ui.app.buttons["player.browse"])
+        try ui.wait("Browse must offer every credited artist immediately") {
             ui.app.buttons["player.artist.0"].exists && ui.app.buttons["player.artist.1"].exists
+                && ui.app.navigationBars["Album and artists"].exists
         }
+        let picker = ui.element("player.browse.sheet")
+        XCTAssertTrue(picker.exists, "Album and artists opens its own sheet rather than the options sheet.")
+        XCTAssertFalse(ui.element("player.options.sheet").exists)
+        XCTAssertFalse(ui.app.buttons["player.browse.album"].exists, "An album title alone must not invent an album destination.")
+        try ui.requireHittable(ui.app.buttons["player.artist.1"])
+        XCTAssertLessThan(picker.frame.maxY - ui.app.buttons["player.artist.1"].frame.maxY, 80,
+                          "Two credits must open a sheet sized to its rows, not a half-height sheet.")
         ui.capture("player-dark-choose-artist")
         try ui.tap(ui.app.buttons["player.artist.0"])
         try ui.expectArtistPage(named: "Alka Yagnik")
@@ -820,7 +879,7 @@ final class AppUITestDriver {
                 return frame.height > frame.width
             }
         }
-        let initial = reset && !skipWelcome ? app.buttons["welcome.hindi"] : app.tabBars.buttons["Home"]
+        let initial = reset && !skipWelcome ? app.buttons["welcome.continue"] : app.tabBars.buttons["Home"]
         try requireHittable(initial, timeout: 25)
     }
 
@@ -994,9 +1053,19 @@ final class AppUITestDriver {
     }
 
     func reveal(_ element: XCUIElement, direction: ScrollDirection = .up, maxSwipes: Int = 8) throws {
+        // Fixed player controls are outside the covered collection's scroller, which can remain in the AX tree.
+        let player = app.otherElements["player.screen"]
+        if player.exists, contains(player, element: element), isReachable(element, within: player.frame) { return }
         var lastContext = "No scroll container"
         for attempt in 0...maxSwipes {
-            let context = try? scrollRegion(containing: element)
+            var context = try? scrollRegion(containing: element)
+            if let current = context, current.containsTarget, !usableFrame(current.viewport) {
+                try wait("The destination's owning scroll viewport must finish laying out") {
+                    guard let ready = try? self.scrollRegion(containing: element) else { return false }
+                    return ready.containsTarget && self.usableFrame(ready.viewport)
+                }
+                context = try? scrollRegion(containing: element)
+            }
             let constrainedViewport = context?.containsTarget == true ? context?.viewport : nil
             if isReachable(element, within: constrainedViewport) { return }
             guard attempt < maxSwipes, let context else { break }
@@ -1085,6 +1154,12 @@ final class AppUITestDriver {
     }
 
     func selectSearchFilter(_ filter: String) throws {
+        guard !element("search.offline").exists else {
+            throw AppUIWorkflowFailure(message: "Offline Search uses saved results and has no catalog filter chips.")
+        }
+        try wait("Catalog filters must appear after the current query has executed") {
+            self.app.buttons["search.filter.songs"].exists
+        }
         let strips = app.scrollViews.containing(.button, identifier: "search.filter.songs").allElementsBoundByIndex
         guard let strip = strips.min(by: { $0.frame.height < $1.frame.height }) else {
             throw AppUIWorkflowFailure(message: "Search filter scroll row is missing.")
@@ -1171,11 +1246,18 @@ final class AppUITestDriver {
         }
         let total = try duration()
         guard total > 0 else { throw AppUIWorkflowFailure(message: "The seek slider has no usable range.") }
+        // The drag starts on the bar and may end past it: the last stretch of the song lies along the heart outline.
         let targetFraction = min(max(fraction, 0), 1)
         let currentFraction = min(max(try position() / total, 0), 1)
-        let start = slider.coordinate(withNormalizedOffset: CGVector(dx: currentFraction, dy: 0.5))
-        let end = slider.coordinate(withNormalizedOffset: CGVector(dx: targetFraction, dy: 0.5))
+        let startX = min(app.playerSeekNormalizedX(forProgress: currentFraction), 0.98)
+        let start = slider.coordinate(withNormalizedOffset: CGVector(dx: startX, dy: 0.5))
+        let end = slider.coordinate(withNormalizedOffset: CGVector(dx: app.playerSeekNormalizedX(forProgress: targetFraction), dy: 0.5))
         start.press(forDuration: 0.1, thenDragTo: end)
+    }
+
+    /// Playback position the app seeks to for a tap or release at the normalized offset within the seek element.
+    func seekPosition(atNormalizedX dx: CGFloat) throws -> TimeInterval {
+        try duration() * app.playerSeekProgress(atNormalizedX: dx)
     }
 
     func positionIfVisible() -> TimeInterval? {
@@ -1315,6 +1397,21 @@ final class AppUITestDriver {
         try requireHittable(app.buttons["settings.done"])
     }
 
+    func openHomeCustomization() throws {
+        try openSettings()
+        let link = app.buttons["settings.customizeHome"]
+        try reveal(link, maxSwipes: 24)
+        try tap(link)
+        try wait("Settings must open the Home customization editor") { self.app.navigationBars["Customize Home"].exists }
+    }
+
+    func closeHomeCustomization() throws {
+        try tap(app.navigationBars["Customize Home"].buttons.firstMatch)
+        try wait("Back from customization must return to Settings") { self.app.navigationBars["Settings"].exists }
+        try tap(app.buttons["settings.done"])
+        try requireHittable(app.buttons["home.settings"])
+    }
+
     func setAppearance(_ appearance: String) throws {
         try reveal(element("settings.appearance"), maxSwipes: 24)
         try tap(element("settings.appearance"))
@@ -1341,7 +1438,8 @@ final class AppUITestDriver {
         }
         if current != (enabled ? "1" : "0") {
             let nativeSwitch = row.switches.firstMatch
-            try tap(nativeSwitch.exists ? nativeSwitch : row)
+            // Native accessibility representations can contain zero-sized virtual children; use the visible switch row.
+            try tap(isReachable(nativeSwitch) ? nativeSwitch : row)
         }
         try expectSwitch(id, isOn: enabled)
     }

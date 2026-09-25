@@ -3,11 +3,13 @@ set -euo pipefail
 
 usage() {
     printf '%s\n' \
-        'Usage: bash tools/verify.sh [unit|ui|live|live-ui|release]' \
+        'Usage: bash tools/verify.sh [unit|ui|watch-unit|watch-ui|live|live-ui|release]' \
         '' \
         'Modes (default: unit):' \
         '  unit      GanaBajana unit target; opt-in live checks stay disabled.' \
         '  ui        GanaBajana fixture UI suites, excluding the live UI suite.' \
+        '  watch-unit  Native Watch model and shared wire-contract tests.' \
+        '  watch-ui    Native Watch fixture workflows and screenshots.' \
         '  live      GanaBajanaLive provider suites, including encrypted DNS/TLS.' \
         '  live-ui   GanaBajanaLiveUI real-recording playback workflow.' \
         '  release   Local generic-iOS Release archive; unsigned by default.' \
@@ -15,6 +17,7 @@ usage() {
         'Environment:' \
         '  DESTINATION       Required for tests: platform=iOS Simulator,id=<UDID>' \
         '                    or platform=iOS,id=<UDID> for a signed device run.' \
+        '                    Watch modes use platform=watchOS Simulator,id=<UDID>.' \
         '                    Release accepts only generic/platform=iOS (default).' \
         '  RELEASE_SIGNING   unsigned (default) or automatic, for release.' \
         '  DEVELOPMENT_TEAM  Optional local signing-team override.' \
@@ -39,7 +42,7 @@ fail() {
 mode="${1:-unit}"
 case "$mode" in
     -h|--help) usage; exit 0 ;;
-    unit|ui|live|live-ui|release) ;;
+    unit|ui|watch-unit|watch-ui|live|live-ui|release) ;;
     *) fail 64 "Unknown mode: $mode. See --help." ;;
 esac
 
@@ -97,6 +100,12 @@ case "$mode" in
         args+=(test -scheme GanaBajana -configuration Debug
             -only-testing:GanaBajanaUITests -skip-testing:GanaBajanaUITests/GanaBajanaLiveUITests)
         ;;
+    watch-unit)
+        args+=(test -scheme GanaBajanaWatch -configuration Debug -only-testing:GanaBajanaWatchTests)
+        ;;
+    watch-ui)
+        args+=(test -scheme GanaBajanaWatch -configuration Debug -only-testing:GanaBajanaWatchUITests)
+        ;;
     live)
         args+=(test -scheme GanaBajanaLive -configuration Debug
             -only-testing:GanaBajanaTests/CatalogLiveTests
@@ -104,6 +113,8 @@ case "$mode" in
             -only-testing:GanaBajanaTests/LyricsLiveTests
             -only-testing:GanaBajanaTests/LyricsDNSLiveTests
             -only-testing:GanaBajanaTests/LyricsFallbackLiveTests
+            -only-testing:GanaBajanaTests/ArtistSpotlightLanguageLiveTests
+            -only-testing:GanaBajanaTests/AlbumDescriptionLiveTests
             -only-testing:GanaBajanaTests/ExperienceRadioLiveTests)
         ;;
     live-ui)

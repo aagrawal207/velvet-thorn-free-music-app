@@ -1,0 +1,7 @@
+- Use recording-language metadata when available, with cached checks for missing language tags.
+- Improve lyrics matching when a recording's duration is missing.
+- Add Recently played, Liked songs and Mix widgets to your Home Screen.
+- Explore radio and personal mixes shaped by your listening.
+- Choose Fewer repeats for new shuffles and adjust your Discovery balance.
+- Search saved music, return through Recently opened and save your queue as a playlist.
+- Resume fully cached songs offline and manage cached storage.

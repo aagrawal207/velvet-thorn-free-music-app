@@ -22,17 +22,24 @@ extension StreamCaching {
 /// Storage controls are optional so file fixtures and other resolvers never acquire a production disk cache.
 protocol StreamCacheManaging: StreamCaching {
     func audioCacheUsage() async throws -> AudioCache.Usage?
+    func audioCacheSnapshot() async throws -> AudioCacheSnapshot?
+    func removeCachedSong(id: String, retaining: @escaping @Sendable () async -> Set<String>) async throws -> AudioCacheRemoval?
+    func updateCacheListeningHistory(_ events: [ListeningEvent], now: Date) async
     func clearAudioCache(retaining: @escaping @Sendable () async -> Set<String>) async throws -> AudioCache.Usage?
     func setAudioCacheLimit(_ limit: AudioCacheLimit,
                            retaining: @escaping @Sendable () async -> Set<String>) async throws -> AudioCache.Usage?
 }
 
 extension StreamCacheManaging {
+    func audioCacheSnapshot() async throws -> AudioCacheSnapshot? { nil }
+    func removeCachedSong(id: String, retaining: @escaping @Sendable () async -> Set<String>) async throws -> AudioCacheRemoval? { nil }
+    func updateCacheListeningHistory(_ events: [ListeningEvent], now: Date) async { }
     func setAudioCacheLimit(_ limit: AudioCacheLimit,
                            retaining: @escaping @Sendable () async -> Set<String>) async throws -> AudioCache.Usage? { nil }
 }
 
 actor YouTubeStreamResolver: StreamCacheManaging {
+    nonisolated static let offlineMessage = "You’re offline and this song isn’t cached on this device. Connect to the internet and try again."
     typealias Extraction = @Sendable (_ videoID: String, _ remote: Bool) async throws -> [URL]
     typealias QualityExtraction = @Sendable (_ videoID: String, _ remote: Bool) async throws -> [ResolvedStream]
     typealias FastExtraction = @Sendable (_ videoID: String) async throws -> FastPathResult
@@ -47,6 +54,9 @@ actor YouTubeStreamResolver: StreamCacheManaging {
     private let audioCache: AudioCache?
     private let opusEnabled: Bool
     private let opusTimeout: TimeInterval
+    private let isOffline: @Sendable () -> Bool
+    private var networkOffline = false
+    private var networkStopTask: Task<Void, Never>?
     private var opusFailures: [String: Date] = [:]
     private var cache: [String: ResolvedStream] = [:]
     private var recency: [String] = []
@@ -54,7 +64,9 @@ actor YouTubeStreamResolver: StreamCacheManaging {
         let token: UUID
         let task: Task<ResolvedStream, Error>
         var waiters: [UUID: Bool]
+        var nonSpeculativeWaiters: Set<UUID> = []
         var foreground: Bool { waiters.values.contains(true) }
+        var isSpeculative: Bool { !foreground && nonSpeculativeWaiters.isEmpty }
     }
     private struct ResolutionKey: Hashable, Sendable {
         let trackID: String
@@ -69,7 +81,7 @@ actor YouTubeStreamResolver: StreamCacheManaging {
     var prefetchDownloadTrackID: String? { prefetchDownload?.trackID }
     private let log = Logger(subsystem: "com.agraabhi.ganabajana", category: "StreamResolver")
 
-    init(allowRemoteFallback: Bool = false) {
+    init(allowRemoteFallback: Bool = false, isOffline: @escaping @Sendable () -> Bool = { false }) {
         // The hooks must exist before YouTubeKit's first request, or a signed-in user's TV lookup goes out anonymous.
         YouTubeKitAuthBridge.install()
         self.allowRemoteFallback = allowRemoteFallback
@@ -81,13 +93,14 @@ actor YouTubeStreamResolver: StreamCacheManaging {
         audioCache = AudioCache()
         opusEnabled = OpusNativeAudio.isSupported
         opusTimeout = 12
+        self.isOffline = isOffline
     }
 
     /// Without an `audioCache` nothing is written to disk and `download` is unavailable; tests opt in explicitly.
     init(allowRemoteFallback: Bool = false, timeout: TimeInterval = 35, cacheCapacity: Int = 24,
          extract: @escaping Extraction, validate: @escaping Validation,
          fastExtract: FastExtraction? = nil, audioCache: AudioCache? = nil, qualityExtract: QualityExtraction? = nil,
-         opusEnabled: Bool = false, opusTimeout: TimeInterval = 12) {
+         opusEnabled: Bool = false, opusTimeout: TimeInterval = 12, isOffline: @escaping @Sendable () -> Bool = { false }) {
         self.allowRemoteFallback = allowRemoteFallback
         self.extract = qualityExtract ?? { id, remote in
             try await extract(id, remote).map { ResolvedStream(url: $0) }
@@ -99,10 +112,46 @@ actor YouTubeStreamResolver: StreamCacheManaging {
         self.audioCache = audioCache
         self.opusEnabled = opusEnabled
         self.opusTimeout = opusTimeout
+        self.isOffline = isOffline
     }
 
     func setRemoteFallbackEnabled(_ enabled: Bool) {
         allowRemoteFallback = enabled
+    }
+
+    func setNetworkOffline(_ offline: Bool) {
+        guard offline != networkOffline else { return }
+        networkOffline = offline
+        networkStopTask?.cancel()
+        networkStopTask = nil
+        guard offline else { return }
+        downloadGeneration = UUID()
+        prefetchDownload?.task.cancel()
+        prefetchDownload = nil
+        let pending = Array(flights.values)
+        flights.removeAll()
+        pending.forEach { $0.task.cancel() }
+        if let audioCache { networkStopTask = Task { await audioCache.cancelDownloads() } }
+    }
+
+    private var networkIsOffline: Bool { networkOffline || isOffline() }
+
+    private func requireNetwork() throws {
+        try Task.checkCancellation()
+        if networkIsOffline {
+            throw MusicServiceError.network(Self.offlineMessage)
+        }
+    }
+
+    private func cachedAudio(for track: Track) async throws -> CachedAudio? {
+        guard let audioCache else { return nil }
+        let allowOpus = opusEnabled
+        let result = try await PlaybackDeadline.run(seconds: 10) {
+            try await audioCache.preparedEntry(for: track.id, allowOpus: allowOpus)
+        }
+        let offlineMiss = result == nil && networkIsOffline
+        log.debug("event=audio_cache_lookup hit=\(result == nil ? 0 : 1) miss=\(result == nil ? 1 : 0) offline_miss=\(offlineMiss ? 1 : 0)")
+        return result
     }
 
     func resolve(track: Track, forceRefresh: Bool) async throws -> ResolvedStream {
@@ -111,16 +160,17 @@ actor YouTubeStreamResolver: StreamCacheManaging {
 
     /// An explicit quality reload bypasses the saved copy without replacing a file an AVPlayer may still be reading.
     func refreshQuality(track: Track) async throws -> ResolvedStream {
+        if networkIsOffline { return try await resolve(track: track, forceRefresh: false) }
         opusFailures.removeValue(forKey: track.id)
         do {
             let fresh = try await PlaybackDeadline.run(seconds: min(timeout * 2, 60)) { [self] in
                 try await resolve(track: track, forceRefresh: true, foreground: true, useAudioCache: false)
             }
-            let cached = await audioCache?.entry(for: track.id, allowOpus: opusEnabled)
+            let cached = try await cachedAudio(for: track)
             try Task.checkCancellation()
             if let cached, let savedRate = cached.quality?.bitRate, (fresh.quality?.bitRate ?? 0) <= savedRate {
                 log.info("event=audio_quality_refresh outcome=cached_not_lower")
-                return Self.stream(from: cached, track: track)
+                return cached.stream
             }
             log.info("event=audio_quality_refresh outcome=fresh bitrate=\(fresh.quality?.bitRate ?? 0)")
             return fresh
@@ -128,24 +178,26 @@ actor YouTubeStreamResolver: StreamCacheManaging {
             try Task.checkCancellation()
             if error is CancellationError { throw error }
             if case PlaybackStreamError.invalidID = error { throw error }
-            if let cached = await audioCache?.entry(for: track.id, allowOpus: opusEnabled) {
+            if let cached = try await cachedAudio(for: track) {
                 try Task.checkCancellation()
                 log.notice("event=audio_quality_refresh outcome=cached_after_failure")
-                return Self.stream(from: cached, track: track)
+                return cached.stream
             }
             throw error
         }
     }
 
     func prefetch(_ tracks: [Track]) async {
-        guard !Task.isCancelled, !isManagingAudioCache, fastExtract != nil, !flights.values.contains(where: \.foreground) else { return }
+        guard !Task.isCancelled, !networkIsOffline, !isManagingAudioCache, fastExtract != nil,
+              !flights.values.contains(where: \.foreground) else { return }
         let generation = downloadGeneration
         var seen = Set<String>()
         let selected = Array(tracks.filter { $0.isAudioRecording != false && seen.insert($0.id).inserted }.prefix(2))
         cancelWarmups(except: Set(selected.map(\.id)))
         schedulePrefetchDownload(selected.first)
         for track in selected {
-            guard !Task.isCancelled, generation == downloadGeneration, !flights.values.contains(where: \.foreground) else { return }
+            guard !Task.isCancelled, !networkIsOffline, generation == downloadGeneration,
+                  !flights.values.contains(where: \.foreground) else { return }
             do { _ = try await resolve(track: track, forceRefresh: false, foreground: false) }
             catch is CancellationError { return }
             catch { log.debug("event=prefetch_unavailable") }
@@ -153,39 +205,70 @@ actor YouTubeStreamResolver: StreamCacheManaging {
     }
 
     func download(_ track: Track) async throws -> ResolvedStream {
+        try await download(track, speculative: false)
+    }
+
+    private func download(_ track: Track, speculative: Bool) async throws -> ResolvedStream {
         guard let audioCache else { throw MusicServiceError.unavailable("Audio caching is not available.") }
+        guard AudioCache.isProviderTrackID(track.id) else { throw PlaybackStreamError.invalidID }
         let generation = downloadGeneration
-        try checkDownloadGeneration(generation)
+        try Task.checkCancellation()
         activeDownloadCount += 1
         defer { activeDownloadCount -= 1 }
-        let permit = try await audioCache.writePermit()
-        try checkDownloadGeneration(generation)
-        if let cached = await audioCache.entry(for: track.id, allowOpus: opusEnabled) {
-            try checkDownloadGeneration(generation)
-            return Self.stream(from: cached, track: track)
+        if let cached = try await cachedAudio(for: track) {
+            try Task.checkCancellation()
+            return cached.stream
         }
+        try requireNetwork()
+        let permit = try await audioCache.writePermit()
         try checkDownloadGeneration(generation)
         // A listener-initiated resolution owns the network until it finishes; downloads are never in its way.
         while flights.values.contains(where: \.foreground) {
             try await Task.sleep(for: .milliseconds(150))
             try checkDownloadGeneration(generation)
+            try requireNetwork()
         }
-        let stream = try await resolve(track: track, forceRefresh: false, foreground: false, speculative: false)
+        let stream = try await resolve(track: track, forceRefresh: false, foreground: false, speculative: speculative)
         try checkDownloadGeneration(generation)
         if stream.url.isFileURL { return stream }
-        let cached = try await audioCache.store(trackID: track.id, from: stream.url, stream: stream, permit: permit)
+        try requireNetwork()
+        let cached = try await audioCache.store(trackID: track.id, from: stream.url, stream: stream, permit: permit,
+                                               track: track, speculative: speculative)
         try checkDownloadGeneration(generation)
         log.info("event=audio_cached bytes=\(cached.bytes)")
-        return Self.stream(from: cached, track: track)
+        if cached.duration != nil { return cached.stream }
+        guard let prepared = try await cachedAudio(for: track) else { throw PlaybackStreamError.invalidMedia }
+        try checkDownloadGeneration(generation)
+        return prepared.stream
     }
 
     func audioCacheUsage() async throws -> AudioCache.Usage? {
         try await audioCache?.storageUsage()
     }
 
+    func audioCacheSnapshot() async throws -> AudioCacheSnapshot? {
+        try await audioCache?.snapshot(allowOpus: opusEnabled)
+    }
+
+    func updateCacheListeningHistory(_ events: [ListeningEvent], now: Date) async {
+        await audioCache?.updateListeningHistory(events, now: now)
+    }
+
+    func removeCachedSong(id: String, retaining: @escaping @Sendable () async -> Set<String>) async throws -> AudioCacheRemoval? {
+        guard let audioCache else { return nil }
+        try await beginAudioCacheMaintenance()
+        defer { isManagingAudioCache = false }
+        let result = try await audioCache.removeSong(id: id, retaining: retaining)
+        if result.outcome != .inUse {
+            cache.removeValue(forKey: id)
+            recency.removeAll { $0 == id }
+        }
+        return result
+    }
+
     func clearAudioCache(retaining: @escaping @Sendable () async -> Set<String>) async throws -> AudioCache.Usage? {
         guard let audioCache else { return nil }
-        try beginAudioCacheMaintenance()
+        try await beginAudioCacheMaintenance()
         defer { isManagingAudioCache = false }
         return try await audioCache.clearUnused(retaining: retaining)
     }
@@ -193,13 +276,14 @@ actor YouTubeStreamResolver: StreamCacheManaging {
     func setAudioCacheLimit(_ limit: AudioCacheLimit,
                            retaining: @escaping @Sendable () async -> Set<String>) async throws -> AudioCache.Usage? {
         guard let audioCache else { return nil }
-        try beginAudioCacheMaintenance()
+        try await beginAudioCacheMaintenance()
         defer { isManagingAudioCache = false }
         return try await audioCache.updatePolicy(capacityBytes: limit.bytes, maximumFiles: limit.maximumSongs,
                                                  retaining: retaining)
     }
 
-    private func beginAudioCacheMaintenance() throws {
+    private func beginAudioCacheMaintenance() async throws {
+        await networkStopTask?.value
         try Task.checkCancellation()
         guard !isManagingAudioCache else { throw AudioCache.ManagementError.clearing }
         isManagingAudioCache = true
@@ -242,13 +326,13 @@ actor YouTubeStreamResolver: StreamCacheManaging {
     /// Explicit prefetch downloads follow the first track; Opus resolutions also require complete prepared files.
     /// An empty prefetch leaves a running download alone: there is nothing newer to prefer over it.
     private func schedulePrefetchDownload(_ track: Track?) {
-        guard !isManagingAudioCache, audioCache != nil, let track else { return }
+        guard !networkIsOffline, !isManagingAudioCache, audioCache != nil, let track else { return }
         if let current = prefetchDownload, current.trackID == track.id { return }
         prefetchDownload?.task.cancel()
         let token = UUID()
         let task = Task(priority: .utility) { [weak self] in
             guard let self else { return }
-            do { _ = try await self.download(track) }
+            do { _ = try await self.download(track, speculative: true) }
             catch is CancellationError { }
             catch { await self.logPrefetchDownloadFailure() }
             await self.prefetchDownloadFinished(token)
@@ -262,18 +346,10 @@ actor YouTubeStreamResolver: StreamCacheManaging {
 
     private func logPrefetchDownloadFailure() { log.debug("event=prefetch_download_unavailable") }
 
-    private static func stream(from cached: CachedAudio, track: Track) -> ResolvedStream {
-        ResolvedStream(url: cached.url, duration: cached.duration ?? PlaybackTiming.validDuration(track.duration),
-                       expiresAt: nil, loudnessDb: cached.loudnessDb, viewCount: cached.viewCount, quality: cached.quality)
-    }
-
     private func resolve(track: Track, forceRefresh: Bool, foreground: Bool, speculative: Bool = true,
                          useAudioCache: Bool = true) async throws -> ResolvedStream {
         try Task.checkCancellation()
-        guard track.id.count == 11,
-              track.id.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95 }) else {
-            throw PlaybackStreamError.invalidID
-        }
+        guard AudioCache.isProviderTrackID(track.id) else { throw PlaybackStreamError.invalidID }
         if foreground {
             cancelWarmups(except: [track.id])
             if let warmup = prefetchDownload, warmup.trackID != track.id {
@@ -282,11 +358,12 @@ actor YouTubeStreamResolver: StreamCacheManaging {
             }
         }
         // A complete local copy never expires, so even a forced refresh prefers it; a bad file is discarded explicitly.
-        if useAudioCache, let audioCache, let cached = await audioCache.entry(for: track.id, allowOpus: opusEnabled) {
+        if useAudioCache, let cached = try await cachedAudio(for: track) {
             try Task.checkCancellation()
             log.debug("event=audio_cache_hit")
-            return Self.stream(from: cached, track: track)
+            return cached.stream
         }
+        try requireNetwork()
         if !forceRefresh, let cached = cache[track.id], let expiry = cached.expiresAt, expiry.timeIntervalSinceNow > 90 {
             touch(track.id)
             log.debug("event=cache_hit")
@@ -317,6 +394,7 @@ actor YouTubeStreamResolver: StreamCacheManaging {
             flight = Flight(token: token, task: work, waiters: [:])
         }
         flight.waiters[waiter] = foreground
+        if foreground || !speculative { flight.nonSpeculativeWaiters.insert(waiter) }
         flights[key] = flight
         let token = flight.token
         let work = flight.task
@@ -324,6 +402,7 @@ actor YouTubeStreamResolver: StreamCacheManaging {
             defer { release(key: key, token: token, waiter: waiter) }
             let result = try await PlaybackDeadline.run(seconds: timeout * 2 + 10) { try await work.value }
             try Task.checkCancellation()
+            if !result.url.isFileURL { try requireNetwork() }
             return result
         } onCancel: {
             Task { await self.release(key: key, token: token, waiter: waiter) }
@@ -333,6 +412,7 @@ actor YouTubeStreamResolver: StreamCacheManaging {
     private func release(key: ResolutionKey, token: UUID, waiter: UUID) {
         guard var flight = flights[key], flight.token == token,
               flight.waiters.removeValue(forKey: waiter) != nil else { return }
+        flight.nonSpeculativeWaiters.remove(waiter)
         if flight.waiters.isEmpty {
             flights.removeValue(forKey: key)
             flight.task.cancel()
@@ -366,6 +446,7 @@ actor YouTubeStreamResolver: StreamCacheManaging {
     }
 
     private func performExtraction(track: Track, key: ResolutionKey, token: UUID) async throws -> ResolvedStream {
+        try requireNetwork()
         var aacFallbacks: [ResolvedStream] = []
         if let fastExtract {
             do {
@@ -378,13 +459,14 @@ actor YouTubeStreamResolver: StreamCacheManaging {
             } catch {
                 try Task.checkCancellation()
                 if error is CancellationError { throw error }
+                try requireNetwork()
             }
         }
         // Speculation never enters YouTubeKit's serialized JS path; foreground waiters can promote a shared warmup.
         guard flights[key]?.token == token, flights[key]?.foreground == true else { throw PlaybackStreamError.noAudio }
         var remote = false
         while true {
-            try Task.checkCancellation()
+            try requireNetwork()
             let methodIsRemote = remote
             let start = ContinuousClock.now
             do {
@@ -397,6 +479,7 @@ actor YouTubeStreamResolver: StreamCacheManaging {
             } catch {
                 try Task.checkCancellation()
                 if error is CancellationError { throw error }
+                try requireNetwork()
                 log.notice("event=resolution_failed remote=\(methodIsRemote)")
                 guard !remote && allowRemoteFallback else {
                     if !aacFallbacks.isEmpty {
@@ -437,6 +520,7 @@ actor YouTubeStreamResolver: StreamCacheManaging {
         for stream in candidates {
             let url = stream.url
             do {
+                if !url.isFileURL { try requireNetwork() }
                 if let expiry = PlaybackTiming.expiry(in: url), expiry.timeIntervalSinceNow <= 30 { throw PlaybackStreamError.expired }
                 if stream.quality?.codec == .opus {
                     guard opusEnabled, (opusFailures[track.id]?.timeIntervalSinceNow ?? 0) <= 0, let audioCache else { continue }
@@ -447,18 +531,25 @@ actor YouTubeStreamResolver: StreamCacheManaging {
                         let permit = try await audioCache.writePermit()
                         try checkDownloadGeneration(preparationGeneration)
                         let foreground = flights[key]?.foreground == true
+                        let speculative = flights[key]?.isSpeculative == true
                         let cached = try await PlaybackDeadline.run(seconds: min(timeout, opusTimeout)) {
-                            try await audioCache.storeOpus(trackID: track.id, stream: stream, permit: permit, foreground: foreground)
+                            try await audioCache.storeOpus(trackID: track.id, stream: stream, permit: permit, foreground: foreground,
+                                                          track: track, speculative: speculative)
                         }
                         try checkDownloadGeneration(preparationGeneration)
                         log.info("event=opus_prepared_for_playback bytes=\(cached.bytes) elapsed=\(String(describing: started.duration(to: .now)), privacy: .public)")
-                        return Self.stream(from: cached, track: track)
+                        return cached.stream
                     } catch {
                         try Task.checkCancellation()
                         // Maintenance retires disk writers; the current playback intent can still use AAC or retained audio.
                         if isManagingAudioCache || preparationGeneration != downloadGeneration {
                             lastError = AudioCache.ManagementError.clearing
                             log.notice("event=opus_preparation_deferred reason=cache_maintenance fallback=aac")
+                            continue
+                        }
+                        if case AudioCache.ManagementError.admissionDeferred = error {
+                            lastError = error
+                            log.debug("event=opus_preparation_deferred admission=1")
                             continue
                         }
                         if error is CancellationError { throw error }
@@ -471,6 +562,7 @@ actor YouTubeStreamResolver: StreamCacheManaging {
                 }
                 try await PlaybackDeadline.run(seconds: min(timeout, 10)) { [validate] in try await validate(url) }
                 try Task.checkCancellation()
+                if !url.isFileURL { try requireNetwork() }
                 return ResolvedStream(url: url,
                     duration: PlaybackTiming.validDuration(PlaybackTiming.queryNumber("dur", in: url))
                         ?? PlaybackTiming.validDuration(track.duration), expiresAt: PlaybackTiming.expiry(in: url),

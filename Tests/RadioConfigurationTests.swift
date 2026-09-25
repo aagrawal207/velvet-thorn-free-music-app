@@ -14,14 +14,15 @@ final class RadioConfigurationTests: XCTestCase {
             XCTAssertEqual(RadioEra.older.accepts(year: year, currentYear: 2026), older, "Year: \(String(describing: year))")
             XCTAssertEqual(RadioEra.newer.accepts(year: year, currentYear: 2026), newer, "Year: \(String(describing: year))")
         }
+        XCTAssertEqual(RadioEra.allCases.map(\.styleQuerySuffix), ["", " before 2000", " 2015 and later"])
     }
 
-    func testDefaultsFollowTheTappedStationAndItsMatchingLanguageVariant() throws {
+    func testDefaultsFollowTheTappedStationWithoutRequiringLanguageSelection() throws {
         for id in ["hindi-classics", "english-golden-oldies"] {
             let station = try XCTUnwrap(RadioExperience.stations.first { $0.id == id })
-            let configuration = RadioConfiguration(station: station, languages: [.hindi, .english])
+            let configuration = RadioConfiguration(station: station)
             XCTAssertEqual(configuration.era, .older)
-            XCTAssertEqual(configuration.languages, station.discoveryLanguages)
+            XCTAssertEqual(configuration.languages, [.hindi, .english], "Automatic setup preserves every legacy cue language")
             XCTAssertTrue(configuration.artists.isEmpty)
             XCTAssertEqual(RadioConfiguration.defaultArtists(station: station, languages: configuration.languages).count, 4)
             XCTAssertTrue(station.seeds.allSatisfy { $0.yearSource != nil && RadioEra.older.accepts(year: $0.year) })
@@ -35,7 +36,7 @@ final class RadioConfigurationTests: XCTestCase {
         XCTAssertEqual(RadioConfiguration.defaultArtists(station: mixed, languages: hindi.languages).map(\.name), ["Char Diwaari", "Seedhe Maut"])
     }
 
-    func testZeroOrSingleArtistHintsAreValidWhileLanguageAndHintBudgetRemainRequired() {
+    func testOptionalArtistHintsKeepTheirBudgetWithoutALanguageRequirement() {
         var configuration = RadioConfiguration(station: ExperienceRadioFixtures.melancholy, languages: [.english])
         XCTAssertNil(configuration.validationMessage)
         configuration.artists = [ArtistCredit(name: "A. R. Rahman")]
@@ -48,7 +49,29 @@ final class RadioConfigurationTests: XCTestCase {
         configuration.artists = (0..<5).map { ArtistCredit(name: "Artist \($0)") }
         XCTAssertEqual(configuration.validationMessage, "Choose up to four artist hints.")
         configuration.languages = []
-        XCTAssertEqual(configuration.validationMessage, "Choose at least one language.")
+        XCTAssertEqual(configuration.validationMessage, "Choose up to four artist hints.")
+        configuration.artists = []
+        XCTAssertNil(configuration.validationMessage)
+        XCTAssertEqual(configuration.experience().variants, configuration.station.variants)
+    }
+
+    func testAutomaticAndEmptyLanguageDraftsPreserveAllVariantsForProfileBasedRadio() {
+        for station in RadioExperience.stations {
+            let automatic = RadioConfiguration(station: station)
+            var empty = RadioConfiguration(station: station, languages: [])
+            empty.era = .newer
+            empty.artists = [ArtistCredit(name: "Optional artist", id: "UCoptional")]
+            XCTAssertNil(automatic.validationMessage)
+            XCTAssertNil(empty.validationMessage)
+            XCTAssertEqual(automatic.experience().variants, station.variants)
+            let experience = empty.experience()
+            XCTAssertEqual(experience.variants, station.variants)
+            XCTAssertEqual(experience.queryTemplates, station.queryTemplates)
+            XCTAssertEqual(experience.defaultEra, .newer)
+            XCTAssertEqual(experience.artistHints, empty.artists)
+            XCTAssertEqual(RadioConfiguration.defaultArtists(station: station, languages: []),
+                           RadioConfiguration.defaultArtists(station: station, languages: Set(MusicLanguage.allCases)))
+        }
     }
 
     func testEffectiveExperienceKeepsTheMoodDefinitionAndAnIndependentHintSnapshot() throws {
@@ -66,41 +89,82 @@ final class RadioConfigurationTests: XCTestCase {
         XCTAssertEqual(experience.seeds, f.melancholy.seeds)
         XCTAssertEqual(experience.artistHints, [f.melancholy.seeds[1].artist])
         XCTAssertEqual(experience.selection(for: [.english])?.contentLabel, "English · Anytime · 1 artist hint")
-        XCTAssertNil(experience.selection(for: [.hindi]))
+        let hindi = try XCTUnwrap(experience.selection(for: [.hindi]), "Any non-empty language set has a selection")
+        XCTAssertTrue(hindi.seeds.isEmpty, "English cues never masquerade as Hindi cues")
+        XCTAssertEqual(hindi.contentLabel, "Hindi · Anytime · 1 artist hint")
+        XCTAssertNil(experience.selection(for: []))
     }
 
-    func testEveryStationHasMoodQueriesAndClearingHintsKeepsItsDefaults() throws {
+    func testEveryStationValidatesAndHasWordingForEveryLanguageSet() throws {
+        let sets: [Set<MusicLanguage>] = [[.hindi], [.english], [.hindi, .english]]
         for station in RadioExperience.stations {
-            var value = RadioConfiguration(station: station, languages: station.discoveryLanguages)
-            value.artists = RadioConfiguration.defaultArtists(station: station, languages: value.languages)
-            value.artists.removeAll()
-            let configured = value.experience()
-            XCTAssertEqual(configured.seeds, station.seeds)
-            XCTAssertEqual(configured.styleQueries, station.styleQueries)
-            XCTAssertFalse(configured.styleQueries.isEmpty)
-            XCTAssertTrue(configured.artistHints.isEmpty)
-            XCTAssertNotNil(configured.selection(for: value.languages))
+            for language in MusicLanguage.allCases {
+                XCTAssertGreaterThanOrEqual(station.styleQueries(for: language).count, 2, "\(station.id) \(language)")
+                XCTAssertEqual(station.queryTemplates[language]?.count ?? 0, 3, "\(station.id) declares three \(language) templates")
+            }
+            for languages in sets {
+                var value = RadioConfiguration(station: station, languages: languages)
+                XCTAssertNil(value.validationMessage, "\(station.id) \(languages)")
+                value.artists = RadioConfiguration.defaultArtists(station: station, languages: languages)
+                value.artists.removeAll()
+                let configured = value.experience()
+                let selection = try XCTUnwrap(configured.selection(for: languages), "\(station.id) \(languages)")
+                XCTAssertEqual(selection.seeds, station.selection(for: languages)?.seeds)
+                XCTAssertEqual(selection.styleQueries, station.selection(for: languages)?.styleQueries)
+                XCTAssertGreaterThanOrEqual(selection.styleQueries.count, 2 * languages.count)
+                XCTAssertTrue(configured.artistHints.isEmpty)
+                XCTAssertEqual(configured.group, station.group)
+            }
+            XCTAssertEqual(station.styleQueries, station.selection(for: [.hindi, .english])?.styleQueries)
         }
     }
 
-    func testDisjointLanguagesCannotRetagAStationsDefaultsEvenWithArtistHints() throws {
+    func testAnyLanguageSetIsValidAndOnlyTheChosenLanguagesCuesAreKept() throws {
         let cases: [(String, Set<MusicLanguage>, String)] = [
-            ("hindi-gym", [.english], "Choose Hindi for this station."),
-            ("melancholy", [.hindi], "Choose English for this station."),
+            ("hindi-gym", [.english], "English · Anytime"),
+            ("melancholy", [.hindi], "Hindi · Anytime"),
         ]
-        for (id, languages, message) in cases {
+        for (id, languages, label) in cases {
             let station = try XCTUnwrap(RadioExperience.stations.first { $0.id == id })
             var configuration = RadioConfiguration(station: station, languages: languages)
+            XCTAssertNil(configuration.validationMessage, "A station starts in any language, with or without hints")
+            XCTAssertTrue(RadioConfiguration.defaultArtists(station: station, languages: languages).isEmpty)
             configuration.artists = [ArtistCredit(name: "Optional Artist", id: "UCoptionalArtist")]
-            XCTAssertEqual(configuration.validationMessage, message)
+            XCTAssertNil(configuration.validationMessage)
             let experience = configuration.experience()
-            XCTAssertTrue(experience.discoveryLanguages.isEmpty)
-            XCTAssertTrue(experience.variants.isEmpty)
+            XCTAssertTrue(experience.variants.isEmpty, "Cues tagged for another language stay out of the session")
             XCTAssertTrue(experience.seeds.isEmpty)
-            XCTAssertTrue(experience.styleQueries.isEmpty)
-            XCTAssertNil(experience.selection(for: languages))
-            XCTAssertNil(experience.selection(for: station.discoveryLanguages))
+            XCTAssertEqual(experience.artistHints.map(\.name), ["Optional Artist"])
+            let selection = try XCTUnwrap(experience.selection(for: languages))
+            XCTAssertEqual(selection.contentLabel, "\(label) · 1 artist hint")
+            XCTAssertEqual(selection.styleQueries, station.selection(for: languages)?.styleQueries)
+            XCTAssertGreaterThanOrEqual(selection.styleQueries.count, 2)
+            XCTAssertEqual(selection.description, station.description)
         }
+    }
+
+    func testSynthesizedWordingNamesTheLanguageAndInterleavesAcrossLanguages() throws {
+        let station = RadioExperience(id: "english-wording", title: "Night Drive", description: "Fixture", symbol: "radio",
+            discoveryLanguages: [.english], contentLabel: "English", seeds: [], styleQueries: ["night drive songs", "late highway songs"])
+        let hindi = station.styleQueries(for: .hindi)
+        XCTAssertEqual(hindi, ["Hindi night drive songs", "night drive Hindi music"])
+        XCTAssertTrue(hindi.allSatisfy { $0.contains("Hindi") })
+        XCTAssertEqual(station.styleQueries(for: .english), ["night drive songs", "late highway songs"])
+        let combined = try XCTUnwrap(station.selection(for: [.hindi, .english]))
+        XCTAssertEqual(combined.styleQueries, ["Hindi night drive songs", "night drive songs", "night drive Hindi music", "late highway songs"])
+        XCTAssertEqual(combined.contentLabel, "Hindi + English")
+        XCTAssertEqual(station.selection(for: [.hindi])?.contentLabel, "Hindi")
+
+        let cueOnly = ExperienceRadioFixtures.melancholy
+        XCTAssertTrue(cueOnly.styleQueries(for: .hindi).isEmpty, "A station with no wording anywhere stays cue-only")
+        XCTAssertTrue(cueOnly.styleQueries.isEmpty)
+
+        let templated = try XCTUnwrap(RadioExperience.stations.first { $0.id == "melancholy" })
+        let both = try XCTUnwrap(templated.selection(for: [.hindi, .english]))
+        XCTAssertEqual(both.styleQueries[0], templated.styleQueries(for: .hindi)[0])
+        XCTAssertEqual(both.styleQueries[1], templated.styleQueries(for: .english)[0])
+        XCTAssertEqual(both.styleQueries[2], templated.styleQueries(for: .hindi)[1])
+        XCTAssertEqual(templated.styleQueries(for: .hindi), ["Hindi sad songs", "Bollywood melancholy songs", "sad Hindi acoustic songs"])
     }
 
     func testConfiguredVariantsKeepTheirOwnAudienceCuesAndCopy() throws {
@@ -110,17 +174,18 @@ final class RadioConfigurationTests: XCTestCase {
         XCTAssertEqual(experience.selection(for: [.english])?.seeds.map(\.artist.name), ["Kanye West", "Tyler, The Creator"])
         XCTAssertEqual(experience.selection(for: [.hindi])?.seeds.map(\.artist.name), ["Char Diwaari", "Seedhe Maut"])
         XCTAssertEqual(experience.selection(for: [.english])?.contentLabel, "English · Anytime")
-        XCTAssertEqual(experience.selection(for: [.hindi, .english])?.contentLabel, "English + Hindi · Anytime")
+        XCTAssertEqual(experience.selection(for: [.hindi, .english])?.contentLabel, "Hindi + English · Anytime")
 
         let gym = try XCTUnwrap(RadioExperience.stations.first { $0.id == "hindi-gym" })
         var configuration = RadioConfiguration(station: gym, languages: [.hindi])
         configuration.languages.insert(.english)
         XCTAssertNil(configuration.validationMessage)
         let scoped = configuration.experience()
-        XCTAssertEqual(scoped.discoveryLanguages, [.hindi])
-        XCTAssertNil(scoped.selection(for: [.english]))
+        XCTAssertEqual(scoped.cueLanguages, [.hindi])
+        XCTAssertTrue(try XCTUnwrap(scoped.selection(for: [.english])).seeds.isEmpty)
         XCTAssertEqual(scoped.selection(for: [.hindi])?.contentLabel, "Hindi + Punjabi · Anytime")
+        XCTAssertEqual(scoped.selection(for: [.hindi, .english])?.contentLabel, "Hindi + Punjabi + English · Anytime")
         XCTAssertEqual(scoped.seeds, gym.seeds)
-        XCTAssertEqual(scoped.styleQueries, gym.styleQueries)
+        XCTAssertEqual(scoped.selection(for: [.hindi, .english])?.styleQueries, gym.selection(for: [.hindi, .english])?.styleQueries)
     }
 }

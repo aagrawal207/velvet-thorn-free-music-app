@@ -4,52 +4,66 @@ import XCTest
 
 @MainActor
 final class HomeDiscoveryShelfTests: XCTestCase {
-    func testHomeRemovesOnlyTheTwoHitlistIDsAndKeepsOtherEditorialAndRadio() async throws {
+    func testHomeUsesAutomaticLanguageShelvesWithoutCallingLegacyDiscoveryOrHardFilteringSongs() async throws {
         let context = try makeContext(languages: [.hindi, .english])
-        var hindiHitlist = AppModelFixtures.section("editorial-hindi", language: .hindi)
-        hindiHitlist.title = "A renamed provider hitlist"
-        var englishHitlist = AppModelFixtures.section("editorial-english")
-        englishHitlist.title = "Another renamed provider hitlist"
-        let hindiRadio = AppModelFixtures.section("radio-hindi", language: .hindi)
-        let englishRadio = AppModelFixtures.section("radio-english")
-        var otherEditorial = AppModelFixtures.section("editorial-acoustic")
-        otherEditorial.title = "Pop hits"
-        var futureEditorial = AppModelFixtures.section("editorial-classics", language: .hindi)
-        futureEditorial.title = "Bollywood hits"
-        let fallback = AppModelFixtures.section("starter-hindi", language: .hindi)
-        await load([hindiHitlist, englishHitlist, hindiRadio, englishRadio, otherEditorial, futureEditorial, fallback], in: context)
-        XCTAssertEqual(context.model.homeSections.map(\.id), ["radio-hindi", "radio-english", "editorial-acoustic", "editorial-classics", "starter-hindi"])
-        XCTAssertEqual(context.model.homeSections.flatMap(\.tracks), [hindiRadio, englishRadio, otherEditorial, futureEditorial, fallback].flatMap(\.tracks))
+        let hindi = RecommendationFixtures.track("hindi", artist: "Hindi performer", language: .hindi)
+        let english = RecommendationFixtures.track("english", artist: "English performer", language: .english)
+        let unknown = RecommendationFixtures.track("unknown", artist: "Unclassified performer")
+        let songs = [hindi, english, unknown]
+        await loadColdDiscovery(songs, in: context)
+        XCTAssertEqual(Set(context.model.homeSections.map(\.id)), ["discovery.language.hi", "discovery.language.en"])
+        for section in context.model.homeSections {
+            XCTAssertEqual(Set(section.tracks.map(\.id)), Set(songs.map(\.id)))
+            XCTAssertNil(section.tracks.first { $0.id == unknown.id }?.language)
+        }
+        let searches = await context.catalog.searches.requests
+        let legacy = await context.catalog.discoveries.requests
+        let targeted = await context.catalog.radios.requests
+        XCTAssertEqual(Set(searches.map(\.input.query)), ["Hindi songs", "English songs"])
+        XCTAssertTrue(searches.allSatisfy { $0.input.filter == .songs && $0.input.continuation == nil })
+        XCTAssertTrue(legacy.isEmpty && targeted.isEmpty)
         XCTAssertTrue(context.library.preferences.homeLayout.isVisible(.discovery))
         XCTAssertTrue(context.library.preferences.homeLayout.isVisible(.becauseYouLike))
     }
 
-    func testHitlistsStayRemovedOnRefreshWithoutDisplacingPersonalRadio() async throws {
+    func testRefreshingLanguageShelvesKeepsPersonalSectionsAndDropsSuccessfulEmptyDiscovery() async throws {
         let context = try makeContext()
         let seed = context.seedListener(primary: AppModelFixtures.track("listener"))
         let artistID = try XCTUnwrap(seed.artistID)
         let personal = AppModelFixtures.track("personal-pick")
-        for includeRadio in [true, false] {
+        let discovered = AppModelFixtures.track("language-pick")
+        for hasDiscovery in [true, false] {
             await context.catalog.artists.enqueue(.success(context.artistPage(artistID, songs: [personal])))
-            let hitlists = [AppModelFixtures.section("editorial-hindi", language: .hindi), AppModelFixtures.section("editorial-english")]
-            let radio = includeRadio ? [AppModelFixtures.section("radio-english")] : []
-            await load(hitlists + radio, in: context)
-            XCTAssertEqual(context.model.homeSections.map(\.id), ["personal.\(artistID)"] + radio.map(\.id))
+            await context.catalog.autoplayRadios.enqueue(.success(hasDiscovery ? [discovered] : []))
+            if !hasDiscovery { await context.catalog.searches.enqueue(.success(CatalogPage())) }
+            await context.charts.charts.enqueue(.failure(MusicServiceError.unavailable("No chart fixture")))
+            await context.model.loadHome(force: true)
+            XCTAssertEqual(context.model.homeSections.map(\.id), ["personal.\(artistID)"] + (hasDiscovery ? ["discovery.language.en"] : []))
             XCTAssertEqual(context.model.homeSections.first?.tracks, [personal])
+            if hasDiscovery { XCTAssertEqual(context.model.homeSections.last?.tracks, [discovered]) }
             XCTAssertNil(context.model.homeError)
         }
+        let radios = await context.catalog.autoplayRadios.requests
+        let searches = await context.catalog.searches.requests
+        XCTAssertEqual(radios.map(\.input.id), [seed.id, seed.id])
+        XCTAssertEqual(searches.map(\.input.query), ["English songs"])
     }
 
-    func testRemovingShelvesDoesNotDislikeOrRemoveTheirSongsFromTheLibrary() async throws {
+    func testHidingDiscoveryPreservesFavoritesRecentsAndAutoplayEligibility() async throws {
         let context = try makeContext()
         let song = RecommendationFixtures.track("still-liked", title: "A song from the hitlist", language: .english)
         context.library.toggleFavorite(song)
         context.library.recordRecent(track: song, position: 15)
-        await load([DiscoverySection(id: "editorial-english", title: "Pop hits", language: .english, tracks: [song])], in: context)
-        XCTAssertTrue(context.model.homeSections.isEmpty)
+        context.model.updatePreferences { $0.homeLayout.setVisible(false, for: .discovery) }
+        await loadColdDiscovery([song], in: context)
+        XCTAssertFalse(context.library.preferences.homeLayout.isVisible(.discovery))
+        XCTAssertFalse(LibraryStore(directory: context.directory).preferences.homeLayout.isVisible(.discovery))
+        XCTAssertEqual(context.model.homeSections.map(\.id), ["discovery.language.en"], "Visibility is presentation state, not a catalog or song exclusion")
+        XCTAssertEqual(context.model.homeSections.first?.tracks, [song])
         XCTAssertEqual(context.library.favorites, [song])
         XCTAssertEqual(context.library.recentlyPlayed.first?.track, song)
         XCTAssertTrue(context.library.disliked.isEmpty)
+        XCTAssertTrue(context.library.recentSearchSelections.isEmpty)
         XCTAssertEqual(MusicAppModel.autoplaySelection(from: [song], queue: [], disliked: context.library.dislikedTrackIDs), [song])
     }
 
@@ -93,16 +107,22 @@ final class HomeDiscoveryShelfTests: XCTestCase {
 
     private func refreshCharts(_ snapshots: [ChartSnapshot], in context: AppModelTestContext) async throws {
         let offset = await context.charts.charts.requests.count
-        await context.catalog.discoveries.enqueue(.success([AppModelFixtures.section("public-discovery")]))
+        XCTAssertFalse(context.model.listeningLanguageProfile.isLearned)
+        for _ in 0..<2 {
+            await context.catalog.searches.enqueue(.success(CatalogPage(tracks: [AppModelFixtures.track("public-discovery")])))
+        }
         let task = context.start { await $0.loadHome(force: true) }
-        for index in 0..<context.library.preferences.languages.count {
+        var requested: Set<MusicLanguage> = []
+        for index in 0..<2 {
             let request = try await context.charts.charts.request(at: offset + index)
+            requested.insert(request.input)
             let result: Result<ChartSnapshot, any Error>
             if let snapshot = snapshots.first(where: { $0.language == request.input }) { result = .success(snapshot) }
             else { result = .failure(MusicServiceError.unavailable("Other language chart is unchanged")) }
             try await context.charts.charts.complete(request, with: result)
         }
         await task.value
+        XCTAssertEqual(requested, [.hindi, .english])
     }
 
     private func assertChart(_ expected: ChartSnapshot, in context: AppModelTestContext,
@@ -121,9 +141,10 @@ final class HomeDiscoveryShelfTests: XCTestCase {
         XCTAssertEqual(actual.entries.map(\.track), expected.entries.map(\.track), file: file, line: line)
     }
 
-    private func load(_ sections: [DiscoverySection], in context: AppModelTestContext) async {
-        await context.catalog.discoveries.enqueue(.success(sections))
+    private func loadColdDiscovery(_ tracks: [Track], in context: AppModelTestContext) async {
+        XCTAssertFalse(context.model.listeningLanguageProfile.isLearned)
         for _ in context.library.preferences.languages {
+            await context.catalog.searches.enqueue(.success(CatalogPage(tracks: tracks)))
             await context.charts.charts.enqueue(.failure(MusicServiceError.unavailable("No chart fixture")))
         }
         await context.model.loadHome(force: true)

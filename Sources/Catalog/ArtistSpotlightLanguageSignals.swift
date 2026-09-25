@@ -31,6 +31,11 @@ enum ArtistSpotlightLanguageSignals {
     }
 
     static func combine(lyrics: ArtistSongLanguageResult?, metadata: ArtistSongLanguageResult?, title: String) -> ArtistSongLanguageResult {
+        if lyrics?.hasConflictingEvidence == true || metadata?.hasConflictingEvidence == true {
+            return .unclassified(.conflictingEvidence)
+        }
+        // A work with an explicit unsupported/undetermined language is not a missing metadata response.
+        if metadata == .unclassified(.uncertainLanguage) { return .unclassified(.uncertainLanguage) }
         if let a = lyrics?.language, let b = metadata?.language, a != b { return .unclassified(.conflictingEvidence) }
         if let metadata, metadata.language != nil { return metadata }
         if let lyrics, lyrics.language != nil { return lyrics }

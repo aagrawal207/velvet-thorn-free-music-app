@@ -42,6 +42,22 @@ final class ArtistSpotlightMultiSignalTests: XCTestCase {
         XCTAssertEqual(result, work)
     }
 
+    func testAnExplicitConflictCannotBeReplacedByAnotherSourceOrATitleHint() {
+        let conflict = ArtistSongLanguageResult.unclassified(.conflictingEvidence)
+        let english = ArtistSongLanguageResult.identified(.english, source: .matchedLyrics)
+        let work = ArtistSongLanguageResult.identified(.english, source: .musicBrainzWork(recordingID: "recording", workID: "work"))
+        for (lyrics, metadata) in [(conflict, work), (english, conflict), (conflict, conflict)] {
+            XCTAssertEqual(ArtistSpotlightLanguageSignals.combine(lyrics: lyrics, metadata: metadata, title: "Song (English Version)"), conflict)
+        }
+        XCTAssertEqual(ArtistSpotlightLanguageSignals.combine(lyrics: nil, metadata: conflict, title: "Song (Hindi)"), conflict)
+        XCTAssertEqual(ArtistSpotlightLanguageSignals.combine(lyrics: conflict, metadata: nil, title: "Song (Tamil)"), conflict)
+    }
+
+    func testAnExplicitUnsupportedWorkLanguageDoesNotBecomeAnEnglishLyricsFallback() {
+        XCTAssertEqual(ArtistSpotlightLanguageSignals.combine(lyrics: .identified(.english, source: .linkedLyrics),
+            metadata: .unclassified(.uncertainLanguage), title: "Song (English)"), .unclassified(.uncertainLanguage))
+    }
+
     func testDifferentProviderIDsDoNotShareLinkedLanguageEvenWithIdenticalMetadata() async throws {
         let provider = ArtistSpotlightLyricsFixture()
         addTeardownBlock { await provider.requests.close() }

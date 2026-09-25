@@ -57,7 +57,12 @@ final class LibraryClockRollbackTests: XCTestCase {
             expected["preferences"] = preferences
             expected["tipTransactions"] = ["1": false, "2": true]
             let saved = try Data(contentsOf: url)
-            let actual = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [String: Any])
+            var actual = try XCTUnwrap(JSONSerialization.jsonObject(with: saved) as? [String: Any])
+            let previousClock = try LibraryPersistence.decode(original, now: clock.now).syncState?.clock
+            let savedClock = try LibraryPersistence.decode(saved, now: clock.now).syncState?.clock
+            XCTAssertGreaterThan(try XCTUnwrap(savedClock), try XCTUnwrap(previousClock))
+            expected.removeValue(forKey: "syncState")
+            actual.removeValue(forKey: "syncState")
             XCTAssertEqual(NSDictionary(dictionary: actual), NSDictionary(dictionary: expected))
 
             let restored = LibraryStore(directory: directory, now: { clock.now })
