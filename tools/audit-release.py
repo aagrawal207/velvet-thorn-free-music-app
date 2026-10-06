@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an archived Breezy app before local export or distribution preparation."""
+"""Validate an archived Velvet Thorn app before local export or distribution preparation."""
 
 import argparse
 import json
@@ -30,7 +30,7 @@ def main():
     app = apps[0]
     info = plistlib.loads((app / "Info.plist").read_bytes())
     require(info["CFBundleIdentifier"] == "com.agraabhi.ganabajana", "Unexpected bundle identity")
-    require(info["CFBundleDisplayName"] == "Breezy", "Unexpected display name")
+    require(info["CFBundleDisplayName"] == "Velvet Thorn", "Unexpected display name")
     require(info["CFBundleShortVersionString"] == args.version and info["CFBundleVersion"] == args.build,
             "Archive version/build does not match the requested candidate")
     require(sorted(info["UIDeviceFamily"]) == [1, 2], "Release must target iPhone and iPad")
@@ -52,7 +52,23 @@ def main():
                    b"--cached-songs-fixture", b"--offline-fixture", b"--slow-search", b"--fail-search-once",
                    b"--reduce-motion", b"DebugMusicFixtures", b"DebugCachedAudioFixture", b"DebugFixtureAudio",
                    b"--widget-fixture", b"--widget-preview", b"--widget-sharing-fixture", b"DebugWidgetSupport", b"r8-small-card-v2",
-                   b"OpusFixtures.json"):
+                   b"OpusFixtures.json", b"DebugTrackDetailsFixture", b"--saavn-fixture", b"DebugSaavnFixtureCatalog",
+                   b"--gaana-fixture", b"DebugGaanaFixtureCatalog",
+                   b"--sponsorblock-fixture", b"DebugSponsorBlockFixture",
+                   b"--youtube-import-fixture", b"DebugYouTubeImportFixtureClient",
+                   b"--genre-fixture", b"DebugGenreFixture", b"--recap-history-fixture",
+                   b"--library-organisation-fixture", b"--recap-long-names-fixture", b"--open-following-fixture",
+                   b"--icloud-status-fixture", b"DebugCloudSyncStatusFixture",
+                   b"--fast-start-fixture", b"DebugFastStartAudioResolver",
+                   b"--scroll-performance-fixture", b"DebugScrollPerformanceFixture",
+                   b"DebugScrollPerformanceButton", b"scrollPerformance.probe", b"--daily-mixes-fixture", b"--r17-fixture",
+                   b"--r18-fixture", b"--r18-import-candidate", b"DebugR18Fixture", b"DebugR18AudioResolver",
+                   b"DebugR18RadioResolver", b"DebugR18WriteClient", b"DebugR18ForbiddenNetwork", b"DebugR18Catalog",
+                   b"--r19-fixture", b"DebugR19Fixture", b"DebugR19AudioResolver", b"DebugR19Catalog",
+                   b"--seed-radio-fixture", b"DebugSeedRadioCatalog",
+                   b"--release-notification-fixture", b"DebugReleaseNotificationFixture", b"delights.fixture",
+                   b"--nearby-fixture", b"DebugNearbyFixture", b"NEARBY_FIXTURE", b"--debug-window-snapshot",
+                   b"--debug-player-sheet", b"DebugWindowSnapshot"):
         require(marker not in data, f"Debug fixture marker in Release: {marker.decode()}")
     require(not list(app.rglob("*.storekit")), "Local StoreKit test catalog must not ship in Release")
     require(not list(app.rglob("*.webm")), "Test media must not ship in Release")
@@ -65,12 +81,12 @@ def main():
         require(re.fullmatch(r"AIza[A-Za-z0-9_-]{35}", api.get("APIKey", "")) is not None,
                 "Invalid bundled YouTube Data API configuration")
     widgets = list((app / "PlugIns").glob("*.appex"))
-    require(len(widgets) == 1, "Expected the Breezy widget extension")
+    require(len(widgets) == 1, "Expected the Velvet Thorn widget extension")
     widget = widgets[0]
     widget_info = plistlib.loads((widget / "Info.plist").read_bytes())
     require(widget_info["CFBundleIdentifier"] == "com.agraabhi.ganabajana.widgets", "Unexpected widget identity")
     require(widget_info["CFBundleShortVersionString"] == args.version and widget_info["CFBundleVersion"] == args.build,
-            "Widget version/build must match Breezy")
+            "Widget version/build must match Velvet Thorn")
     require(widget_info["NSExtension"]["NSExtensionPointIdentifier"] == "com.apple.widgetkit-extension",
             "The extension must use native WidgetKit")
     require(widget_info["MinimumOSVersion"] == "18.0" and sorted(widget_info["UIDeviceFamily"]) == [1, 2],

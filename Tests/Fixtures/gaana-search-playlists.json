@@ -1,0 +1,68 @@
+{
+ "topFacet": "Mix",
+ "gr": [
+  {
+   "ty": "Playlist",
+   "topSc": 4247,
+   "va": "1",
+   "stxt": "Playlists",
+   "gd": [
+    {
+     "iid": "1075124",
+     "id": 1075124,
+     "ti": "Best of Arijit Singh",
+     "aw": "https://a10.gaanacdn.com/gn_pl_img/playlists/zLp36v3rGe/Lp36mQk0Kr/size_m_1784199401.jpg",
+     "sti": "Kunaal Vermaa,Amaal Mallik,Gulzar",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "gaana-dj-best-of-arijit-singh",
+     "ty": "Playlist",
+     "language": "Hindi",
+     "alist": "[Kunaal Vermaa,Amaal Mallik,Gulzar]",
+     "pw": 0,
+     "playlistType": 1
+    },
+    {
+     "iid": "1400394",
+     "id": 1400394,
+     "ti": "Romantic Hits of Arijit Singh",
+     "aw": "https://a10.gaanacdn.com/gn_pl_img/playlists/koMWQ4B3qL/oMWQjdyBbq/size_m_1778754541.jpg",
+     "sti": "Kunaal Vermaa,Neha Kakkar,Amaal Mallik",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "gaana-dj-romantic-arijit1",
+     "ty": "Playlist",
+     "language": "Hindi",
+     "alist": "[Kunaal Vermaa,Neha Kakkar,Amaal Mallik]",
+     "pw": 0,
+     "playlistType": 1
+    },
+    {
+     "iid": "63505958",
+     "id": 63505958,
+     "ti": "Arijit Singh Top 50",
+     "aw": "https://a10.gaanacdn.com/gn_pl_img/playlists/9MAWe97WyJ/AWeX8JBj3y/size_m_1782474161.jpg",
+     "sti": "Kunaal Vermaa,Neha Kakkar,Amaal Mallik",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "gaana-dj-arijit-singh-top-50",
+     "ty": "Playlist",
+     "language": "Hindi",
+     "alist": "[Kunaal Vermaa,Neha Kakkar,Amaal Mallik]",
+     "pw": 0,
+     "playlistType": 1
+    }
+   ]
+  }
+ ],
+ "srId": "trimmed",
+ "algo": "NEWSEARCH",
+ "action": 0,
+ "q": "arijit singh",
+ "originalQuery": "arijit singh",
+ "abFlag": 26,
+ "tabs": []
+}

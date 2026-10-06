@@ -1,0 +1,45 @@
+{
+  "responseContext": {"visitorData": "CgtmaXh0dXJlLXZpc2l0b3I%3D"},
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [{"tabRenderer": {"selected": true, "content": {"sectionListRenderer": {"contents": [{
+        "musicShelfRenderer": {
+          "contents": [
+            {"musicResponsiveListItemRenderer": {
+              "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://yt3.googleusercontent.com/fixtureArijit=s88-c-k-c0x00ffffff-no-rj", "width": 88, "height": 88}
+              ]}}},
+              "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Arijit Singh", "navigationEndpoint": {"browseEndpoint": {"browseId": "UCDxKh1gFWeYsqePvgVzmPoQ",
+                  "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "26.4M subscribers"}]}}}
+              ],
+              "navigationEndpoint": {"browseEndpoint": {"browseId": "UCDxKh1gFWeYsqePvgVzmPoQ",
+                "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}
+            }},
+            {"musicResponsiveListItemRenderer": {
+              "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://yt3.googleusercontent.com/fixturePritam=s88-c-k-c0x00ffffff-no-rj", "width": 88, "height": 88}
+              ]}}},
+              "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Pritam"}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "12 songs"}]}}}
+              ],
+              "navigationEndpoint": {"browseEndpoint": {"browseId": "MPLAUCCTN01plFzn4npREHKT2_9Q",
+                "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_LIBRARY_ARTIST"}}}}
+            }},
+            {"musicResponsiveListItemRenderer": {
+              "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Uploads channel"}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "3 songs"}]}}}
+              ],
+              "navigationEndpoint": {"browseEndpoint": {"browseId": "FEmusic_library_privately_owned_artist_detaila_po_fixture",
+                "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"}}}}
+            }}
+          ],
+          "continuations": [{"nextContinuationData": {"continuation": "4qmFsgArtistsPage2Token", "clickTrackingParams": "CAAQ"}}]
+        }
+      }]}}}}]
+    }
+  }
+}

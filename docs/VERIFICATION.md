@@ -1,5 +1,528 @@
 # Verification
 
+## Mac App and Handoff
+
+Local uncommitted source, still labelled **1.0.0 (11)**; not in TestFlight build 11. Receipts are under `artifacts/R22/` (runner `artifacts/R22/run.py`, which adds `R22_SCHEME`, `R22_DERIVED` and `R22_SIGN=adhoc`). Mac runs used `artifacts/MacDerivedData` on this Mac (macOS 26.6.2) with ad hoc signing and no entitlements; the screen was locked throughout.
+
+| Receipt | Executed Result and Scope |
+| --- | --- |
+| `ffmpeg-build-2.log`, `build-ffmpeg.py --component verify` | Five slices built and packaged; verification passed. iPhone device binary byte-identical (`14e66860…`); simulator binary identical once signatures are removed (`6355bcd2…` both); Catalyst slice `MACCATALYST` minos 18.0, arm64 and x86_64. New corresponding source `…7611a216….tar.xz` (unpublished) |
+| `Mac-Build-01`…`16` | Mac Catalyst Debug builds. The first launch crashed opening the player and then any sheet ("No Observable object of type MusicAppModel"); fixed with `appPresentationEnvironment`. In-process window captures (`shots/mac-05`, `mac-08`, `mac-09`) show the sidebar, Home, Search, the player, Song Options, Devices and Settings |
+| `Mac-Catalyst-Unit-02`, `Recheck-01`…`04`, `Unit-03` | Full unit target on Mac Catalyst. First run 29 failed: CarPlay template suites (compiled out on the Mac), alternate icons and the route-sharing policy (skipped on the Mac), the accent sheet render (fixed by page sizing), and cache maintenance deleting an in-flight Opus input because macOS lists `/var` as `/private/var` (fixed: `AudioCache.comparablePath`). Final: **2,933 passed, 0 failed, 49 skipped** |
+| `Mac-Tests-01`…`04` | Handoff, link and companion classes on iPhone. Loopback found a real defect: TLS session resumption let a wrong key reconnect after a good one; resumption and tickets are now off. After the review fixes: **74 passed** (codec, publisher, protocol, controller, loopback TLS, two-controller socket integration) |
+| `Mac-iOS-Unit-01`, `Unit-02`, `Recheck-01` | Full iPhone unit target: **2,972 passed, 8 failed, 47 skipped** of 3,027. Six are the recorded native `TipJarStoreKitTests` environment gap; the view-count test is the known intermittent; the CarPlay cold-launch test failed once and **both passed** alone (30 passed) |
+| `Mac-UI-01`…`03` | iPhone UI: **50 of 52**, then **2 of 2**: Player More (with the Devices row), Settings pages, organization, search, layout, Sheet Done, accent, player shell, mini-player progress, delights, browse, Search. Fixed: the layout inventory now lists `settings.devices`; Sheet Done centres against the title row because the bar includes the Search Settings drawer |
+| `Link-Live-01`…`11` | Not established: Bonjour discovery between the Mac app and simulators. The apps' listeners and browsers reached ready, yet no browse results arrived in-process, even for a shell-registered service, while a command-line `NWBrowser` saw both; Local Network permission could not be granted with the screen locked |
+| `Mac-Release-iOS-02`, `mac-round-ios-release-inspection.json` | Unsigned iPhone Release build; inspection clean, new fixture markers absent. Executable SHA256 `fa9b5ffd2552fd3077a4552235d77a4dbe3fd6601c0ff4b9eb6d3c740507ca7c` |
+| `Mac-Release-Mac-02`, `mac-release-inspection.json` | Unsigned Mac Catalyst Release build, universal (arm64, x86_64); family 6, macOS 15.0 minimum, Handoff and Bonjour keys present, no Watch app, Catalyst FFmpeg slice, fixtures absent. Executable SHA256 `d95303ad18c9f7e6438c3aca6e3eb03a89729ca062e2dba7e31c70d362c17446` |
+
+Review: a fresh-context review blocked the first link draft. The 6-digit pairing code was the only TLS secret and could be cracked offline; it is now 80 bits. Further fixes: a Find Nearby Devices switch and Reset Device Key, per-launch Bonjour names, receiver restore on a failed transfer, the release race, one 1,024-song cap, a release-time track check, and a Keychain read cache. Handoff pausing a sender whose payload the receiver declines is documented as a limitation.
+
+Not verified: Handoff between real devices; discovery, control and transfers on a real network; iCloud Keychain key sync; the Space shortcut beside text fields on the Mac; Mac UI tests; signed or provisioned Mac builds.
+
+## Velvet Thorn, Skip and Repeat Signals, Hidden Delights and Readable Mixes
+
+Local uncommitted source, still labelled **1.0.0 (11)**; not in TestFlight build 11. Receipts are under `artifacts/R21/`.
+
+| Receipt | Executed Result and Scope |
+| --- | --- |
+| `Round4-Build-01`…`05` | Debug build-for-testing passed after the rename, the mix tiles, the three work packages and the autoplay and Seed Radio wiring (one test expression split for the type checker) |
+| `Round4-Tests-01`, `-02` | **334 passed, 3 failed** across 27 classes: new `DelightsTests`, `ListeningSignalCaptureTests`, `ListeningSignalStoreTests`, `SkipSignalRecommendationTests`, `DiscoverWeeklyDiscoveryTests`, plus taste profile, super like, recommendation, familiarity, language, clustering, seed radio, autoplay, mix, listening controls, playback, layout, widget, CarPlay, companion and share-card suites. One About-tap test miscounted its own taps (corrected); the CarPlay library-write test and the view-count test are known intermittent: the next run passed **32 of 33**, and the view-count test then **passed 2 of 3** alone (`Round4-ViewCount-01`…`03`) |
+| `Round4-Regress-01`, `Round4-Recheck-01` | **514 passed, 2 failed** across 46 playback, cache, download, radio, companion, widget, accent, library, sync, checkpoint, history and search classes; both failures (CarPlay library write, Live Radio transport) are known intermittent and passed with their classes (**13 passed**) |
+| `Round4-UI-01`, `Round4-Mix-01` | **22 passed, 1 failed**, then **2 passed**: Delights (About taps), Settings pages and search (renamed About page), widget previews (renamed copy), accent, player background, scroll ends for tab roots and pushed pages; Made for You first measured unequal card heights (238 vs 223 points) because the stretch was inside the link; with the frame on the link both grid tests pass and the capture shows art with full titles and focus lines below |
+| `Round4-Release-01`, `round4-release-inspection.json` | Unsigned device Release build passed; inspection clean; app and widget `CFBundleDisplayName` are Velvet Thorn. Executable SHA256 `b9f6de967172fd93ad89b4fb4ebe27eb85caf8f9e032eec50d99411c8067bc84` |
+
+Not verified: the tabla sound and haptic, the heart burst and the late-night line on a device; skip signals over real listening; the App Store Connect record, which still carries the previous name.
+
+## Icons, Visible Player Motion, Made for You Grid, Glass Chrome and Discover Weekly
+
+Local uncommitted source, still labelled **1.0.0 (11)**; not in TestFlight build 11. Receipts are under `artifacts/R21/`. The Mac lost power during this round; bundles from before the restart (`Mix-UI-01`, `Round2-UI-01`, `Round3-UI-04` before its process finished) are not cited as evidence unless read from a completed result.
+
+| Receipt | Executed Result and Scope |
+| --- | --- |
+| Icon generation | `swift tools/generate-artwork.swift --icons` for the 13 new ids, then a re-render of Leafnote, Thorn and Sonnet through the shared helpers: all 15 earlier icon and preview PNGs are byte-identical to the backup (SHA-1 per file); every new icon is 1024 by 1024 and every preview 240 by 240 RGB without alpha |
+| `Round2-Tests-01`…`04` | Icons, picker and background: **105 passed, 2 failed** (the Drift frame interval assertion and a pale light-mode mesh, both changed deliberately), then **22 passed** after the light tones got their own saturation bands: policy, preference, meter math, metering tap, 4.5:1 contrast for every mesh tone and neighbour blend, visible colour travel, no mesh fold, and `PlaybackLevelMeterIntegrationTests` reading a playing AVPlayer item |
+| `Round2-Background-UI-01` | **1 passed**: each style chosen in Settings and the player shown in dark and light. Frame-to-frame pixel change over 4 s: Drift mean 9.4 (max 69), light Drift 10.5 (max 67), Pulse 4.7, React to Music 1.3 on the constant fixture tone |
+| `Round3-Tests-01`, `-02` | **131 passed, 1 failed**, then **25 passed**: `DiscoverWeeklyDiscoveryTests` (8, new) with the existing recommendation, familiarity, language, super-like, mix, genre and refresh suites. The failure was deliberate: a model test's artist page listed the neighbour song as a familiar artist's first top song, now a likely-known hit; the fixture puts five hits ahead of it and asserts they stay out |
+| `Mix-UI-02` | **1 failed**: Made for You Play controls were exposed as "Other" because `accessibilityElement(children: .ignore)` dropped the button trait (also on the existing Mix tiles); `.isButton` restored |
+| `Round3-UI-02` | **20 passed, 12 failed** with the glass agent's `safeAreaInset` version: pushed pages ignored the inset, so their last rows stayed under the capsule. Replaced by `miniPlayerClearanceProbe()` |
+| `Round3-UI-03`…`06` | Final layout: tab roots (`testMiniPlayerKeepsLastRowsAboveTheBarAcrossTabs`) and pushed ScrollView and List pages (`…PushedScrollAndListEnds…`, default and largest text) **passed**; Made for You grid (default and accessibility sizes), mini-player progress (both), collection presentation (4), navigation intent (5), keyboard growth and player background **passed**. Two stale UI-test strings were updated to the app's title-case copy ("Recently Played", "An Open Queue") |
+| Remaining failures | `testMiniPlayerKeepsLastRowsAboveTheBarAcrossTabsAtLargestTextSize` fails on the Home discovery-carousel card, recorded as failing since R19. Three `GanaBajanaQueueSaveUITests` cases in the player's More and Save Remaining sheets (a 42.2-point Reload target, unreachable rows) and two `GanaBajanaFeedbackUITests` accessibility values failed identically in every run, before and after the layout fix; this round did not change those sheets or rows, but no older baseline run confirms them |
+| `Round3-IPad-01` | **2 passed**: `GanaBajanaIPadLayoutUITests` on iPad Pro 13 |
+| `Round3-Release-01`, `round3-release-inspection.json` | Unsigned device Release build passed; inspection clean. Executable SHA256 `e188fe5b5061582cd674843a5ffcffc986c867cbb7d58df1ef967a256a78792c` |
+
+Not verified: physical-device look of the glass chrome and the animated background, iOS 18 material fallback (all simulators run iOS 26.5), alternate icon switching for the new icons on a device, and Discover Weekly quality against live catalogs.
+
+## Heat, Player Motion, Accent Reach and Settings Captions
+
+Local uncommitted source, still labelled **1.0.0 (11)**; not in TestFlight build 11. Receipts are under `artifacts/R21/`.
+
+| Receipt | Executed Result and Scope |
+| --- | --- |
+| `Settings-UI-01`…`03` | Root captions. First run: 13 passed, 3 failed (row-height assertion assumed 44-point page rows; accessibility-size reveal could not aim at an off-screen row). Assertions updated for the captioned page-row shape, captions shortened, reveal tries both directions: **14 passed** (SettingsPages, SettingsLayout including AX XXXL dark/light, SettingsSearch) |
+| `Batch-Build-01`, `-02` | Debug build-for-testing of all five work packages together passed on the first build |
+| `Batch-Tests-01` | **115 passed**: `LibraryWriteFenceTests`, `ChunkedBodyTests`, `CompanionProtocolTests`, `CompanionPlaybackControllerTests`, `WatchPhonePublicationTests`, `BoundedURLSessionTests`. The `PlayerBackgroundMotionTests` selector matched no class; those classes ran in `Background-Tests-02` |
+| `Solver-Unit-01` (`swift test`, Vendor/YouTubeKit) | **9 passed** `SignatureSolverReuseTests`; network-backed `SignatureTests` and `NSigTests` passed over 155 real player cases through the shared cache |
+| `Batch-Regress-01` | **617 passed, 1 failed, 2 skipped** across 55 playback, cache, download, catalog, provider, equalizer, widget and library classes. The failure is the known intermittent `LiveRadioPlaybackTests.testNativeTransportDispatchAndLiveNowPlayingClearAllSongMetadata`, which passed with its class in `Batch-Library-01` |
+| `Batch-Library-01` | **732 passed, 6 failed** across 82 library, sync, lifetime, history, checkpoint, recap, widget, tip and search classes. All six failures are native `TipJarStoreKitTests` (`notEntitled`, StoreKit dialog timeouts), the recorded StoreKit environment gap, unrelated to these changes |
+| `Watch-Unit-01` | **41 passed**: `GanaBajanaWatchTests` on Watch SE 3 including the new `WatchAccentTests` |
+| `Batch-UI-01` | **29 passed**: SettingsPages, SettingsLayout, SettingsSearch, ListeningControls, Accent, PlayerMore, PlayerProgressBar, FastStart, PlayerDownload |
+| `Background-Tests-02` | **19 passed**: policy, preference decode/sync, level meter math, metering tap, mesh bounds and a new 4.5:1 text-contrast check at both luminance bounds |
+| `Background-UI-02`, `-04` | **1 passed**: each style chosen in Settings and the player shown. Frame-to-frame pixel change over 4 s (fixture without artwork, gold fallback): Pulse mean 4.9, max 24; Drift mean 0.4 (30 s cycles); React to Music mean 0.15 on the constant fixture tone. `Background-UI-03` could not launch the runner (SpringBoard busy) |
+| `Batch-Release-01`, `batch-release-inspection.json` | Unsigned device Release build passed; inspection clean. Executable SHA256 `49e3fa2a1625992154bb1b810d3e669bb30cad3d06ba2fb8cc0b19597123a328`. Superseded by `Batch-Release-02` |
+| `Batch-Release-02`, `batch-release-inspection-02.json` | Final unsigned device Release build passed; inspection clean. Executable SHA256 `d6f6ed052908b6d744b117c07a3ed055fbaac2230cb796f4cc02472ee80df55b` |
+
+Not verified: device heat, battery and frame time; React to Music on real music; Watch accent over a real phone connection; lyric accent readability (owner judgement).
+
+## Lock Screen Widgets, Controls and Accent Follow-Up
+
+Local uncommitted source, still labelled **1.0.0 (11)**; not in TestFlight build 11. Receipts are under `artifacts/R21/`. [WIDGETS.md](WIDGETS.md#lock-screen-widgets-and-controls) owns the contract.
+
+| Receipt | Executed Result and Scope |
+| --- | --- |
+| `Widgets-Build-01`…`05` | Debug build-for-testing passed after each edit; no new compiler warnings in the changed files |
+| `Widgets-Tests-01`, `-02` | One failure in the new sheet-accent render test: it assumed `ImageRenderer` falls back to the coral asset, which it does not. That assumption was dropped; the mint assertions stand. Then **181 passed** across `PlaybackWidgetTests` (7, new), `AppAccentTests` (new sheet-chrome render), widget snapshot/publisher/route/presentation, widget navigation/playback/mix/offline/supersession, companion, release-notification and `PlaybackControllerTests` |
+| `Widgets-Regress-01` | **280 passed, 1 failed** across 26 playback, cache, offline, radio, companion, widget and share-card classes. `LiveRadioPlaybackTests.testNativeTransportDispatchAndLiveNowPlayingClearAllSongMetadata`, a known intermittent test, passed with its class in `Widgets-Recheck-01` |
+| `Accent-UI-02` | **2 passed** (`Accent-UI-01` could not launch the runner: SpringBoard busy). Captures show the Settings tile icons and the picker checkmark in mint, where they had stayed coral |
+| `Widgets-UI-01`, `-02` | **14 passed, 2 failed**, then **15 passed, 1 failed**. Both native widget failures came from the unsigned runner (`CODE_SIGNING_ALLOWED=NO`): there is no App Group container, so the fixture read `unavailable`. The other failure was a stale UI-test string; see `Widgets-Recheck-04` |
+| `Widgets-Native-01` | **2 passed**: `GanaBajanaNativeWidgetsUITests` with simulator signing (a separate derived-data folder, since removed); the existing Home Screen widgets are unaffected |
+| `Widgets-Recheck-02`…`04` | Two UI-test strings predated the title-case empty-state copy (`Save a Song You Love`, `The First Song Sets the Mood`). Updated to match the app; **7 passed** (`GanaBajanaLibrarySearchUITests` and the empty Liked preview) |
+| `Widgets-Release-01`, `widgets-release-inspection.json` | Unsigned device Release build passed and inspection is clean. Executable SHA256 `7705ca496f43276bcf0b48f30e8f0a8010bc9ce02833807910235ebcc73a88ba`. App Intents metadata in both the app and the extension lists `TogglePlaybackIntent` and `SetBreezyPlaybackIntent` as audio-starting intents, and `OpenBreezyPlayerIntent` with `openAppWhenRun` |
+
+Not verified: Lock Screen and Control Center placement, interactive taps, cold background launch from a Control, Action button, accessory tinting and VoiceOver on a physical device. The simulator Lock Screen was not exercised.
+
+## Quick-Skip Preparation and Faster Search
+
+Local uncommitted source, still labelled **1.0.0 (11)**; the delivered TestFlight build 11 predates it. Receipts are under `artifacts/R21/`. [FAST_START.md](FAST_START.md#quick-skips-and-browsing-october-2026) owns behaviour, bounds and test mapping.
+
+| Receipt | Executed Result and Scope |
+| --- | --- |
+| `Prefix-Live-01`…`05` | Rejected byte-prefix spike, live YouTube. Prefixed starts 3.0 to 3.8 s vs 0.5 to 1.7 s plain; 25 to 47 range requests before audio; unreachable continuation gave no audio in 10 s; content type and on-demand flag variants did not help; a metadata-preloaded native asset started in about 0.3 s. Spike sources archived in `artifacts/R21/prefix-spike/` |
+| `Search-Live-01`…`03` | Live stage timings before and after the search changes; numbers in FAST_START. Network variance is large and nothing asserts on time |
+| `Preload-Live-02` | Live preloader: 5/5 prepared in 5.1 s; preloaded first audio 321 to 492 ms vs 387 to 1,298 ms for the warm URL alone, which ran on connections the preloader had opened |
+| `Preload-Tests-01` | **112 passed**: new `PlaybackPreloaderTests` (13), `PlaybackPreloadIntegrationTests` (4), `ProgressiveSearchTests` (13), plus the cache, offline, catalog, warmer and transition suites touched by the change |
+| `Preload-Regress-04` | **561 passed, 2 failed** across 48 playback, cache, download, offline, search, radio, companion and integration classes. `PlaybackWarmerTests.testAWarmNeverDisplacesTheQueuePrefetchDownload…` (timeout) and `LiveRadioPlaybackTests.testNativeTransportDispatchAndLiveNowPlayingClearAllSongMetadata` both passed in `Preload-Recheck-02` (**20 passed**, the two whole classes) |
+| `Preload-UI-01` | **12 passed**: FastStart, CatalogSources, Gaana, SeedRadio workflows and the search/play workflow on iPhone 17 Pro |
+| `Preload-Release-01` | Unsigned Release build before the review fixes; superseded by `Preload-Release-02` |
+| Review fixes | An independent read-only review found no high-severity defects. It found seven medium issues, all fixed: a stale hold let queue work start beside a new selection and from a paused restored queue; the hold blocked browsing; warm re-routing restarted preparations and spent the URL budget; evicted assets were cancelled while possibly in use; stale signed URLs looked prepared; an obsolete next download ran to completion; and a finished artist page could be dropped by a slow songs request. Low findings fixed: network/preference re-planning and `isSearching` during pagination. Documented, not changed: Opus-only offers still prepare during resolution; the settle rule uses playback position |
+| `Preload-Tests-02`, `-03` | **146 passed, 1 failed**, then **20 passed** after one store assertion was updated for the intended stale-URL drop. Covers the new suites plus cache, offline, catalog, warmer, transition and audio-quality classes, with new tests for paused restore, stale URLs, obsolete next transfers and a page that arrives before a slow songs request |
+| `Preload-Regress-06` | **447 passed, 1 failed** across 40 remaining regression classes; `CarPlayPlaybackIntegrationTests` passed alone in `Preload-Recheck-03` (**3 passed**). `Preload-Regress-05` was interrupted by the owner and is not evidence |
+| `Preload-UI-02` | **12 passed** on the final source: FastStart, CatalogSources, Gaana, SeedRadio and the search/play workflow |
+| `Preload-Release-02`, `preload-release-inspection.json` | Final unsigned device Release build passed; DEBUG fixtures and test resources absent, credential excluded from companions, no broad ATS. Executable SHA256 `6b4cce0034eed9e873fd92676ce5018444ce8bd56f222fa73a3f14fc80ee30a9`; no signature audit |
+
+Six existing expectations changed deliberately: three described the old next-before-current download order, two ran a reconnect or late-download scenario that now needs `nextDownloadSettleSeconds = 0`, and one counted collection warms at 2 instead of 3. One new preloader assertion was corrected to check requests rather than the stored candidate list. The settle rule, current-first order and three-song collection warm are owner-requested behaviour. `CatalogServiceTests.testSuccessfulSongsReturnWhileOptionalArtistSearchOrPageRemainsGated` initially failed on an unintended change (a slow artist page produced a featured card); the code was corrected so a late page still drops the feature, and the original expectation passes unchanged.
+
+Not verified: physical-device timing, cellular or poor networks, background playback and long-idle connection reuse. No full unit-target or full UI run is claimed.
+
+## September 30: Build 11 TestFlight Delivery
+
+Explicitly authorized delivery of the tested R17–R21 working tree and release-notification fix, **1.0.0 (11)**. `artifacts/AppStore-1.0.0-11/summary.json` records build `eed48919-97be-46a8-a3ca-b742f502d782`, VALID processing, matching remote IPA size/MD5 and unchanged frozen source hashes. Signed archive/resource audit, nested phone/Watch/widget signature/profile inspection and Apple validation passed. The 20,713,556-byte IPA has SHA256 `ed078358584f0e3561e72bd4041fb4bad2f5a780e1128ab41f24df8a61c67573`.
+
+Internal state is `READY_FOR_BETA_TESTING`, with existing Friends group access and en-US test notes verified by readback. Expiration is December 29, 2026 at 21:34:58 UTC. Temporary export keychain cleanup preserved the original search list/default. The public iOS draft retains build 6; no App Review/Beta App Review submission or Git write occurred. These delivery checks do not close the physical-device acceptance items below. Earlier “no upload” statements describe the implementation checkpoints before this authorized delivery.
+
+## Release Notification Navigation Follow-Up
+
+Local **1.0.0 (11)** adds the missing notification-response handler. Tapping an alert opens its album/single on Library, dismisses Settings or the player, and leaves playback untouched. Cold-launch intent waits for RootView navigation, including Welcome completion. Older alerts use their existing `release.<browseID>` identifier; saved metadata is optional. Missing catalog content uses the collection page's existing loading/error behavior.
+
+Receipts under `artifacts/R21/`:
+
+| Receipt | Executed Result and Scope |
+| --- | --- |
+| `Notification-Build-04` | Build-for-testing passed. Earlier compile attempts caught initialization order, a C callback capture and a Swift 6 actor-boundary error; all were corrected before testing |
+| `Notification-Tests-01` | **51 passed, zero skipped** on iPhone 17 Pro: 49 unit/model tests across ReleaseNotificationRouting, ReleaseWatcher, ReleaseWatcherRegression and LibraryReleaseDeliveryPersistence, plus two new UI workflows |
+| `Notification-IPad-01` | **2 passed** on iPad Pro 13: the same cold-launch and warm-navigation workflows |
+| `Notification-Release-01`, `notification-release-inspection.json` | Unsigned device Release passed. DEBUG fixtures and test resources absent, credential excluded from companions, no broad ATS exception. Executable SHA256 `a08134d25f228a01826697265c9affe3c1c0967d8f56e963d8535451a7e44201`; no signature audit |
+
+`ReleaseNotificationRoutingTests` covers exact IDs (including prefixed providers), old alerts, missing saved releases, latest pending tap, one-time consumption, ignored dismiss/custom actions and invalid IDs, duplicate taps, modal flags and unchanged paused queue/index/position/control revision. Native UI tests verify the actual album page, Back/foreground without route replay, player/Settings dismissal and replacing a pushed Liked Songs destination. The cold workflow uses dark appearance; the warm workflow uses light and local audio fixtures.
+
+### Release notification tap crash (post-build-11)
+
+The R21 fixtures called `handle(request:actionIdentifier:)` directly and never entered the system delegate. Tapping a real banner crashed: the async `didReceive` finished on the cooperative pool and UIKit's response completion (`-[UIApplication _performBlockAfterCATransactionCommitSynchronizes:]`) asserted the main thread. The delegate now uses the completion-handler forms and runs the completion on the main actor. `--release-notification-system` schedules a real banner for `testTappingSystemBannerFromBackgroundOpensAlbumWithoutCrashing`.
+
+| Receipt (`artifacts/R22/`) | Executed Result and Scope |
+| --- | --- |
+| `R22-releaseTap-original-*` | Before the fix, iPhone 17 Pro: the new system-banner test failed and the simulator wrote a `GanaBajana` SIGABRT report with the stack above |
+| `R22-releaseTap-fixed-*b` | After the fix: cold-launch and system-banner tests **passed**, no crash report. The warm fixture test failed at launch waiting for `tab.home` behind the `--player` cover; it fails identically when run alone and does not reach the delegate |
+| `R22-releaseUnit-*` | `ReleaseNotificationRoutingTests` **5 passed** |
+
+The UI fixture injects a parsed launch intent or calls the production request handler through a DEBUG-only signal. It does not schedule or tap a genuine system notification. Physical-device delivery, lock-screen taps and terminated-app OS handoff remain acceptance checks. TestFlight stays build 6; no commit or upload was performed. Earlier R21 release receipts remain historical evidence for the radio work.
+
+## R21: Song and Artist Radio
+
+Local source **1.0.0 (11)** replaces the non-live mood/setup UI with song/artist starts, Tune Radio, Listen Again and anchored continuation. [SEED_RADIO.md](SEED_RADIO.md) owns the implemented contract and test mapping. Receipts are in `artifacts/R21/`. TestFlight remains build 6; no commit, signing, archive or upload was performed.
+
+| Receipt | Executed Result and Scope |
+| --- | --- |
+| `Build-01`…`Build-09` | Incremental build-for-testing checkpoints passed. `Build-09` includes the final Tune toolbar sizing fix and targeted test; these builds reused app-owned derived data |
+| `Core-01.xcresult` | **66 passed** across seed engine/store/model, legacy model compatibility, setup playback and native autoplay continuation |
+| `Core-02.xcresult` | **90 passed** after the review fixes, adding occurrence-safe retention, PlaybackQueue and failed-library/tuned-restart/current-evidence regressions. Overlaps Core-01 |
+| `UI-06.xcresult` | **27 passed**: all four initial seed-radio functional UI workflows, SearchDiscovery and SearchRedesign. The external shell timeout fired at the end; the finalized xcresult reports Passed, 27 tests, 0 failures. The runner completion JSON was not written |
+| `UI-Entries-01.xcresult` | **1 passed**: song-menu and artist-page Start Radio, no setup or automatic full-player presentation, correct session labels and native cached playback |
+| `UI-SE-01.xcresult`, `UI-IPad-01.xcresult` | **1 passed each**, the song-search/Tune/Listen Again/relaunch/refill workflow in light and dark on SE3 and iPad Pro 13 |
+| `UI-Navigation-01.xcresult` | **2 passed**: Radio pop/reselect/focus and welcome-to-radio without mandatory language selection |
+| `UI-IPad-Layout-01.xcresult` | **1 passed**: native portrait/landscape layout workflow, including the replacement Radio page and existing player/queue controls |
+| `UI-SE-Toolbar-01.xcresult`, `UI-IPad-Toolbar-01.xcresult` | **1 passed each**, checking the final Tune toolbar and Cancel dismissal in light/dark. Screenshots in `SE-toolbar-captures` and `IPad-toolbar-captures` were visually inspected: Cancel stays on one line, both pickers and footer copy fit |
+| `Release-02.xcresult`, `release-inspection.json` | Final unsigned `generic/platform=iOS` Release build **1.0.0 (11)** passed. DEBUG fixture markers (including `DebugSeedRadioCatalog`) and test resources absent; API credential excluded from companions; no broad ATS exception. Executable SHA256 `f5fe1e9381daeba55bf3fe6bc7687bf3cd20b75f9d753ec124c0e74fbd5a1aa9`. Not a signature audit |
+
+### Failures Investigated
+
+- UI-01/02 exposed a native menu picker's sub-44-point target and shared-fixture interference: Home recommendation requests consumed the scripted radio failures/results. Pickers use the existing SettingsMenuRow, and seed-radio requests use a separate injected fixture provider. No production provider behavior was changed to satisfy the fixture.
+- UI-03 had three passes and one Tune failure. A sheet attached to a lazy section lost its presenter during layout. Tune presentation moved to the owning screen/Queue root. UI-04 then exposed the native Cancel target shrinking below 44 points in the nested sheet; the plain 46-point label and hidden automatic toolbar background fixed it. UI-05 passed the light/dark workflow, and UI-06 passed it again after the remaining integration fixes.
+- Visual inspection of SE/iPad captures caught Cancel wrapping even though its hit target passed. A fixed-size text label inside a 70-point minimum width corrected it; both targeted toolbar reruns passed and their screenshots were inspected.
+- Static review found five correctness issues: unavailable library epochs erasing valid radio history; saved tuning filtering away the explicit seed on restart; Tune clearing the stopped-session retry action; stale recording-language evidence; unbounded accumulation of past generated entries. Each was corrected and covered by the Core-02 tests. Manual queue duplicates are protected by occurrence identity, not song ID.
+- Thirteen obsolete mood/setup UI cases were retired with the removed product path. Their applicable cancellation, retry, continuity and tuning scenarios are covered by the seed-radio workflows; era/mood-grid assertions have no current equivalent. Legacy engine/model tests remain. Other Search tests were retained and exercised in UI-06.
+
+### Remaining Acceptance
+
+Native UI/audio workflows use isolated libraries, fake catalog responses and local audio. They establish interaction, queue, persistence and recovery behavior, not real-provider musical relevance, physical-device sound or first-audio latency. Long-session recommendation quality, poor-network/background playback and physical VoiceOver remain open in ROADMAP. The generated-history cap protects manually queued, current, upcoming and never-selected entries; it is not a total queue-size cap. No full-app green suite is claimed for this round.
+
+## R20 Follow-Up: Responsiveness, Live Radio, Settings Search and Instant Downloads
+
+Same source build **1.0.0 (10)**, local and uncommitted; nothing uploaded. Receipts are under `artifacts/R20/`. Design and measurements live in [SCROLLING_PERFORMANCE.md](SCROLLING_PERFORMANCE.md), [LIVE_RADIO.md](LIVE_RADIO.md), [SETTINGS.md](SETTINGS.md) and [BACKGROUND_DOWNLOADS.md](BACKGROUND_DOWNLOADS.md).
+
+| Receipt | Result and scope |
+| --- | --- |
+| `Perf-Base-02`, `Perf-Final-01` | `GanaBajanaResponsivenessUITests` idle and during playback on an optimized (`-O`, whole-module) Debug build; before/after table in SCROLLING_PERFORMANCE. Simulator evidence only. Raw profiling traces and exported profile XML were pruned with owner approval; logs, test bundles and documented summaries remain |
+| `Perf-Focus-02`…`06` | Liked Songs fling A/B: 1–2 hitches per 8.3 s pass with the artwork body lookup removed, 74–79 with it |
+| `Radio-Audit-02` | Opt-in public audit: 256 of 275 sampled landing, NPR and India stations reach `readyToPlay`; 17 fail the stream probe and 2 time out during native validation. Browser health checks hide failed probes; stations that pass the probe but fail native validation can still be listed |
+| `Fix-Unit-04` | Whole unit target except native StoreKit: **2,672 passed, 1 failed, 45 skipped**. The failure (`PlaybackControllerTests.testResolvedViewCountFollowsTheInstalledStreamAndResetsOnTrackChange`, `CancellationError`) passed alone in `Fix-Flake-01` (one executed test) |
+| `Fix-Unit-02`, `Fix-Unit-03` | Radio, downloads, Settings search and recovery classes; `BackgroundDownloadsTests` **39 passed** including the new transient-retry, permanent-failure, join-the-playing-copy and reuse-the-player-link cases |
+| `Fix-UI-02` | **9 passed**: Settings search (every result opens its row; keywords, empty state, clearing, light and dark), R18 workflows (including Live Radio), R20 workflow, the disabled download button |
+| `Fix-UI-01` (runner timeout at 3,500 s under load) | 29 of 30 completed cases passed across Downloads, PlayerDownload, SettingsLayout, SettingsOrganization and SettingsPages; the failure was a stale lowercase expectation for "Download Unavailable", corrected and passed in `Fix-UI-02` |
+| `Fix-UI-SE-02`, `Fix-UI-IPad-02` | Settings search everyday-word workflow on iPhone SE and iPad Pro 13, light and dark |
+| `Fix-Build-06`, `Fix-UI-03` | Build-for-testing passed; **1 UI test passed**, exercising the YouTube Changes workflow in light and dark. Player More has exactly one Done button, supplied by its parent sheet; Settings retains its own Done and dismissal behavior. Uses the fake account client |
+| `Release-02`, `release-inspection.json` | Unsigned device Release build: build 10, no DEBUG fixture markers or test resources, SHA256 `c390e3e3431fc20a6ec89be691fd616d276af08f169d476bc8fec892790ec385`. Not a signature audit |
+
+Corrections found on the way:
+
+- An optimized build crashed in `ArtworkLoader.image` (`swift_task_checkIsolated`, then heap corruption in `Set.insert`): actor state was written after resuming from a continuation. The image is now cached in `finish` before waiters resume. Debug builds never showed it.
+- `AppModelLibraryRecoveryTests` left a player callback asserting against its deleted file; later timer checkpoints reported failures inside unrelated tests. The callback is restored before the test's assertions.
+- `TipJarStoreKitTests` could wait forever on the real Apple Account sheet when `SKTestSession` failed to take over (`SKInternalErrorDomain Code=3` for every session setter after the simulator reboot). Purchases now have a 30-second deadline, so the run reports `timedOut` instead of hanging. The session failure itself is environmental and not fixed; native StoreKit remains excluded from the unit-target receipt, as in earlier rounds.
+
+Not verified: physical-device frame timing, live background downloads against real googlevideo after an immediate Play, and the radio health check on cellular.
+
+`Release-02` predates the duplicate-Done fix; `Fix-Build-06` and `Fix-UI-03` cover that final UI change.
+
+## R20: Super Likes on Companions, Extras and Overnight Mixes
+
+Source **1.0.0 (10)** carries the three follow-ups the owner asked to track after R19: companion wire version 2 (`isSuperLiked`, `setSuperLiked`) with the Watch three-state heart and the fourth CarPlay Now Playing button, the Super Liked Home shelf, Storage row and row badge, and `MixRefreshRegistration` for overnight mix regeneration. No commit, push, archive, signing, Apple validation or upload was performed; build 6 remains the delivered build. Receipts are under `artifacts/R20/`; `run.py` there is the R19 runner with the R20 directory and `R20_*` overrides. Counts describe separate runs with overlapping coverage, not an additive total.
+
+### Executed Checks
+
+| Receipt | Result and Scope |
+| --- | --- |
+| `Build-02.xcresult`, `Build-04.xcresult` | Debug app build and build-for-testing passed; `Build-04` is the final source |
+| `Core-01.xcresult` | **226 passed, 1 failed**: companion protocol and controller, CarPlay template/session/integration/navigation/scene, Watch phone session, publication, lease, mutation, snapshot and request client, mix and release refresh registration, Home customization, `SuperLikeExtrasTests`, model mixes, super-like library, R19 integration, TrackRow accessibility and widget navigation. The failure was an audio timing flake (below) |
+| `Flake-01.xcresult` | `CarPlayPlaybackIntegrationTests` rerun **3 passed** |
+| `Watch-Unit-01/watch-unit.xcresult` | `tools/verify.sh watch-unit` on Watch SE 3 40 mm: **34 passed** including the new super-like model case |
+| `Watch-UI-01/watch-ui.xcresult` | `tools/verify.sh watch-ui`: **7 passed, 2 skipped** (the opt-in real-connectivity and screenshot suites), including `testFavoriteHoldPromotesToSuperLikeAndTapRemovesIt` |
+| `UI-01.xcresult` | **10 passed**: `GanaBajanaR20UITests` (shelf, see all onto the Super Liked chip, row badge, Storage count, hide and show in Customize Home, light and dark) plus the Home customization and Settings organization suites with the seventh section |
+| `UI-03.xcresult`, `UI-04.xcresult` | **2 passed** and **11 passed**: the five R19 workflows and the whole Library organisation suite on the R20 source |
+| `UI-SE-01.xcresult`, `UI-IPad-01.xcresult` | **1 passed** each: the R20 workflow on iPhone SE (3rd generation) and iPad Pro 13, light and dark |
+| `Release-01.xcresult`, `release-inspection.json` | Unsigned `generic/platform=iOS` Release build passed; build 10, both device families, no DEBUG fixture markers, no test resources, API credential excluded from companions, no broad ATS exception. Executable SHA256 `42099476b441dc55b739145eb0c26c210ae9debe29395fa4b062b084f6f65dcd`. Not a signature or archive audit |
+
+### Failures and Corrections
+
+- `Core-01`: `CarPlayPlaybackIntegrationTests.testLibraryWriteFailureDuringPlaybackNeverOffersAPlaybackRetryOrRestartsAudio` read `MPNowPlayingInfoPropertyPlaybackRate` as 0 once while real audio was still settling; the class rerun passed. No code changed.
+- `UI-02` (log kept as `UI-02-interrupted.log`, bundle discarded) ran straight after the Watch suites and hit a degraded simulator: accessibility queries stalled for about 1,000 seconds, one Downloads test passed in 1,905 seconds instead of 69, two Library organisation tests failed on ordinary 10-second waits, and app termination took 973 seconds. The shell timeout ended the run. Both failed tests passed in `UI-03` in 59 and 15 seconds, and the whole class passed again in `UI-04`; the earlier run is not evidence of a defect.
+- Two existing UI tests hid the six original Home sections by name and expected the customized-empty state; they now include `superLiked` (`GanaBajanaHomeCustomizationUITests`, `GanaBajanaSettingsOrganizationUITests`). `WatchRequestClientTests.testInvalidVersionNeverReachesTransport` used version 2 as its invalid version; it now uses version 1.
+- Worker review found two R20 gaps before the runs: `WatchPhoneSession.sameSemantics` ignored `isSuperLiked`, so a promotion alone would have been throttled as a position-only update, and `CompanionPlaybackController.perform` skipped the no-track and identifier checks for `setSuperLiked`. Both were corrected and are covered by the controller and publication tests.
+- Policy note, not a defect: CarPlay's Remove favorite recheck compares `isFavorite` only, so it removes both tiers when the phone promoted the song between the snapshot and the tap; the Watch's `WatchActionPolicy` rejects any tier change for both heart actions. Both behaviours are documented in [CARPLAY.md](CARPLAY.md) and [WATCH.md](WATCH.md).
+
+### Limits
+
+Not verified: a physical Watch and CarPlay head unit (the Watch fixture and the phone-side CarPlay template tests stand in), the BGAppRefreshTask actually running overnight on a device (iOS decides; the handler, expiration and rescheduling are unit tested with an injected registrar and submitter), audible haptics, and VoiceOver with the new Watch custom actions. The two pre-existing `GanaBajanaRefinementUITests` Home-carousel failures recorded under R19 remain open.
+
+## R19: Super Likes and Motion Polish
+
+Source **1.0.0 (9)** contains Super Likes ([SUPER_LIKES.md](SUPER_LIKES.md)) and the motion polish for the play button, heart, current-song badge and filter chips. No commit, push, archive, signing, Apple validation or upload was performed; build 6 remains the delivered TestFlight/App Store Connect build. Receipts are under `artifacts/R19/`; `run.py` there is the R18 runner with the R19 directory and `R19_*` overrides. Counts describe separate runs with overlapping coverage, not an additive unique-test total.
+
+### Executed Checks
+
+| Receipt | Result and Scope |
+| --- | --- |
+| `Build-04` to `Build-11.xcresult` | Debug build-for-testing passed after each integration and test correction; `Build-11` is the final polished source |
+| `Core-01.xcresult` | **169 passed, 0 failed/skipped**: the new `SuperLikeLibraryTests`, `SuperLikeSyncTests`, `SuperLikeRecommendationTests`, `SuperLikeDownloadsTests` and `R19IntegrationTests` with the closest existing persistence, sync, playlist, taste, mix, downloads, import, lifetime and recovery suites |
+| `Regression-A.xcresult` | **1,377 passed, 1 failed, 2 skipped** over the first 123 of 247 unit classes (every class except Live, Benchmark and StoreKit). The failure was pre-existing and unrelated (below) |
+| `Regression-B.xcresult` | **1,163 passed, 1 failed, 1 skipped** over the remaining 124 classes. The failure was pre-existing and unrelated (below) |
+| `Flake-02.xcresult`, `Flake-03.xcresult` | The two corrected classes rerun green: `DailyMixClusteringTests` (all) and `ListeningProjectionCacheTests` (11) |
+| `UI-01.xcresult` | **5 passed**: the five R19 phone workflows in light and dark on the pre-polish source |
+| `UI-Existing-01.xcresult` | **19 passed, 3 failed** (Downloads, Library organisation, Settings layout, Player More). Two failures were stale R18-era expectations, one a lazy-row assertion after the taller chip block (below) |
+| `UI-Existing-03.xcresult` | **19 passed, 1 failed**: the same suites plus two R19 workflows after the first corrections; the remaining failure was a stale R17-era Settings inventory (below) |
+| `UI-02.xcresult` | **15 passed, 0 failed** on the polished source: the five R19 workflows, the Settings rhythm test, `GanaBajanaPlayerShellUITests`, `GanaBajanaPlayerGesturesUITests` and `GanaBajanaPlayerProgressBarUITests` |
+| `UI-SE-01.xcresult` | **5 passed**: the five R19 workflows on iPhone SE (3rd generation), light and dark |
+| `UI-IPad-01.xcresult` | **5 passed**: the five R19 workflows on iPad Pro 13, light and dark |
+| `UI-Existing-04.xcresult` | **26 passed, 8 failed**: Downloads, Library organisation and Player More suites green on the polished source; all eight failures were pre-existing `GanaBajanaRefinementUITests` expectations (below) |
+| `UI-Existing-05.xcresult`, `UI-Existing-06.xcresult` | Refinement suite after corrections: **15 passed, 4 failed**, then the two Recently Played tests **2 passed**. Two Home-carousel expectations remain failing and unrelated (below) |
+| `UI-Existing-08.xcresult` | **6 passed**: the full `GanaBajanaR17UITests` (downloads filters, Not Liked, Moment Mixes, TV lyrics, lifetime) and the R18 account workflow that drives Player More |
+| `Release-01.xcresult`, `release-inspection.json` | Unsigned `generic/platform=iOS` Release build passed; build 9, both device families, no DEBUG fixture markers (including `--r19-fixture`, `DebugR19Fixture`), no test resources, API credential excluded from companions, no broad ATS exception. Executable SHA256 `bbdfddb3a78ed0ac3aef5e092d2c5c47ba84749915908bf9d5a6e58ae460054c`. Not a signature or archive audit |
+
+The five R19 workflows (heart tap/hold, menu and More rows, Liked Songs chip/swipe/empty state, download scope and Downloads filter, tip after the first like) therefore have passing phone, SE and iPad coverage in both appearances. The fixture (`--uitesting --seed-ui --r19-fixture`, optional `--player`, `--show-tips`) uses isolated storage, staged local AAC and a local resolver; no network, real account or real TipKit datastore is touched.
+
+### Failures and Corrections
+
+- Regression-A: `DailyMixClusteringTests.testWidgetSnapshotCarriesDiscoverWeeklyAndThreeDailyMixes` compared a snapshot stamped with a live `Date()` against its millisecond round trip through `WidgetSnapshotStore`; the test now passes `Fixtures.now`. Pre-existing, unrelated to R19.
+- Regression-B: `ListeningProjectionCacheTests.testReloadSameCountSameTotalAndSameLastSessionInvalidatesBothProfiles` replaced a saved session's track on disk without rebuilding its lifetime receipt, which the R17 receipt identity rule rejects; the helper now rebuilds `lifetimeListening` from the edited events beside the reseeded journal. Pre-existing since R17.
+- `GanaBajanaDownloadsUITests`: the three Download Liked Songs tests drive the new menu row (`expectLikedDownloads`/`chooseLikedDownloads` helpers, All Liked keeps the All and Super Liked chips), and the export detail expectation moved from the R12 "tags included" copy to R18's "Song details included". `GanaBajanaSettingsLayoutUITests`: the inventory gained the R18 YouTube Changes and Extractor Updates rows, the R17 Moment Mixes row and the menu type for the downloads row. `GanaBajanaLibraryOrganisationUITests`: chips read All, Super Liked, Downloaded, On This Device and lazy rows are revealed before assertion.
+- The four Liked Songs chips no longer fit one row on a phone; `ViewThatFits` had stacked them one per row (176 points) and pushed the third row below the fold. `ChipFlowLayout` now wraps chips onto as few rows as needed; accessibility sizes still stack.
+- `GanaBajanaRefinementUITests`: the fourth tab has read Stats since R13 (`tab.recap` identity retained), the sleep-timer cancel row is `player.sleepTimer.cancel` ("Cancel Sleep Timer"), and the Home heading is "Recently Played"; six of eight failures were these labels. `testMiniPlayerKeepsLastRowsAboveTheBarAcrossTabs` and its largest-text twin still fail on the Home discovery carousel card (`track.card.<id>` lower edge above the mini player); they predate R19, touch no R19 surface and remain open.
+- Interrupted runs (`UI-Existing-02`, `UI-Existing-07`) were restarted as `UI-Existing-03` and `UI-Existing-08`; their partial bundles were removed and are not evidence.
+- Independent worker review of each scope reported no production defect; one note records that promoting an already liked song keeps the saved Track metadata (consistent with `toggleFavorite`).
+
+### Metrics, Visual Evidence and Limits
+
+Bounded OSLog only: `super_like action=promote/demote/remove surface=player/menu/more/library`, `download_auto_super_like count=N`, `mix_super_like scope=seeds/daily reserved=0/1 eligible=N`. Emission is not asserted by tests; the library, download and mix effects they gate on are. `phone-captures/manifest.json` holds the UI-02 screenshots: heart outline/liked/super liked in both appearances, the anchored "Hold to Super Like" tip and its dismissal, Liked Songs chips with the wrapped fourth chip, the Super Liked filter and empty state, the Download Liked Songs menu and confirmation, and the Downloads Super Liked filter.
+
+Not verified: audible haptics, the loading arc and morph on a physical device (simulator captures cannot show the transient loading state), the spark burst frame pacing on the slowest supported phone, VoiceOver with the new custom actions, TipKit persistence across reinstall, real Watch/CarPlay behaviour (unchanged Bool wire), live YouTube import against a super liked song, and two-device iCloud convergence of the new register on real hardware. The pre-existing Refinement Home-carousel failures above remain open.
+
+## R18: Public Radio, Gain-Up, Account Changes, Extractor Updates and Export Fixes
+
+Source **1.0.0 (8)** contains the integrated R18 changes. The documentation task was restarted after interruption, with partial edits preserved. No commit, push, build upload or real YouTube account mutation was performed. Build 6 remains the delivered TestFlight/App Store Connect build.
+
+### Executed Checks
+
+Receipts are under `artifacts/R18/` unless noted. Counts describe separate runs with overlapping coverage, not an additive unique-test total.
+
+| Receipt | Result and Scope |
+| --- | --- |
+| `Build-15.xcresult` | Final Debug build-for-testing passed, including app/companion and test targets |
+| `Core-02.xcresult` | **182 passed, 0 failed/skipped**. Export/native cover/share callbacks, gain-up and limiting, directory/favorites/live mode, account permission/transport/receipts, updater integrity/recovery/generation fences, persisted playback provenance and model integration |
+| `Regression-01.xcresult` | **243 passed, 0 failed/skipped**. Existing playback, asynchronous listening/privacy, queue/standby/cache, resolver/fast-start, EQ, background downloads, R17 integration, AirPlay routing and YouTube import |
+| `Live-Radio-03.xcresult` | **41 passed, 0 failed/skipped**, including two explicitly enabled public-network KCRW tests. Directory-to-shared-player and fixed-station checks reached native playback and advancing playhead; elementary-frame/native-validation regressions also passed |
+| Vendor `ExtractorCompatibilityTests` | **6 passed** with `swift test --package-path Vendor/YouTubeKit --scratch-path artifacts/YouTubeKitReview --filter ExtractorCompatibilityTests`. Tests exercise actual signature/visitor/timestamp rule consumers and stale-generation behavior; no live player repair is claimed |
+| `UI-01.xcresult` | **2 passed, 3 failed**. Radio and cached fallback-provider workflows passed in light/dark; account playback/cancel, Back target and extractor lookup issues were corrected later |
+| `UI-02.xcresult` | **2 passed, 1 failed**. Export with verified cover/system sharing and extractor activation/rollback passed in both appearances; account cancellation test still assumed a Cancel button |
+| `UI-Account-05.xcresult` | **1 passed**. Phone light/dark opt-in, cancel-before-submit, fake confirmed Like and unchanged local heart |
+| `UI-SE-01.xcresult` | **4 passed, 2 failed**. Account, export, provenance and R17 Not Liked regression passed in both appearances; directory/candidate rows needed explicit small-screen scrolling |
+| `UI-SE-02.xcresult` | **2 passed**. Directory/live surfaces/favorites/restoration and normalization/extractor workflows in both appearances |
+| `UI-IPad-01.xcresult` | **4 passed, 1 failed**. All workflows except account cancellation passed in both appearances; iPad exposed multiple dismissal regions |
+| `UI-IPad-Account-02.xcresult` | **1 passed**. Account workflow in both appearances after scoping the popup dismissal checks |
+| `Release-01.xcresult` | Unsigned Release device build passed for `generic/platform=iOS` |
+| `release-inspection.json` | Build/version/device-family checks passed; R18 and other DEBUG markers/test resources absent, API credentials absent from companions, no broad ATS exception. Signature validation was not performed |
+
+The five R18 UI workflows therefore have passing phone, SE and iPad coverage across these receipts. This is not one all-green full-app run. New fixture providers use isolated data, synthetic cookies and a fake account-write client. The radio fixture deliberately exercises rejection of a local file as a public station stream; positive public playback evidence comes from Live-Radio-03 instead.
+
+### Failures and Corrections
+
+- Initial builds found UIKit protocol actor isolation, Core Media attachment constants and optional closure Sendable inference issues. The export activity source now has immutable Sendable state and supports UIKit callbacks on background queues. Core-01 recorded **165 passes and 9 failures**, including those callback crashes, favorite first-write failure and a standby-test path mismatch; Core-02 supersedes that run.
+- Native export verification separates media-bearing intervals from the asset timeline, handles nonzero timestamps and valid empty/trim markers, and retains payload/duration/tag/cover checks. A synthetic two-cut AAC composition could not be generated by AVFoundation on this runtime; supported native writer fixtures plus independent interval/marker assertions replace that generator. It was not treated as a production-file failure.
+- Known artwork URLs must resolve to valid image bytes or export reports the artwork stage. Native tests read the actual JPEG back from M4A and compare the share preview with those bytes. The source remains leased through native work and sharing. The owner's exact failing song assets and receiving app were not supplied; universal recipient cover rendering is not established.
+- Radio favorites now distinguish precise missing-file errors from corruption/permissions and retain atomic baseline checks. HLS validation parses relevant attributes rather than rejecting video-codec text embedded in a key URI.
+- Live-Radio-01 and Live-Radio-02 rejected KCRW despite successful MP3 probing/native playability because a continuous stream's static asset audio-track list was empty, including after item readiness. The validated elementary-stream path requires two complete consecutive MP3/ADTS frames and URL-bound proof; native playability and video exclusion still apply. Live-Radio-03 passed. HLS with empty native audio tracks remains outside this exception.
+- The normalization/standby test initially used manual Next from Crossfade zero, which requests fresh resolution. It now exercises the intended gapless handoff, checking the exact adopted player/item and two resolver requests. No timeout was increased.
+- The More Back control now owns a 46-point target outside automatic toolbar glass. UI assertions correctly preserve paused Next intent, address merged LabeledContent labels and reveal lazy rows before asserting their content.
+- Account confirmation cancellation uses a stable inert point outside the native popover when UIKit omits Cancel. The account action had already succeeded in UI-Account-04; its visible receipt was misclassified by a helper that used the scroll indicator's inset as a clipping boundary. The helper now retains actual viewport/navigation/keyboard/overlay bounds. The iPad test scopes dismissal to the confirmation instead of assuming one application-wide dismissal region. Native mutation guards were not weakened.
+- Vendor test compilation encountered obsolete enclosing-suite availability annotations rejected by Swift Testing. Test-only annotations were removed without dropping cases or assertions; the filtered compatibility suite then passed.
+- Independent static integration review reported no actionable issue. This is source review, not additional executed coverage.
+
+### Metrics, Visual Evidence and Limits
+
+Feature contracts own bounded metrics and unit-versus-integration mappings: [radio](LIVE_RADIO.md), [normalization](VOLUME_NORMALISATION.md), [account writes](ACCOUNT_WRITEBACK.md), [extractor updates](EXTRACTOR_UPDATES.md), [provenance](AUDIO_QUALITY.md) and [exports](AUDIO_EXPORT.md). No remote telemetry was added. Export failures identify a bounded stage/reason; account transport reports confirmation or uncertainty without retrying mutations; radio and updater diagnostics omit private identifiers. Test-only public station diagnostics identify the tested broadcaster.
+
+`phone-captures/manifest.json` and `ipad-captures/manifest.json` retain workflow screenshots. Visual inspection covered phone/iPad export details with cover evidence, cached `via JioSaavn` provenance and the extractor provisional/rollback controls. Earlier failure images retain their original provenance.
+
+Real-account write acceptance, hardware gain/listening and prolonged radio/AirPlay behavior, broader broadcasters/HLS, actual Files-picker interaction, extreme accessibility sizes and the user's receiving-app cover display remain unverified. Updater Files staging/validation/trust/rollback is exercised; no publisher key/feed is configured, so no automatic upstream service exists. Supported declarative repairs do not cover every future extractor change. No R18 signing/archive/export/upload was performed. App-owned simulator runs finished with approximately 81 GiB free; signed historical deliveries remain intact.
+
+## R17: Moments, Downloads, Lifetime Stats and Lyric Choices
+
+Local source is **1.0.0 (7)** over the existing uncommitted work. The requested features and the additional Not Liked download filter are integrated. No build-7 upload or Git write was performed; delivered build-6 inputs and receipts remain frozen.
+
+The owner reports constant physical-device testing and actual TV AirPlay audio working great. This is owner-reported acceptance of the existing audio route, not evidence for the new TV lyrics display, motion permission or OS background-download behavior.
+
+### Executed Checks
+
+All bundles and command logs below are under `artifacts/R17/`. Counts are per attempt, not additive unique coverage.
+
+| Receipt | Result and Scope |
+| --- | --- |
+| `Build-11.xcresult` | Final Debug build-for-testing passed, including app, companions and test targets |
+| `Core-03.xcresult` | **216 passed, 0 failed, 0 skipped**. Moment learning/storage/detached preparation, lifetime migration and replica deduplication, AAC export, background transfer boundaries/readers, lyric variants/metadata, TV timeline/lifecycle and initial model integration |
+| `Regression-01.xcresult` | **371 passed, 0 failed, 1 skipped**. Library/schema/journal/privacy/recovery, lyrics/provider regressions, audio routing and 10,000-session benchmark. The existing live JioSaavn test requires `GANABAJANA_SAAVN_LIVE=1` and was not enabled |
+| `Integration-03.xcresult` | **10 passed**. Final model lyric/TV selection, stale results, saved language corrections including Unclassified, privacy/sign-out, durable moment learning, lifetime retained-detail split and valid fixture audio/relaunch |
+| `UI-01.xcresult` | **3 passed, 4 failed**. All three optional-onboarding scenarios passed. Initial R17 UI failures were corrected in later receipts |
+| `UI-02.xcresult` | **3 passed, 2 failed**. Lyrics/TV script switching, real AAC export/system sharing and live Not Liked membership passed in both appearances; Stats/Moment navigation issues corrected below |
+| `UI-03.xcresult` | **1 passed, 1 failed**. Lifetime totals, retained rankings and Stats Card/system sharing passed in both appearances; Moment flow exposed a missing shared Done control |
+| `UI-Moments-04.xcresult` | **1 passed**. Learned card, per-mix persistence through relaunch, playback, learning reset and settings dismissal in both appearances |
+| `UI-SE-01.xcresult` | **5 passed** on SE 3. All five R17 workflows, each in light and dark appearance, including 44-point controls |
+| `UI-IPad-01.xcresult` | **5 passed** on iPad Pro 13. The same five workflows in both appearances; scene-geometry opt-in enabled |
+| `Release-01.xcresult` | Unsigned Release device build passed for `generic/platform=iOS` |
+| `release-inspection.json` | Version/build, phone/iPad families, motion usage string, external-display and retained CarPlay roles checked. Release fixture markers/test resources absent; API configuration absent from companion bundles. This is not a signature/archive audit |
+
+### Corrections Established During Execution
+
+- Initial builds caught explicit-self logging, an async test thread check, callback arity and app-delegate initialization ordering. `Core-01` inadvertently executed the older pre-R17 test binary after the first failed build; its 28 passes are **not R17 evidence**. The guarded runner chains successful compilation before tests.
+- `Core-02` had 185 passes and 11 failures. Native inspection could reject valid WAV/AAC stored under `.part` or a misleading extension. Format hints now come from validated delivery/header evidence; codec, duration and decoded-audio checks remain. AAC packet assertions skip only zero-sample markers and still compare bytes, packet samples and digest.
+- Moment startup accepts precise missing-file errors while preserving permission/corruption failures. Large history selection moved off-main; revision/privacy fences protect its bounded result.
+- A fixture compared equivalent directory URLs with different trailing-slash representations. Path identity fixes retained actual codec/metadata/tier checks. `Integration-01` and `Fixture-01` failures are superseded by `Integration-02` and `Integration-03`.
+- UI corrections retained assertions: localized pixel counts, native accessibility wrappers, scoped Stats-sheet scrolling and fixture preparation. The mix Play control moved outside the navigation-link label to expose its real 44-point target. Moment settings reuse the existing page chrome and Done action.
+- Independent static integration review found saved language corrections were bypassed by lyric script preference. Overrides now precede provider metadata, including `und`, and edits during lookup retire stale results. Two regression cases passed in `Integration-03`.
+
+### Metrics and Coverage
+
+Feature documents own event names and bounded dimensions: [Moments](MOMENT_MIXES.md#metrics), [background downloads](BACKGROUND_DOWNLOADS.md#metrics-and-coverage), [lifetime totals](LIFETIME_STATISTICS.md#metrics), [lyric choices](LYRICS_VARIANTS.md#metrics), [TV lyrics](TV_LYRICS.md#bounds-and-metrics) and [export](AUDIO_EXPORT.md). No remote telemetry was added. Unit/component tests cover persistence, retry/cancellation, privacy and native local files; UI tests cover displayed state, navigation and system-share presentation. They do not intercept every OSLog emission or replace physical lifecycle acceptance.
+
+The 10,000-session benchmark measured async submission at **0.54–0.73 ms**, main-actor capture/apply at **5.9–13.1 ms**, and total wall time at **2.82–3.47 s**. Thirty profile reads took **84.2 ms** including the cache miss; preferences were not invalidated. Synchronous compatibility callbacks took **2.41–2.95 s**. These are simulator measurements, not device frame rates. Lifetime validation and file encoding grow with receipt count; manual synchronous writes remain a limitation.
+
+### Visual Evidence and Limits
+
+`SE-captures/manifest.json` and `IPad-captures/manifest.json` map 14 retained PNGs per device to the five workflows. Visual inspection covered Not Liked, Gurmukhi picker/lyrics, Latin TV on SE/iPad, the Moment card, lifetime Stats Card and AAC export details. Fixture lyrics are original test verse, with attribution, and establish no live provider coverage.
+
+Physical background-session suspension/wake, native motion prompts, mirrored/separate-screen TV lyrics and delay, same-build two-device lifetime convergence, extreme Dynamic Type/VoiceOver and share-recipient decoding remain unverified. Gurmukhi is offered only when a strictly matched published version exists; no transliteration is generated. Direct Genius/Musixmatch integration remains gated on supported credentials/display access. Lifetime receipts cap at 200,000, with shared journal/file limits potentially reached sooner; exhaustion rejects writes rather than inventing totals. No full-app all-green matrix or new signed delivery is claimed.
+
+## Build 1.0.0 (6): signed delivery, 27 September 2026
+
+The owner authorized uploading the latest build. The current source was fingerprinted before archiving; all delivery inputs still matched after upload. The coordinator reused the successful R16 targeted checks recorded below rather than claiming a new full suite or physical-device run.
+
+| Gate | Result / evidence in `artifacts/AppStore-1.0.0-6/` |
+| --- | --- |
+| Preflight | Apple had processed build 5; next build 6. Exact bundle/profile UUIDs and certificate binding verified. `preflight.json`, `inputs.json` |
+| Archive | Signed Release archive succeeded for the phone, widget and Watch. `Archive.xcresult`, `archive.log` |
+| Release audit | Identities, device families, orientations, signatures, FFmpeg notices/exports, fixture exclusions and restricted API configuration checks passed. Added the missing `--daily-mixes-fixture` audit marker before freezing inputs. `archive-audit.json` |
+| Export | App Store Connect export, pinned profiles/certificate, build number preserved. Temporary keychain removed; search list and default restored exactly. `export.log`, `signing-cleanup.json` |
+| IPA inspection | 18,796,986 bytes; nested signatures, profile/entitlement identities and archive/export UUIDs match; iCloud environment Production; companion bundles exclude the API configuration. `ipa-inspection.json` |
+| Apple validation | Passed. Xcode's compiled API plist is compared semantically to the source, not byte-for-byte across XML/binary representations. `apple-validation.log`, `apple-validation.json` |
+| Upload and processing | `publish appstore --wait` uploaded and attached without submission. Build `e36b7e87-31d1-4ad6-b0bc-1ca428043353` is VALID / APP_STORE_ELIGIBLE. `publish.json`, `build-readback.json`, `version-readback.json` |
+| Remote checksum | IPA MD5 and size match the uploaded file; SHA-256 is `084aa881949887c906eecb6469a5e6625797e02e74a71ddeb4835c32b159c5d0`. `summary.json` |
+| TestFlight state | Internal READY_FOR_BETA_TESTING, external READY_FOR_BETA_SUBMISSION. Existing internal Friends group has all-build access. No group, invitation or beta submission created. `beta-detail.json`, `beta-groups.json` |
+
+Two tooling details were checked rather than bypassed: `signing fetch` matched the Watch bundle when asked for the phone identifier prefix, so the phone profile was selected by the exact bundle resource/profile ID; Apple validation reserved a build-6 upload containing analyzer assets only, so upload proceeded only after verifying that no IPA occupied that reservation. No completed build-3/4/5 release stage or receipt was overwritten. The App Store draft remains PREPARE_FOR_SUBMISSION; external beta contact/What to Test validation and existing store review declarations remain separate from this successful delivery.
+
+## R16: scrolling, startup promotion, Stats and compact library controls
+
+The coordinator ran the following on the shared app simulators with one `artifacts/DerivedData` working set. Source remains `1.0.0 (6)`, uncommitted over `6c34c9e`. App Store draft description, promotional text and keywords were updated separately; no matching build has been uploaded. [APPSTORE_TESTFLIGHT.md](APPSTORE_TESTFLIGHT.md) records that distinction.
+
+### Measurements
+
+The Debug simulator benchmark seeds 10,000 sessions and 100 recordings. Before the fixes, 30 language-profile reads took **2,246 ms** and three synchronous listening callbacks averaged **2,192 ms each**. Those callbacks invalidated preference observers. Cached profile reads took **73 ms total for 30 reads**, including the first miss, and no longer invalidated preferences. Batching alone still left roughly two seconds of synchronous work, so it was not treated as a complete fix.
+
+The production async checkpoint path measured **0.53–0.63 ms** to enqueue/flush and **5.1–9.0 ms** of measured main-actor capture/apply work. Total wall time remained **1,970–2,100 ms**, with preparation off-main. These are persistence/profile measurements, not device frame-rate or full end-to-end UI timing claims. [SCROLLING_PERFORMANCE.md](SCROLLING_PERFORMANCE.md) owns the implementation and remaining synchronous paths.
+
+| Evidence under `artifacts/R16/` | Result and scope |
+| --- | --- |
+| `Scroll-Baseline-01.xcresult` | 1 passed; records the original synthetic work cost |
+| `Scroll-Core-01.xcresult` | Compile failed on missing `try` in two new observation tests; corrected without product changes |
+| `Scroll-Core-02.xcresult`, `Scroll-Core-03.xcresult` | 43 passed / 2 failed, then 12 passed. External-mutation fixtures initially changed history without updating their sync journals; fixtures were repaired, production validation retained |
+| `Async-Core-01.xcresult`, `Async-Core-02.xcresult` | Initial test compilation rejected async `Thread.isMainThread` calls; synchronous diagnostic helper added. Then 65 passed: async persistence/drain, observation isolation, targeted journal, projection-cache and acknowledgement coverage |
+| `Scroll-After-01.xcresult` | 8 passed; records async benchmark and presentation checks |
+| `Async-Privacy-01.xcresult` | 85 passed. Includes independent-review fixes: disabled-period seconds cannot cross history enablement, and clearing history cannot falsely acknowledge a dirty paused playback snapshot |
+| `Startup-01.xcresult` | 64 passed. Late foreground joins wake an expired warm-up hedge; early joins preserve its delay; cancellation respects foreground ownership. Startup timing retains automatic retries and records cumulative stages |
+| `UI-01.xcresult`, `UI-02.xcresult` | 11 passed / 7 failed, then 13 passed. Corrections were scoped alert-parent queries for duplicate native AX nodes, More-sheet expansion before scrolling, one title-case expectation, and manual-stop measurement configuration. One scrolling signpost iteration returned no metric; no complete FPS/hitch claim is made |
+| `UI-SE-01.xcresult`, `UI-SE-02.xcresult` | 3 passed / 1 failed, then 1 passed. Small-phone scroll test needed the existing 20-swipe navigation budget to reach collapsed history. The measured round-trip and frame-clock assertions were unchanged |
+| `UI-IPad-01.xcresult` | 7 passed: Stats, Liked Songs auto-download and Settings pages |
+| `UI-Visual-01.xcresult`, `UI-Liked-Final-01.xcresult` | 2 passed each. Visual inspection removed the redundant lone All chip when auto-download is enabled; confirmed pending likes stay visible and disabling restores All |
+| `UI-Compact-01.xcresult`, `UI-Compact-02.xcresult` | 4 passed / 1 failed, then 4 passed. Playlist test waited for keyboard focus/draft editing before Cancel. Covers compact 44-point Play/Shuffle rows, Liked Songs durations, image-only Stats sharing with optional text, relocated playlist creation, and mix covers without duplicate titles |
+| `UI-Compact-SE-01.xcresult`, `UI-Compact-IPad-01.xcresult`, `UI-Compact-IPad-02.xcresult` | SE 3 passed; iPad 2 passed / 1 failed, then 1 passed after waiting for the list destination before scrolling. Product geometry unchanged |
+| `release-build-final.log` | Final unsigned generic-iOS Release build succeeded. Not an archive, release audit, device install or upload |
+
+### Metrics and coverage
+
+| Metric / case | Branch / scope | Placement |
+| --- | --- | --- |
+| `listening_projection_cache_miss` | Revision-keyed profile/summary misses, bounded kind/window and elapsed milliseconds | Unit: `ListeningProjectionCacheTests`; no hot getter-hit logging |
+| `listening_checkpoint_preparation`, `listening_checkpoint_async`, `listening_checkpoint_delivery`, `listening_checkpoint_expired` | Preparation, fenced durability, bounded drains, snapshot-only recovery and expiration | Unit/native playback: `LibraryAsyncCheckpointTests`, `PlaybackAsyncCheckpointTests`, `PlaybackAsyncPrivacyBoundaryTests` |
+| Slice observation and checkpoint journals | Post-durability notifications, equal-count replacements, rejected writes, one combined listening/recent mutation | `LibraryObservationTests`, `LibrarySyncCheckpointTests` |
+| `playback_start` stages/attempts and hedge promotion | Retain total user-start time across automatic retries; foreground promotion after timer expiration | `StreamResolverFastStartTests`, `StreamPrefetchTests`, `PlaybackWarmerTests`, `StreamCacheTests` |
+| Real scrolling with local audio | Isolated 2,000-session fixture, up/down gestures during async commits, disk readback, advancing playback, display-link starvation watchdog | `GanaBajanaScrollingPerformanceUITests`; simulator measurements only |
+| Latest UI requests | Stats/title case, recommendation exclusion/undo, auto-download confirmation/persistence, filters, durations, smaller controls, sharing options, playlist heading and mix cover cleanup | MainStats, Downloads, PlayerMore, SettingsPages, CompactPlaybackSharing and DailyMixes UI suites |
+
+All fixtures remain DEBUG-only; `--scroll-performance-fixture` and `DebugScrollPerformanceFixture` are included in the Release audit's marker inventory. New metrics use bounded categories with no recording identifiers. Successful and failed run counts above are separate attempts, not additive unique coverage. Physical-device scrolling/startup, actual TV playback, external TestFlight review, system share-destination payload rendering and the full app regression matrix remain unverified. Public radio and export-format enhancements remain queued rather than advertised as implemented.
+
+## R15: Listening, sharing, Settings recovery and sync failures
+
+Source remains `1.0.0 (6)`, uncommitted over `6c34c9e`. The coordinator regenerated once after parallel code-only work and ran builds/tests serially against one shared `artifacts/DerivedData`. No additional worker simulators or derived-data roots were created. These are targeted integration checks, not a full green app suite.
+
+| Evidence under `artifacts/R15/` | Device | Result and scope |
+| --- | --- | --- |
+| `build-01.log` | Simulator | Interrupted at the shell timeout; no compiler error. Resumed incrementally |
+| `build-02.log` through `build-04.log` | Simulator | Build-for-testing succeeded, including recovered WP26 and previously uncompiled `AirPlayRoutingTests` |
+| `Core-01.xcresult` | iPhone 17 Pro / iOS 26.5 | 111 passed, 4 failed. Sync recovery/schema, settings layout/preservation, retained-history totals/charts and share cards, plus AirPlay route/session/deck checks. Failures were new model-test fixtures comparing bytes before an unrelated empty playback queue normalized on reload |
+| `Core-02.xcresult` | iPhone 17 Pro | 32 passed. Fixtures seed a stable empty playback snapshot before byte baselines; byte/revision assertions remain. Stored Random survives launch/reload/remote merges; new/missing fields use Fewer repeats |
+| `Sync-Regression-01.xcresult` | iPhone 17 Pro | 70 passed. Persistence, transport, typed search, checkpoints, playback, history reset and merge regression suites |
+| `UI-Pro-01.xcresult` | iPhone 17 Pro | 16 passed, 1 failed. Settings pages/Following, status stability, Listening periods/All Time, compact Library, collapsed history and preview-first sharing. Failed check assumed AX container spacing equals the VStack padding; replaced with explicit ordering/non-overlap and a gap smaller than a section row |
+| `UI-Pro-02.xcresult` | iPhone 17 Pro | 12 passed, 1 failed. Collapsed-history correction passed; Settings rhythm, player timer persistence, artist navigation and download-tier storage navigation passed. Player Download test exposed a medium-detent test-helper scroll problem |
+| `UI-Pro-03.xcresult` | iPhone 17 Pro | 9 passed. Download helper explicitly expands More before scrolling; includes Settings organization and listening-control regressions |
+| `UI-SE-01.xcresult` | iPhone SE 3 / iOS 26.5 | 9 passed. Settings pages/Following, footer rhythm/status stability, All Time preview and unified song sharing |
+| `UI-IPad-01.xcresult` | iPad Pro 13 / iOS 26.5 | 8 passed. Same Settings checks and All Time. The WP26 Following test uses `tab.library` rather than requiring a phone TabBar |
+| `release-build-01.log` | Generic iOS | Unsigned Release build succeeded. This was a build, not an archive, install, upload or release audit |
+
+The UI commands enable `TEST_RUNNER_GANABAJANA_UI_SCENE_GEOMETRY_REQUESTS=1`. Screenshots exported under `captures-pro/` were visually inspected: Listening title and four period choices, stat tile, single-preview sharing for Listening and songs, and retained artwork placeholders in network-free fixtures. The repeated tests above are not added together as unique coverage.
+
+### Metrics
+
+| Metric / event | Emitted when | Bounded dimensions | Why |
+| --- | --- | --- | --- |
+| `LibrarySync` `sync_started`, `sync_failed`, `sync_retry_scheduled`, `sync_succeeded`, `sync_finished`, `sync_timeout` | Automatic/manual attempts, retry scheduling and completion | Trigger/failure enums; retries, durations and notification flags are values | Separate expected stale preparation, transient outages and sustained actionable errors |
+| Existing sharing and Library navigation events | Card render and navigation | Existing result/appearance values | No new telemetry or identifying fields for the UI revisions |
+
+### Test coverage
+
+| Case | Branch/path | Unit or integration |
+| --- | --- | --- |
+| Local checkpoint during remote preparation | Reject stale preparation before a library-error popup; retry from fresh state | Unit, `LibrarySyncFailureRecoveryTests` |
+| Transient/sustained failure, success, manual retry and account cancellation | Bounded retries, cooldown, notification deduplication and recovery | Unit, sync recovery/controller suites |
+| Historical shuffle tombstones and explicit Random | Preserve old journal meaning and explicit saved choices across merge/reload | Unit, schema compatibility, model and Settings preservation suites |
+| All Time | Includes valid surviving sessions outside the year window; bounded calendar buckets and truthful coverage text | Unit, `ListeningAvailableHistoryTests`; UI, RecapReview |
+| Settings recovery | Six pages, nested Back, Following, Done, footer rhythm and stable sync status | UI integration on phone, SE and iPad |
+| Preview-first sharing and collapsed history | One main Share action; preview owns system sharing; Recent last/expandable with playback controls | UI integration plus card-rendering unit tests |
+| Cached audio management | Library management row absent; Settings storage path still reaches playable cached songs | UI integration, LibraryEntries/DownloadTier/PlayerDownload |
+
+Remaining limits: actual device sync-error text/logs were unavailable, so the user's exact incident is not confirmed. No real iCloud account outage/convergence test, TV receiver test, external-display lyric prototype, Messages preview acceptance, full unit/UI run, or physical-device run was performed here. Existing unrelated R14 Home scrolling failures remain in the broader verification backlog. Standard audio-AirPlay offers no documented lyric/color control; see [Apple's Now Playing documentation](https://developer.apple.com/documentation/mediaplayer/mpnowplayinginfocenter.md).
+
+## R12 and R13: local-only feature rounds
+
+Source is **1.0.0 (6)**, uncommitted over checkpoint `6c34c9e` (R3 to R11). The owner chose local-only distribution on 25 September 2026 ([ROADMAP.md](ROADMAP.md)), so this section records feature evidence, not a release candidate. Each work package ran on its own dedicated iPhone 17 Pro / iOS 26.5 simulator with package-owned derived data; WP1 and WP13 also used the iPhone SE 3 and iPad Pro 13 simulators. Result bundles live under `artifacts/R12/` and `artifacts/R13/` with `WP<n>-<label>-<nn>` names. The per-feature documents own the case-by-case Metrics and Test coverage tables and the counts quoted below; a bundle whose counts the documents do not state is listed with a pointer only. WP12b performs the full unit and UI matrix on all three simulators after integration; nothing here is a full green suite.
+
+| Package and bundles | Device | Result and scope |
+| --- | --- | --- |
+| `R12/WP0-Unit-01`, `WP0-UnitRegression-02`, `WP0-UI-01` | iPhone 17 Pro | Player files split into `Sources/Views/Player/`; R12 preferences and `MusicSource` pre-declared. Counts are not recorded in a feature document; see [ROADMAP.md](ROADMAP.md) (R12 WP0) |
+| `R12/WP1-Unit-01`, `WP1-Shell-01`, `WP1-Shell-02`, `WP1-Pro-A-01` to `WP1-Pro-D-01`, `WP1-Pro-Final-01`, `WP1-SE-01`, `WP1-iPad-01` | iPhone 17 Pro, iPhone SE 3, iPad Pro 13 | R12 player shell: larger artwork, heading one line lower, artist line opens the chooser, AirPlay leading and Lyrics/Queue trailing, right time label with tap-to-switch (`GanaBajanaPlayerShellUITests`). The R13 revision below supersedes the heading and bar geometry; see [PLAYER_SHELL.md](PLAYER_SHELL.md) for the measured frames and cases |
+| `R12/WP2-Unit-01`, `WP2-UnitVariantB-02`, `WP2-Unit-04`, `WP2-TrailPro-03`, `WP2-TrailPro-05`, `WP2-TrailSE-06`, `WP2-HeartTaps-07` | iPhone 17 Pro, iPhone SE 3 | R12 liked heart on the progress-to-heart trail (solid fill, accent trace). Superseded by R13 item 6: the trail, `PlayerProgressTrailTests` and `GanaBajanaPlayerProgressTrailUITests` were removed, so these bundles record retired behaviour; see [PLAYER_HEART.md](PLAYER_HEART.md) |
+| `R12/WP4-Unit-01`, `WP4-UI-01` to `WP4-UI-05`, `WP4-UI-07` | iPhone 17 Pro | Song details: `SongDetailsParserTests`, `SongDetailsMergingTests`, `SongDetailsStoreTests`, `SongDetailsMusicBrainzTests`, `SongDetailsPlayerClientTests`, `SongDetailsServiceTests`, extended `YouTubeDataAPITests`; `GanaBajanaSongDetailsUITests` (More sheet to Song details, unavailable state and Retry, performer row navigation); one opt-in live InnerTube request for `7374CZQoS2Y`. Counts: see [SONG_DETAILS.md](SONG_DETAILS.md) |
+| `R12/WP5-Unit-01` to `WP5-Unit-03`, `WP5-UI-01` to `WP5-UI-05`, `WP5-CheckpointBaseline-01` | iPhone 17 Pro | Downloads and export: `DownloadsTests` (12 cases), `AudioExporterTests` (6), `GanaBajanaDownloadsUITests` (3, offline cache fixture), plus the existing cache suites as regression, **214 cases, all passing**. `CheckpointBaseline-01` reproduces the checkpoint's failing `GanaBajanaCachedSongsUITests` `.slow`/`.readError` scenarios and `GanaBajanaStorageUITests.testClearingRecentSearchesPersists…`, fixed in WP14 Extra A; see [DOWNLOADS.md](DOWNLOADS.md) |
+| `R12/WP6-Unit-01`, `WP6-UnitRegression-02`, `WP6-Unit-03`, `WP6-UI-01`, `WP6-UI-02` | iPhone 17 Pro | Audio quality ceiling: `AudioQualityPreferenceTests` (ranking, fast path, resolver, cache fixture, preference fan-out), `GanaBajanaAudioQualityUITests`, Settings inventory; vendored `ITagsTests.testPremiumAudioTiersAreKnownDashAudio` on the macOS host. Counts: see [AUDIO_QUALITY.md](AUDIO_QUALITY.md) |
+| `R12/WP9-Unit-01` to `WP9-Unit-05`, `WP9-UI-01` to `WP9-UI-06`, `WP9-Live-01`, `WP9-Live-02` | iPhone 17 Pro | JioSaavn: `JioSaavnTests` (24 cases, 1 opt-in live `GANABAJANA_SAAVN_LIVE=1`), `CompositeCatalogTests` (11 at the time), `GanaBajanaCatalogSourcesUITests` (2); the full `GanaBajanaSearchDiscoveryUITests` class ran 19 cases with 15 passes and 4 failures later shown pre-existing (WP15 below). Live search, resolve and HEAD verified from the Mac on 25 September 2026; see [JIOSAAVN.md](JIOSAAVN.md) |
+| `R13/WP7-EqualizerUnit-01` to `-03`, `WP7-EqualizerUI-01`, `-02`, `WP7-EqualizerFinal-01`, `-02`, `WP7-GaplessBaseline-01` to `-03`, `WP7-GaplessDebug-01`, `-02`, `WP7-GaplessRerun-01` to `-03`, `WP7-PlaybackRegression-01` | iPhone 17 Pro | Equalizer: `WP7-EqualizerFinal-01` **14 unit, 1 UI**; `WP7-EqualizerUI-02` the drag UI test and the Settings inventory at accessibility XXXL; `WP7-EqualizerUnit-03` `EqualizerTests` plus `PlaybackTransitionTests`, `PlaybackControllerTests` and `PlaybackAudioIntegrationTests`, **49 tests, 0 failures**. The gapless bundles measure the 0.20 to 0.40 s swap with taps on both decks (untapped under 0.15 s); see [EQUALIZER.md](EQUALIZER.md) |
+| `R13/WP8-ImportUnit-02`, `WP8-ImportUnit-03`, `WP8-ImportUI-01`, `-04`, `-05`, `-06`, `WP8-ImportUIInventory-07`, `WP8-ImportUI-08` | iPhone 17 Pro | Account import: `WP8-ImportUnit-03` **63 tests, 0 failures** (21 new `YouTubeImportClientTests`/`YouTubeImporterTests` plus the existing account and playlist classes); `WP8-ImportUIInventory-07` both import UI tests and the Settings inventory at accessibility XXXL, **3 tests, 0 failures**; `WP8-ImportUI-08` the import flow with a light-appearance relaunch, **1 test, 0 failures**. `ImportUI-01/04/05` are failing iterations (lazy rows outside the accessibility tree) and `ImportUnit-02` one stub bug, both fixed before the final runs; `ImportUI-06` is not named in the feature document. No signed-in account was available; see [ACCOUNT_IMPORT.md](ACCOUNT_IMPORT.md) |
+| `R13/WP9b-Unit-01` to `-03`, `WP9b-UI-01`, `-02`, `WP9b-Live-01` | iPhone 17 Pro | Gaana and the shared-cache follow-up: `GaanaTests` (21 cases, 1 opt-in live `GANABAJANA_GAANA_LIVE=1`), `CompositeCatalogTests` (15 cases, 4 new including `testJioSaavnDownloadsLandInTheSharedCacheAndPlayOffline` and `testGaanaHLSStreamsSkipTheCacheWhileFallbackFilesAreStored`), `GanaBajanaGaanaUITests` (2), `GanaBajanaCatalogSourcesUITests` updated, `TrackRowAccessibilityTests`. Live playlists and segments fetched from the Mac on 26 September 2026. Counts per bundle: see [GAANA.md](GAANA.md) |
+| `R13/WP11-SponsorBlockUnit-01`, `WP11-PlaybackUnit-02`, `WP11-UI-03` | iPhone 17 Pro only | SponsorBlock: `SponsorBlockTests` (hash prefix vectors, request shape, parse, filtering, caches, backoff, skipper), native-player integration for the injected [2, 5] segment, source/id guards, cancellation and grace, `GanaBajanaSponsorBlockUITests` fixture flow, Settings inventory row. No live request to `sponsor.ajay.app`; SE 3 and iPad not run; see [SPONSORBLOCK.md](SPONSORBLOCK.md) |
+| `R13/WP13-Unit-01`, `WP13-BarPro-01`, `WP13-GesturesAirPlayPro-02`, `WP13-GesturesPro-03`, `WP13-Pro-04`, `WP13-ProExtra-05`, `WP13-Final-06`, `WP13-SE-01`, `WP13-iPad-01` | iPhone 17 Pro, iPhone SE 3, iPad Pro 13 | R13 items 6 to 8: heart back in the heading, full-width bar, AirPlay glyph at Lyrics/Queue weight, swipe up. `PlayerProgressBarTests` (4), `PlayerSwipeUpPreferenceTests`; `GanaBajanaPlayerProgressBarUITests` (bar and heart geometry on 17 Pro and SE; dark and light direct-launch captures on 17 Pro, SE and iPad including landscape), `GanaBajanaPlayerGesturesUITests` (3), plus the retained `GanaBajanaPlayerShellUITests`, `GanaBajanaRefinementUITests`, `GanaBajanaWorkflowUITests`, `GanaBajanaPlayerAirPlayUITests`, `GanaBajanaIPadLayoutUITests` and Settings inventory cases listed in [PLAYER_SHELL.md](PLAYER_SHELL.md) and [PLAYER_HEART.md](PLAYER_HEART.md). Glyph boxes measured on captures in `WP13-captures/`; counts per bundle: see those documents |
+| `R13/WP14-FirstPass-01`, `WP14-DoneVariants-02`, `WP14-Unit-03`, `WP14-UI-04`, `WP14-Done-05`, `WP14-Done-06`, `WP14-Verify-A-07`, `WP14-Verify-A-08`, `WP14-Verify-B-09` | iPhone 17 Pro | R13 items 1 to 4 plus Extras A and B: `RecapListeningBucketsTests` (5), `ListeningAnalyticsTests` regression (10), `GanaBajanaRecapReviewUITests` (3), `GanaBajanaLibraryEntriesUITests` (4), `GanaBajanaSheetDoneUITests` (1), `GanaBajanaQueueSaveUITests` nested-sheet Done, `GanaBajanaCachedSongsUITests` (15, `.slow`/`.readError` fixed), `GanaBajanaStorageUITests` (5, stale expectation fixed), rewritten `GanaBajanaSearchRedesignUITests` and edited `GanaBajanaNavigationIntentUITests` cases, `GanaBajanaLibrarySearchUITests` (6). Counts per bundle: see [RECAP_AND_LIBRARY_REVIEW.md](RECAP_AND_LIBRARY_REVIEW.md) |
+| `R13/WP15-CatalogParsing-01` | iPhone 17 Pro | **33 passed**: parser class with the ATV recording before the fix (the two-column playlist layout parses) |
+| `R13/WP15-LivePlaylist-01` | iPhone 17 Pro | **1 failed** (the reproduction): live `VLPLVet2…` opened with 0 tracks; raw page captured as the UGC fixture |
+| `R13/WP15-CatalogUnit-02` | iPhone 17 Pro | **88 passed**: `CatalogParsingTests` 36, `CatalogPlayCountTests` 6, `CatalogRequestTests` 18, `CatalogServiceTests` 17, `CompositeCatalogTests` 11, after the fix |
+| `R13/WP15-LivePlaylist-02` | iPhone 17 Pro | 3 run, 3 failed on stale audio-only assertions while the live browse already returned 24 / 31 / 68 tracks; assertions rewritten |
+| `R13/WP15-CatalogUnit-03` | iPhone 17 Pro | **118 passed**: the five catalog classes plus `ExperienceRadioEngineTests` 11 and `ListeningLanguageRadioTests` 19 on the final source |
+| `R13/WP15-LivePlaylist-03` | iPhone 17 Pro | **4 passed**: `testLivePlaylistSearchResultsOpenWithTheirSongs` (24 audio / 31 video / 45 audio plus 23 video entries), `testLiveSearchAllFiltersPaginationAndCollectionBrowse` (editorial browse 129 entries, 124 video; Home selection stays audio), album credits and artist page |
+| `R13/WP15-BaselineUI-01` | iPhone 17 Pro | **4 failed**: the four triaged `GanaBajanaSearchDiscoveryUITests` cases on the untouched checkpoint tree `6c34c9e`, proving they predate R12 |
+| `R13/WP15-DiscoveryUI-01`, `WP15-DiscoveryUI-02` | iPhone 17 Pro | 3 passed, 2 failed; then 1 passed, 1 failed: intermediate runs while the fixture leak, scroll precondition and Norah expectation were corrected |
+| `R13/WP15-DiscoveryUI-03` | iPhone 17 Pro | **20 passed, 0 failed** (2,938 s): the complete `GanaBajanaSearchDiscoveryUITests` class including the new `testPlaylistSearchResultOpensWithItsSongs`; see [PLAYLIST_BROWSE_FIX.md](PLAYLIST_BROWSE_FIX.md) |
+| `R13/WP17-GenreUnit-01`, `WP17-GenreUnit-02`, `WP17-GenreUnit-03`, `WP17-Regression-01`, `WP17-GenreUI-01`, `WP17-GenreUI-02` | iPhone 17 Pro | Genre taste profile: `WP17-GenreUnit-02` **23 passed** (`GenreTaxonomyTests`, `GenreEvidenceTests`, `ListeningGenreProfileTests`, `GenreEvidenceLoaderTests`); `WP17-Regression-01` **292 passed** across the language, recommendation, taste, familiarity, radio, sync and persistence classes; `WP17-GenreUI-01` 3 run, 2 passed (the recap case failed on a stale scroll position and was corrected); `WP17-GenreUI-02` **5 passed** (corrected recap case, Settings inventory, `GanaBajanaRecapReviewUITests`). `GenreUnit-01` and `-03` are not named in the feature document; see [GENRE_PROFILE.md](GENRE_PROFILE.md) |
+
+R13 item 5 (Settings redesign, WP16) is in progress by another package and has no bundles here. `Vendor/YouTubeKit/GANABAJANA-PATCH.md` records the itag 774 vendor test on the macOS host. No Release archive, `tools/audit-release.py` run, signing, upload or store action happened in either round; the new fixture markers were added to the audit's list by their packages without an archive to audit.
+
+### Metrics
+
+No remote analytics were added. Every new metric is a local OSLog record with counts, bytes, latencies and bounded enums, and each feature document owns its table: [PLAYER_SHELL.md](PLAYER_SHELL.md#metrics) (`trailing_time_toggled`, `swipe_up`; category `Player`), [PLAYER_HEART.md](PLAYER_HEART.md#metrics) (none), [SONG_DETAILS.md](SONG_DETAILS.md#metrics) (`SongDetails`), [DOWNLOADS.md](DOWNLOADS.md#metrics) (`Downloads`, `AudioCache`, `Connectivity`), [AUDIO_QUALITY.md](AUDIO_QUALITY.md#metrics) (`StreamResolver`), [EQUALIZER.md](EQUALIZER.md#metrics) (`Equalizer`), [ACCOUNT_IMPORT.md](ACCOUNT_IMPORT.md#metrics) (`Account`), [JIOSAAVN.md](JIOSAAVN.md#metrics) (`JioSaavn`, `Catalog`, `StreamResolver`), [GAANA.md](GAANA.md#metrics) (`Gaana`), [SPONSORBLOCK.md](SPONSORBLOCK.md#metrics) (`SponsorBlock`, `Playback`), [GENRE_PROFILE.md](GENRE_PROFILE.md#metrics) (`Genres`), [RECAP_AND_LIBRARY_REVIEW.md](RECAP_AND_LIBRARY_REVIEW.md#metrics) (none), [PLAYLIST_BROWSE_FIX.md](PLAYLIST_BROWSE_FIX.md#metrics) (`browseTracks`, `browseVideoEntries`, `browseCandidatesChecked`; category `Catalog`). Tests assert behaviour; OSLog text is not asserted.
+
+### Test coverage
+
+New unit classes: `PlayerProgressBarTests`, `PlayerSwipeUpPreferenceTests`, `SongDetailsParserTests`, `SongDetailsMergingTests`, `SongDetailsStoreTests`, `SongDetailsMusicBrainzTests`, `SongDetailsPlayerClientTests`, `SongDetailsServiceTests`, `DownloadsTests`, `AudioExporterTests`, `AudioQualityPreferenceTests`, `EqualizerTests`, `YouTubeImportClientTests`, `YouTubeImporterTests`, `JioSaavnTests`, `GaanaTests`, `CompositeCatalogTests`, `SponsorBlockTests`, `GenreTaxonomyTests`, `GenreEvidenceTests`, `GenreEvidenceLoaderTests`, `ListeningGenreProfileTests`, `RecapListeningBucketsTests`; extended `YouTubeDataAPITests`, `CatalogParsingTests`, `CatalogRequestTests`, `CatalogLiveTests`, `LibraryPersistenceTests`, `LibraryPlaybackDiscoveryPreferencesTests`, `LibrarySyncPersistenceTests`, `ModelTests`. Removed: `PlayerProgressTrailTests`.
+
+New UI classes: `GanaBajanaPlayerShellUITests`, `GanaBajanaPlayerProgressBarUITests`, `GanaBajanaPlayerGesturesUITests`, `GanaBajanaSongDetailsUITests`, `GanaBajanaDownloadsUITests`, `GanaBajanaAudioQualityUITests`, `GanaBajanaEqualizerUITests`, `GanaBajanaYouTubeImportUITests`, `GanaBajanaCatalogSourcesUITests`, `GanaBajanaGaanaUITests`, `GanaBajanaSponsorBlockUITests`, `GanaBajanaGenreProfileUITests`, `GanaBajanaRecapReviewUITests`, `GanaBajanaLibraryEntriesUITests`, `GanaBajanaSheetDoneUITests`; edited `GanaBajanaRefinementUITests`, `GanaBajanaWorkflowUITests`, `GanaBajanaPlayerAirPlayUITests`, `GanaBajanaIPadLayoutUITests`, `GanaBajanaListeningControlsUITests` (Settings inventory), `GanaBajanaSearchDiscoveryUITests`, `GanaBajanaSearchRedesignUITests`, `GanaBajanaNavigationIntentUITests`, `GanaBajanaQueueSaveUITests`, `GanaBajanaStorageUITests`, `GanaBajanaStoreScreenshotsUITests`; `UITests/PlayerSeekGeometry.swift` is the identity mapping. Removed: `GanaBajanaPlayerProgressTrailUITests`. New DEBUG fixtures: `--saavn-fixture`, `--gaana-fixture`, `--sponsorblock-fixture`, `--youtube-import-fixture`, `--genre-fixture`, `--recap-history-fixture`, `DebugTrackDetailsFixture`; `DebugCachedAudioFixture.requireInventoryPresentation()` replaces `waitForInventoryPresentation()`.
+
+### Known failures and their status
+
+- Pre-existing failures fixed: `GanaBajanaCachedSongsUITests` `.slow` and `.readError` scenarios (fixture blocked the first inventory read past the 5 s deadline; WP14 Extra A) and `GanaBajanaStorageUITests.testClearingRecentSearchesPersists…` (stale expectation that a typed query counts as Recently opened; WP14 Extra A). The four `GanaBajanaSearchDiscoveryUITests` failures from the WP9 run fail identically at the checkpoint (`WP15-BaselineUI-01`): two fixture leaks in `DebugMusicFixtures.search(filter: .playlists)`, one stale R6 expectation (Carry On leads before Apocalypse) and one stale scroll precondition; all four pass in `WP15-DiscoveryUI-03`.
+- `GanaBajanaNavigationIntentUITests.testNameOnlyPlayerArtistOpensAfterEmptySearchDiscoveryReappears` still expects the label "Go to artist, Norah Jones" on `player.artistName`; a fixture song with an album id now reads "Album and artists, …". To be updated in WP12b.
+- Gapless playback with the equalizer on has a 0.20 to 0.40 s gap at the swap (AVFoundation primes the tap at play); recorded in ROADMAP backlog item 13, not a test failure.
+- The iPad trail heart test and the rest of `GanaBajanaPlayerProgressTrailUITests` were removed with the trail; `GanaBajanaPlayerProgressBarUITests.testBarSpansTheColumnAndTheHeartInTheHeadingStillLikes` cannot run on the iPad because the shared driver waits for the bottom tab bar (pre-existing iPad limitation); the two direct-launch appearance tests cover the iPad including landscape.
+- `GanaBajanaSearchDiscoveryUITests.expectSearchAtTop` anchored on `search.library.likes`, removed by WP14; WP15 moved the anchor to `search.radio.open`.
+- One load-only flake: `GanaBajanaCachedSongsUITests.testFilteredLegacySongPlaysFromItsFileWithoutNetworkAccess` recorded "Loading audio took too long" once with two simulators running UI suites at the same time and passed on rerun (WP14).
+
+### Not run
+
+The full phone unit and UI suites, a Mac (Designed for iPad) run, physical devices, VoiceOver, Watch connectivity and CarPlay, native StoreKit, signed builds and archives, and every live-account path: no signed-in YouTube account was available, so the four import browse ids, Premium 256 kbps tiers (itags 141 and 774) and real Data API responses with the extended field projection are unverified; no live request reached `sponsor.ajay.app`; JioSaavn and Gaana were verified live only from the Mac and the simulator unit hosts, not on a device; live MusicBrainz genre responses were not probed. SE 3 and iPad coverage exists only for WP1 and WP13. WP12b performs the full matrix on the three dedicated simulators and records it in its own section above this one.
+
 ## September 25 authorization and source delivery
 
 After the R10 changes, the owner asked to continue authorization and approved publishing library-only FFmpeg source. `artifacts/Authorization-20260925/summary.json` records the actions, readbacks and external requirements still open.

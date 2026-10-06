@@ -5,7 +5,7 @@ import XCTest
 final class GanaBajanaPlayerBrowseUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
-    func testSingleCreditStillOpensACompactChooserWithoutAnAlbum() throws {
+    func testSingleCreditWithoutAnAlbumOpensTheArtistDirectly() throws {
         let ui = makeDriver()
         try ui.launch()
         try ui.searchAndPlayTumHiHo()
@@ -16,24 +16,16 @@ final class GanaBajanaPlayerBrowseUITests: XCTestCase {
         try ui.expectPosition(92, tolerance: 3)
         let position = try ui.position()
 
-        try ui.tap(ui.app.buttons["player.browse"])
-        let artist = ui.app.buttons["player.artist.0"]
-        try ui.requireHittable(artist)
-        XCTAssertEqual(artist.label, "Arijit Singh")
-        XCTAssertFalse(ui.app.buttons["player.artist.1"].exists)
-        XCTAssertFalse(ui.app.buttons["player.browse.album"].exists, "An album title without an id is not a destination.")
-        XCTAssertFalse(ui.app.buttons["collection.follow"].exists, "One credit must still wait for the user's selection.")
-        try assertFittedChooser(ui, first: artist, last: artist)
-        ui.capture("single-artist-no-album-chooser")
-
-        try ui.tap(ui.app.buttons["player.browse.done"])
-        try ui.expectCurrentTrack(AppUIFixture.tumHiHo)
-        try ui.expectPosition(position)
-        try ui.expectLabel(ui.app.buttons["player.playPause"], "Play")
-        try ui.tap(ui.app.buttons["player.browse"])
-        try ui.tap(artist)
+        // One credit and an album title without an id leave a single destination, so no chooser is offered.
+        XCTAssertFalse(ui.app.buttons["player.browse"].exists, "The bottom row has no Album and artists button.")
+        let artistLine = ui.app.buttons["player.artistName"]
+        try ui.expectLabel(artistLine, "Go to artist, Arijit Singh")
+        XCTAssertTrue(artistLine.isEnabled)
+        ui.capture("single-artist-no-album-direct-line")
+        try ui.tap(artistLine)
         try ui.expectArtistPage(named: "Arijit Singh")
-        XCTAssertFalse(ui.element("player.browse.sheet").exists)
+        XCTAssertFalse(ui.element("player.browse.sheet").exists, "A single destination must not open the chooser.")
+        XCTAssertFalse(ui.element("player.artists.sheet").exists)
         try ui.openPlayer()
         try ui.expectCurrentTrack(AppUIFixture.tumHiHo)
         try ui.expectPosition(position)
@@ -52,12 +44,15 @@ final class GanaBajanaPlayerBrowseUITests: XCTestCase {
         let position = try ui.position()
         let started = Date()
 
-        try ui.tap(ui.app.buttons["player.browse"])
+        // One credit plus a real album id is two destinations, so the artist line offers the chooser.
+        let artistLine = ui.app.buttons["player.artistName"]
+        try ui.expectLabel(artistLine, "Album and artists, Norah Jones")
+        try ui.tap(artistLine)
         let album = ui.app.buttons["player.browse.album"]
         let artist = ui.app.buttons["player.artist.0"]
         try ui.requireHittable(album)
         try ui.requireHittable(artist)
-        XCTAssertEqual(album.label, "Go to album")
+        XCTAssertEqual(album.label, "Go to Album")
         XCTAssertEqual(album.value as? String, "Come Away With Me")
         XCTAssertEqual(artist.label, "Norah Jones")
         XCTAssertFalse(ui.app.buttons["player.artist.1"].exists)
@@ -88,7 +83,7 @@ final class GanaBajanaPlayerBrowseUITests: XCTestCase {
         try ui.pause()
         let position = try ui.position()
 
-        try ui.tap(ui.app.buttons["player.browse"])
+        try ui.tap(ui.app.buttons["player.artistName"])
         let album = ui.app.buttons["player.browse.album"]
         try ui.requireHittable(album)
         XCTAssertEqual(album.value as? String, "Evening favorites")
@@ -110,7 +105,7 @@ final class GanaBajanaPlayerBrowseUITests: XCTestCase {
         try ui.expectCurrentTrack(AppUIFixture.agarTumSaathHo)
         try ui.expectPosition(position)
 
-        try ui.tap(ui.app.buttons["player.browse"])
+        try ui.tap(ui.app.buttons["player.artistName"])
         let last = ui.app.buttons["player.artist.5"]
         let list = ui.app.scrollViews["player.browse.list"]
         try ui.requireHittable(list)
@@ -135,7 +130,7 @@ final class GanaBajanaPlayerBrowseUITests: XCTestCase {
         try ui.launch(additionalArguments: ["--artist-navigation-fixture", "--light", "-UIPreferredContentSizeCategoryName",
                                             UIContentSizeCategory.accessibilityExtraExtraExtraLarge.rawValue])
         try ui.openPlayer()
-        try ui.tap(ui.app.buttons["player.browse"])
+        try ui.tap(ui.app.buttons["player.artistName"])
         let album = ui.app.buttons["player.browse.album"]
         let artist = ui.app.buttons["player.artist.0"]
         try assertFittedChooser(ui, first: album, last: artist)
@@ -143,7 +138,8 @@ final class GanaBajanaPlayerBrowseUITests: XCTestCase {
         try ui.tap(ui.app.buttons["player.browse.done"])
 
         try ui.rotateToLandscape()
-        let controls = ["player.airplay", "player.lyrics", "player.browse", "player.queue"].map { ui.app.buttons[$0] }
+        // AirPlay leads the row and Queue trails it, with Lyrics 8 points inside Queue and no browse control.
+        let controls = ["player.airplay", "player.lyrics", "player.queue"].map { ui.app.buttons[$0] }
         for control in controls {
             try ui.requireHittable(control)
             XCTAssertGreaterThanOrEqual(control.frame.width + 1e-6, 44)
@@ -155,8 +151,10 @@ final class GanaBajanaPlayerBrowseUITests: XCTestCase {
             XCTAssertLessThan(left.frame.midX, right.frame.midX)
             XCTAssertLessThanOrEqual(left.frame.maxX, right.frame.minX + 1e-6)
         }
-        ui.capture("player-leftmost-airplay-landscape-largest-text")
-        try ui.tap(ui.app.buttons["player.browse"])
+        XCTAssertEqual(controls[1].frame.maxX + 8, controls[2].frame.minX, accuracy: 1)
+        XCTAssertFalse(ui.app.buttons["player.browse"].exists)
+        ui.capture("player-leading-airplay-landscape-largest-text")
+        try ui.tap(ui.app.buttons["player.artistName"])
         // Fitted sheets inset their scroll indicator above visible rows; use the actual sheet and bar bounds.
         try assertFittedChooser(ui, first: album, last: artist)
         ui.capture("album-artist-chooser-landscape-largest-text")
@@ -170,7 +168,7 @@ final class GanaBajanaPlayerBrowseUITests: XCTestCase {
     private func assertFittedChooser(_ ui: AppUITestDriver, first: XCUIElement, last: XCUIElement,
                                      file: StaticString = #filePath, line: UInt = #line) throws {
         let chooser = ui.element("player.browse.sheet")
-        let navigation = ui.app.navigationBars["Album and artists"]
+        let navigation = ui.app.navigationBars["Album and Artists"]
         try ui.requireHittable(first)
         try ui.requireHittable(last)
         try ui.wait("The chooser must finish fitting its measured choices", timeout: 5) {

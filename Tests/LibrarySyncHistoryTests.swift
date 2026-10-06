@@ -22,8 +22,11 @@ final class LibrarySyncHistoryTests: XCTestCase {
             XCTAssertEqual(store.events.count, 1)
             XCTAssertEqual(store.events.first?.id, session)
             XCTAssertEqual(store.events.first?.listenedSeconds, 35)
+            XCTAssertEqual(store.lifetimeListeningSummary.seconds, 35)
+            XCTAssertEqual(store.lifetimeListeningSummary.plays, 1)
             try store.mergeCloudState(bOffline)
             XCTAssertEqual(store.events.first?.listenedSeconds, 35)
+            XCTAssertEqual(store.lifetimeListeningSummary.seconds, 35)
         }
         XCTAssertEqual(try a.saved().events.first?.listenedSeconds, 35)
     }
@@ -56,6 +59,7 @@ final class LibrarySyncHistoryTests: XCTestCase {
             XCTAssertTrue(store.events.isEmpty)
             XCTAssertTrue(store.recentlyPlayed.isEmpty)
             XCTAssertTrue(store.mixes.isEmpty)
+            XCTAssertEqual(store.lifetimeListeningSummary, LifetimeListeningSummary())
             XCTAssertTrue(store.isFavorite(song))
         }
         let fresh = UUID()
@@ -64,6 +68,7 @@ final class LibrarySyncHistoryTests: XCTestCase {
         try a.library.mergeCloudState(baseline)
         XCTAssertEqual(a.library.events.map(\.id), [fresh])
         XCTAssertEqual(a.library.events.first?.listenedSeconds, 3)
+        XCTAssertEqual(a.library.lifetimeListeningSummary.seconds, 3)
         XCTAssertEqual(try a.saved().syncState?.historyReset, clear.historyReset)
     }
 
@@ -103,11 +108,13 @@ final class LibrarySyncHistoryTests: XCTestCase {
         XCTAssertThrowsError(try a.library.mergeCloudState(b.state()))
         XCTAssertEqual(resets, 0)
         XCTAssertEqual(a.library.events.first?.listenedSeconds, 20)
+        XCTAssertEqual(a.library.lifetimeListeningSummary.seconds, 20)
         try FileManager.default.removeItem(at: a.fileURL)
         try FileManager.default.moveItem(at: backup, to: a.fileURL)
         try a.library.mergeCloudState(b.state())
         XCTAssertEqual(resets, 1)
         XCTAssertTrue(a.library.events.isEmpty)
+        XCTAssertEqual(a.library.lifetimeListeningSummary, LifetimeListeningSummary())
         try a.library.mergeCloudState(b.state())
         XCTAssertEqual(resets, 1)
     }
@@ -134,6 +141,7 @@ final class LibrarySyncHistoryTests: XCTestCase {
             XCTAssertTrue(buffer.checkpoints.isEmpty)
             XCTAssertEqual(a.library.preferences.saveListeningHistory, reenable)
             XCTAssertEqual(a.library.events.first?.listenedSeconds, 20)
+            XCTAssertEqual(a.library.lifetimeListeningSummary.seconds, 20)
             XCTAssertEqual(a.library.recentlyPlayed.first?.position, 17)
             XCTAssertNil(try a.state().historyReset)
             XCTAssertNotNil(try a.state().historyRetirement)
@@ -166,6 +174,8 @@ final class LibrarySyncHistoryTests: XCTestCase {
         try a.library.mergeCloudState(remote)
         XCTAssertEqual(a.library.events.map(\.id), [recentID])
         XCTAssertEqual(try a.state().registers.filter { $0.key.collection == .event }.count, 1)
+        XCTAssertEqual(try a.state().registers.filter { $0.key.collection == .lifetimeSession }.count, 2)
+        XCTAssertEqual(a.library.lifetimeListeningSummary.seconds, 70)
     }
 
     func testLongCurrentStreakRetainsOneActualOlderSessionPerDayAcrossSync() throws {
@@ -186,10 +196,14 @@ final class LibrarySyncHistoryTests: XCTestCase {
         XCTAssertEqual(a.library.events.count, 850)
         XCTAssertEqual(a.library.summary(for: .week, now: LibrarySyncTestData.now).streak, 450)
         XCTAssertEqual(try a.state().registers.filter { $0.key.collection == .event }.count, 850)
+        XCTAssertEqual(a.library.lifetimeListeningSummary.seconds, 27_000)
+        XCTAssertEqual(a.library.lifetimeListeningSummary.plays, 900)
         harness.clock.advance(by: 3 * 86_400)
         try a.library.mergeCloudState(remote)
         let cutoff = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: -400, to: Calendar.current.startOfDay(for: harness.clock.now)))
         XCTAssertTrue(a.library.events.allSatisfy { $0.startedAt >= cutoff })
+        XCTAssertEqual(a.library.lifetimeListeningSummary.seconds, 27_000)
+        XCTAssertEqual(a.library.lifetimeListeningSummary.plays, 900)
     }
 
     func testSearchClearWhileEmptyRejectsLateOfflineQueriesAndRemovalRetainsATombstone() throws {

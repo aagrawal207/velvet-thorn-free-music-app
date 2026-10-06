@@ -5,6 +5,7 @@ typealias LibrarySyncValueProjection = (LibraryDocument) throws -> [LibrarySyncK
 enum LibrarySyncProjection {
     static func values(_ document: LibraryDocument) throws -> [LibrarySyncKey: Data] {
         var result: [LibrarySyncKey: Data] = [:]
+        result.merge(try LibraryLifetimeSync.project(document.lifetimeListening)) { _, incoming in incoming }
         func put<T: Encodable>(_ collection: LibrarySyncCollection, _ id: String, _ value: T, member: String? = nil) throws {
             guard id.utf8.count <= 16_384, member.map({ $0.utf8.count <= 16_384 }) ?? true else {
                 throw LibrarySyncError.invalidData("overly long mutation identifier")
@@ -14,7 +15,10 @@ enum LibrarySyncProjection {
         for (key, value) in try LibrarySyncPreferences.fields(document.preferences) {
             result[LibrarySyncKey(.preference, key)] = value
         }
-        for track in document.favorites { try put(.reaction, track.id, LibrarySyncReaction.liked(track)) }
+        let superLiked = Set(document.superLikedIDs)
+        for track in document.favorites {
+            try put(.reaction, track.id, superLiked.contains(track.id) ? LibrarySyncReaction.superLiked(track) : .liked(track))
+        }
         for song in document.disliked { try put(.reaction, song.id, LibrarySyncReaction.disliked(song)) }
         for playlist in document.playlists {
             let id = playlist.id.uuidString
@@ -73,7 +77,7 @@ enum LibrarySyncProjection {
     static func materialize(_ state: LibrarySyncState, onto local: LibraryDocument, now: Date,
                             applyRetention: Bool = true) throws -> LibraryDocument {
         var result = local
-        let defaults = try LibrarySyncPreferences.fields(UserPreferences())
+        let defaults = try LibrarySyncPreferences.resetFields()
         var fields: [String: Data] = [:]
         for (key, register) in state.registers where key.collection == .preference {
             guard let fallback = defaults[key.id] else { throw LibrarySyncError.newerVersion }
@@ -81,11 +85,15 @@ enum LibrarySyncProjection {
         }
         result.preferences = try LibrarySyncPreferences.applying(fields, to: local.preferences)
         result.favorites = []
+        result.superLikedIDs = []
         result.disliked = []
         for (_, register) in entries(.reaction, in: state) {
             guard let data = register.value else { continue }
             switch try LibrarySyncCodec.decode(LibrarySyncReaction.self, from: data) {
             case .liked(let track): result.favorites.append(track)
+            case .superLiked(let track):
+                result.favorites.append(track)
+                result.superLikedIDs.append(track.id)
             case .disliked(let song): result.disliked.append(song)
             }
         }
@@ -141,6 +149,7 @@ enum LibrarySyncProjection {
         result.releases.sort { $0.discoveredAt == $1.discoveredAt ? $0.id < $1.id : $0.discoveredAt > $1.discoveredAt }
         result.releases = Array(result.releases.prefix(LibraryPersistence.releaseLimit))
         result.events = try decodedEntries(.event, in: state, as: ListeningEvent.self)
+        result.lifetimeListening = try LibraryLifetimeSync.materialize(state)
         result.events.sort { $0.startedAt == $1.startedAt ? $0.id.uuidString < $1.id.uuidString : $0.startedAt > $1.startedAt }
         result.recentlyPlayed = try decodedEntries(.recent, in: state, as: RecentListen.self)
         result.recentlyPlayed.sort { $0.playedAt == $1.playedAt ? $0.id < $1.id : $0.playedAt > $1.playedAt }

@@ -1,0 +1,317 @@
+{
+ "tags": [
+  {
+   "tag_id": 103,
+   "tag_name": "Romance"
+  },
+  {
+   "tag_id": 100,
+   "tag_name": "Party"
+  }
+ ],
+ "count": "98",
+ "status": 1,
+ "error": "SUCCESS",
+ "tracks": [
+  {
+   "track_id": "80524747",
+   "seokey": "jai-jai-ram-from-ramayana",
+   "albumseokey": "jai-jai-ram-from-ramayana",
+   "track_title": "Jai Jai Ram (From \"Ramayana\")",
+   "album_id": "17620223",
+   "album_title": "Jai Jai Ram (From \"Ramayana\")",
+   "language": "Hindi",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/Dk9KN2KBx1/9KNnN56qKB/size_s_1789386498.jpg",
+   "artwork_web": "https://a10.gaanacdn.com/gn_img/albums/Dk9KN2KBx1/9KNnN56qKB/size_m_1789386498.jpg",
+   "artwork_large": "https://a10.gaanacdn.com/gn_img/albums/Dk9KN2KBx1/9KNnN56qKB/size_l_1789386498.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/Dk9KN2KBx1/9KNnN56qKB/size_m_1789386498.jpg",
+   "duration": "321",
+   "isrc": "INS182603557",
+   "popularity": "345099947~43026",
+   "play_ct": "<100K",
+   "parental_warning": 0,
+   "is_premium": 1,
+   "premium_content": "0",
+   "rest_lev": "0",
+   "vendor_rest_lev": "0",
+   "download_enabled": 0,
+   "urls": {
+    "medium": {
+     "message": "5LNurAAYvtXqhVc40n3PiDJOD8SYl7lWMqRccaysfnHunDckLMLV7GFfGmcjiJAmNZWTSc6KE3Wo6ivsi9fSqA4BApxlaByPsTOK7JDjacECxm3X1jb9gL36IApC8uBo1OHdI0IKGSJI9P7BAnohWDKbRWUsCBxhhfcrfdYup+D8hzfTwoR/FIbWdXzozZZcu8ww9Tsm2EgZALvLaO2dZnyDT3PzTYCvYpZ9kMcvggO//QGBOmA1Or5qYwPDMtt4N9+q9OuS1arUKOwYXyqAUZfqnvVQRiTf7wR3QshB/o5kwpNODGm3OP+km2syDQuE=",
+     "bitRate": "64",
+     "expiryTime": 1790431474
+    },
+    "high": {
+     "message": "6Pa27g9bqqRnwX2o6h88ZxNfyZXegi5nbKYxG1YbJWyBSf+WrNz2JTfyXN7T9n+CAPxIPb9Tt7RREpOTw+na2+EQ9pRBDmtEaOhNTgebkWYfaqpw36ba2KM/7E1JEw3JfzEQqZMMlrxCBYNjzJ/L1IEnqkaVdVzUXftPlLRIqiGZA2IfAkGQzttRfdVxSrzYEWOdbxxuOUw0oU+/okWXllN/jZWIeqUKrOerlzyj5bGdv3MOgRNfYWLh5TiD5BDK+wzrLACwYmHA59P8+1JxpH9gp3qFRjMSWUjwfjPuJaJt+rdoelM05azmQdJXI6Hoo=",
+     "bitRate": "128",
+     "expiryTime": 1790431474
+    },
+    "auto": {
+     "message": "3S5Qsd6BFKTpsLRB3Qmtz8b4DTorrg1mjArtdC5RNCnF76t2ZmJoISbxVo8pZldR2EI1U02JE/qF44L/tAl4fvsyl7DtckFCtPpILgSS9IOIRMd9BxOGCz/dhrmgWAKtmr+beKLFcGlzYylHopkYQSduA6R1W06bujYvlyZIgzxA45hkUtvp1nQcSxeXjontOQj+uu3HdgYAc3SRxbrUiXp2U9CbbpeG9+FTv63sr9C6PK6xmdpnYiLcEsYXWfFA8ybYEVf1IGpWqa8B46ORuMgXvaMnXmoXRFvSK3SQx1kN5qIOTrVRl9Shk9OgHg=",
+     "bitRate": "",
+     "expiryTime": 1790431474
+    }
+   },
+   "preview_url": {
+    "message": "4iX9U1dd6Xo07fE5XCjJ/SnRZLOaPDUnuwkWItVxqklhT3r5gYvzTzstfT1WotBME6wD/gfVb8V3LT6J4QUgJ6yTrCIrRC4xur9fvmp3uMIqa3rWySmQ7mtZ1yQRYvCqJ2R2buC9Gw7n97b9H7OuGbwC0z5GLxQvwnTg/axMLQ==",
+    "expiryTime": 1790431474
+   },
+   "release_date": "2026-09-14",
+   "loudness": {
+    "integrated": "-9.9 LUFS",
+    "truePeak": "+2.2 dBTP",
+    "lra": "6.2 LU",
+    "threshold": "-20 LUFS"
+   },
+   "stream_type": "rtmp",
+   "track_format": {
+    "mp3": {
+     "normal": "0",
+     "medium": "1",
+     "high": "0",
+     "extreme": "0",
+     "auto": "0"
+    },
+    "mp4_aac": {
+     "normal": "0",
+     "medium": "1",
+     "high": "1",
+     "extreme": "1",
+     "auto": "1"
+    }
+   },
+   "total_favourite_count": 269,
+   "is_dolby": 0,
+   "artist": [
+    {
+     "artist_id": "55962",
+     "seokey": "ar-rahman",
+     "name": "A. R. Rahman"
+    },
+    {
+     "artist_id": "4",
+     "seokey": "shreya-ghoshal",
+     "name": "Shreya Ghoshal"
+    },
+    {
+     "artist_id": "52767",
+     "seokey": "arijit-singh",
+     "name": "Arijit Singh"
+    },
+    {
+     "artist_id": "3450396",
+     "seokey": "kumar-vishwas-1",
+     "name": "Kumar Vishwas"
+    }
+   ]
+  },
+  {
+   "track_id": "51253500",
+   "seokey": "apna-bana-le-6",
+   "albumseokey": "bhediya-original-motion-picture-soundtrack",
+   "track_title": "Apna Bana Le",
+   "album_id": "7233109",
+   "album_title": "Bhediya (Original Motion Picture Soundtrack)",
+   "language": "Hindi",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/a7LWBzWzXA/LWBkVVA4bz/size_s_1686735322.jpg",
+   "artwork_web": "https://a10.gaanacdn.com/gn_img/albums/a7LWBzWzXA/LWBkVVA4bz/size_m_1686735322.jpg",
+   "artwork_large": "https://a10.gaanacdn.com/gn_img/albums/a7LWBzWzXA/LWBkVVA4bz/size_l_1686735322.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/a7LWBzWzXA/LWBkVVA4bz/size_m_1686735322.jpg",
+   "duration": "261",
+   "isrc": "INZ031411736",
+   "popularity": "345099947~7561006",
+   "play_ct": "7M+",
+   "parental_warning": 0,
+   "is_premium": 1,
+   "premium_content": "0",
+   "rest_lev": "0",
+   "vendor_rest_lev": "0",
+   "download_enabled": 0,
+   "urls": {
+    "medium": {
+     "message": "3ZbTMdRw00wsgoRgJA3J8s1v7pXYsel6kEXu7Ew8ERIB0FsPMyAsO0IqQumfTfhWjyZ9BwLKnDYBo9VMUMC0dIx2rWZz4PBDAnIyqxuqGaCaAJV1BloDTvuZde8P/5mYDufHUpdMhWVpBmqMBSCPml3TgYGQWGeVw9+q26CZKbQZXNOTmVSae6B8FsJoj0pNiCM7EftYMxPzmEeaDDcobVYg43qwjBMnWYlbSfT/XlzlzSKwf5jr5r980SXAj2mIDwOvW+72iKiVC1Bce2PbOZlkMl7avx9eQwWGBTuu3KGvX2tmfhnncwwNdytO3I=",
+     "bitRate": "64",
+     "expiryTime": 1790431474
+    },
+    "high": {
+     "message": "5omyKCLYiMNsxyCfYPcfgRiMGOg5WAjc5nOp6t85Gb4ha3kLwFtt4744fU4KuzNHsKn+BwFoNW8XlOEiiadtIQYpGrH1LpxNndgl4T6+51gjdXwHErDNuuZoTHTB2DH8yyOCMP2XKuo7Oe0TF2WNpyk7MVYB0iCZSySCpKx+cTtpf8lj68mU4l38D7S3EyqcCFo76Rg2zEKqaZOXrR90dii56TbIx/OK1G4D5+nP4m4zNhqd60cMLNAsh+OJsQYPJ60tVOAmItTxu23gmjrNAND9LtFgeFCfon+156muoea5Ghs8yB5QMZ1pptezEzbk=",
+     "bitRate": "128",
+     "expiryTime": 1790431474
+    },
+    "auto": {
+     "message": "6babOthLgwrxIlGLwAc1S7Ae//ZUiPDXjUBzw9+SBU14dSoj1x65Wju0PZWL+YvelwQigClg+LOsLN8+sMvgfndU5y7Qe3WIxyLVddyid1djBmxtaIzEpu7VGgsvu/T7VHUqv0HWM9DMYVRPSW/zJe6LJqykQMEHBwWf30ByyyS1lBBCvDnclTzKjbM8eguElwtHpW24sFdz2B6qMl/yqG3/bTMbRYkB5SheiQGp/GxAOSVUHPV83vkHpHVQckQLlsHT1FeDwn7+PJMa4s5UtO/g3WKatxtbeCwuubqumA+Lyem5qZfSn0kiapodMVZtY=",
+     "bitRate": "",
+     "expiryTime": 1790431474
+    }
+   },
+   "preview_url": {
+    "message": "3Iyn9e0xicrkjx0bLFxAh9fFvPFgAA54Y7JtYVjsKulRNvnDv2Ujy1Q1yNBFs90ayuZdephkETWdR3t8q3arLYf+YNla7StepBLhjiCFyinSpbA7z28fg3vvksyr7jskB+AjpBTBjQ8wT2Y0rVlHigk0zfUHfmfccL4wFQopA==",
+    "expiryTime": 1790431474
+   },
+   "release_date": "2022-12-06",
+   "loudness": {
+    "integrated": "-6.5 LUFS",
+    "truePeak": "+0.4 dBTP",
+    "lra": "4.8 LU",
+    "threshold": "-16 LUFS"
+   },
+   "stream_type": "rtmp",
+   "track_format": {
+    "mp3": {
+     "normal": "0",
+     "medium": "0",
+     "high": "0",
+     "extreme": "0",
+     "auto": "0"
+    },
+    "mp4_aac": {
+     "normal": "0",
+     "medium": "1",
+     "high": "1",
+     "extreme": "1",
+     "auto": "1"
+    }
+   },
+   "total_favourite_count": 160188,
+   "is_dolby": 0,
+   "artist": [
+    {
+     "artist_id": "86611",
+     "seokey": "sachin-jigar-1",
+     "name": "Sachin-Jigar"
+    },
+    {
+     "artist_id": "52767",
+     "seokey": "arijit-singh",
+     "name": "Arijit Singh"
+    },
+    {
+     "artist_id": "529",
+     "seokey": "amitabh-bhattacharya",
+     "name": "Amitabh Bhattacharya"
+    }
+   ]
+  },
+  {
+   "track_id": "69704746",
+   "seokey": "gehra-hua-from-dhurandhar",
+   "albumseokey": "gehra-hua-from-dhurandhar",
+   "track_title": "Gehra Hua (From \"Dhurandhar\")",
+   "album_id": "13879256",
+   "album_title": "Gehra Hua (From \"Dhurandhar\")",
+   "language": "Hindi",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/BZgWoQOK2d/gWo91jQPK2/size_s_1764912801.jpg",
+   "artwork_web": "https://a10.gaanacdn.com/gn_img/albums/BZgWoQOK2d/gWo91jQPK2/size_m_1764912801.jpg",
+   "artwork_large": "https://a10.gaanacdn.com/gn_img/albums/BZgWoQOK2d/gWo91jQPK2/size_l_1764912801.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/BZgWoQOK2d/gWo91jQPK2/size_m_1764912801.jpg",
+   "duration": "363",
+   "isrc": "INH102506955",
+   "popularity": "345099947~5282669",
+   "play_ct": "5M+",
+   "parental_warning": 0,
+   "is_premium": 1,
+   "premium_content": "0",
+   "rest_lev": "0",
+   "vendor_rest_lev": "0",
+   "download_enabled": 0,
+   "urls": {
+    "medium": {
+     "message": "3kpTsbSf7bwGZZo6E4zNOtCU+cxvaU2uDPXVQ4STFvAFfrl2BhSErHegl9zSl6BIWcd0dL97McIKlgJ3Gh2uRMt5l+hTxBInT/cCpwseXUKaKt0RGlLmHGoWnj/gHTBZj832vWzctSM6Ae+uzDzWryWlXcCs3Jq/dTk2MFoqLxb9LOnPSP2wcIChmiwKwFPQxt+GbjsPq+sbRgEitTETMSHbGr82J4ABD37cCogdlJGihZQWz0tB8avo5EyufjiT/cBu7aygMwMHf9ZxN+bZDsRh88YA7PSgURl/qaXqaWr15mla6AmuWX9uLWFtsY=",
+     "bitRate": "64",
+     "expiryTime": 1790431474
+    },
+    "high": {
+     "message": "4VBaAVKKZWuoY2iWMcTsztJ8gPMvbMyuOV1wd5mSQFFOEHZfFToZd0DXGRE7FjWoips3SZkBlSJE96Rw/mjNL4m5kx1FV/tG/lG6J8GEcPvQHI0iDjc7jq+rQsPNNLJj+WDM8GzNfUPQmZuh/z7XzlGkutU7gCxpJEXILRB72lotVJi2sRJhh20HclWR7isKwq8Q5zH0EeTWJfRWnKvimsJPY3aRB1/rBVkpwi3+hpaQQHWDmDf2dhltrcLaWhxG7ipCLRqI/EQyRsMurw4Nqj6iu7zjw3hAhChTuk9BClbxn0dYyY+9DrNzvtCvUi4=",
+     "bitRate": "128",
+     "expiryTime": 1790431474
+    },
+    "auto": {
+     "message": "5Ar2F2Tt1fNhqzbkjRFmJpd0Jc3dzGG0teEbXJCqQOQSTbp9cIpegY4K+bCFTDiHZDumrXByIVGfH8IgAA7CL4kCU9lACYJeR1CMY32RWzqE1E3AG1GGDf/4pjmbgEkf9jGHA8XxfRi1GSmMJKg01pKfNbTBd5TvysWJ6XJ2ws5glREPK9faExSSEgjidcN1XjXhziQjDV4TMgbzON6j8b76UZgQRNIlQK6q1Lc4KfbqiB4jXR+L8khFB54YA1wrJYseGrXWAaiX/pMrWad8NKrnndkSYM9LcCj4ZM7kw7YmNPK3y4kkPFDNxJI851t8=",
+     "bitRate": "",
+     "expiryTime": 1790431474
+    }
+   },
+   "preview_url": {
+    "message": "6BVzxg3jUoQpPVzj4FfnmrvtJ06ghujEmBkxYT3lHIuMj1MWb3bgS5eeXBz1189CTMX+0bWHCsEBt4G3QBojNsHbiY7N65tHqPVPB4aQMiDsE2yrnZj8BP0ZquzxljbJ7GDqyFS4o1EHCLWYnLsqKmH72LGB9KsQNNuTrh0N6O0g==",
+    "expiryTime": 1790431474
+   },
+   "release_date": "2025-11-27",
+   "loudness": {
+    "integrated": "-12.7 LUFS",
+    "truePeak": "+0.4 dBTP",
+    "lra": "8.7 LU",
+    "threshold": "-23 LUFS"
+   },
+   "stream_type": "rtmp",
+   "track_format": {
+    "mp3": {
+     "normal": "0",
+     "medium": "0",
+     "high": "0",
+     "extreme": "0",
+     "auto": "0"
+    },
+    "mp4_aac": {
+     "normal": "0",
+     "medium": "1",
+     "high": "1",
+     "extreme": "1",
+     "auto": "1"
+    }
+   },
+   "total_favourite_count": 52846,
+   "is_dolby": 0,
+   "artist": [
+    {
+     "artist_id": "1295950",
+     "seokey": "shashwat-sachdev",
+     "name": "Shashwat Sachdev"
+    },
+    {
+     "artist_id": "52767",
+     "seokey": "arijit-singh",
+     "name": "Arijit Singh"
+    },
+    {
+     "artist_id": "1273210",
+     "seokey": "irshad-kamil",
+     "name": "Irshad Kamil"
+    },
+    {
+     "artist_id": "2074331",
+     "seokey": "armaan-khan",
+     "name": "Armaan Khan"
+    }
+   ]
+  }
+ ],
+ "playlist": {
+  "atw": "https://a10.gaanacdn.com/gn_pl_img/playlists/zLp36v3rGe/Lp36mQk0Kr/size_m_1784199401.jpg",
+  "language": "Hindi",
+  "playlist_id": "1075124",
+  "seokey": "gaana-dj-best-of-arijit-singh",
+  "status": "1",
+  "title": "Best of Arijit Singh",
+  "trackcount": 130,
+  "createdby": "Gaana",
+  "favorite_count": "486149",
+  "pl_play_ct": "220M+",
+  "play_count": 0,
+  "popularity": "0~152701309",
+  "parental_warning": 0,
+  "modified_on": "2026-07-16 16:26:43",
+  "created_on": "2014-01-03 10:07:59"
+ },
+ "top_artists": [
+  {
+   "artist_id": "52767",
+   "name": "Arijit Singh"
+  },
+  {
+   "artist_id": "11468",
+   "name": "Pritam"
+  }
+ ],
+ "parental_warning": 0,
+ "error_code": null
+}

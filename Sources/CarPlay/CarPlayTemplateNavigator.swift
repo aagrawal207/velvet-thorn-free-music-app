@@ -34,7 +34,7 @@ final class CarPlayTemplateNavigator {
             self.operation = nil
             self.rootIsReady = success
             if success { self.advance() }
-            else { onFailure(message ?? "CarPlay couldn’t open Breezy.") }
+            else { onFailure(message ?? "CarPlay couldn’t open Velvet Thorn.") }
         }
     }
 

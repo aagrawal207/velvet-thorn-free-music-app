@@ -29,6 +29,7 @@ final class GanaBajanaSettingsOrganizationUITests: XCTestCase {
         addTeardownBlock { await ui.finish() }
         try ui.launch()
         try ui.openSettings()
+        try ui.openSettingsPage(.library)
         try ui.reveal(ui.app.staticTexts["settings.section.library"], maxSwipes: 16)
         let storage = ui.app.buttons["settings.storage"]
         try ui.reveal(storage)
@@ -43,32 +44,33 @@ final class GanaBajanaSettingsOrganizationUITests: XCTestCase {
         let clearHistory = ui.app.buttons["settings.clearHistory"]
         try ui.reveal(clearHistory, direction: .down)
         try ui.tap(clearHistory)
-        let confirmation = ui.app.alerts["Clear your listening history?"]
+        let confirmation = ui.app.alerts["Clear Your Listening History?"]
         try ui.tap(confirmation.buttons["Cancel"])
         try ui.wait("Cancel must leave listening history available") {
             !confirmation.exists && clearHistory.isEnabled
         }
 
+        try ui.openSettingsPage(.discovery)
         try ui.reveal(ui.app.staticTexts["settings.section.discovery"], maxSwipes: 16)
         let languages = ui.app.buttons["settings.languages"]
         try ui.reveal(languages)
         try ui.tap(languages)
         try ui.wait("Listening statistics must replace the manual discovery-language form") {
-            ui.app.navigationBars["Listening languages"].exists
+            ui.app.navigationBars["Listening Languages"].exists
         }
         XCTAssertFalse(ui.app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "settings.language.")).firstMatch.exists)
-        try ui.expectMetric("listeningLanguages.total.plays", number: 20, description: "Counted plays")
-        try ui.expectMetric("listeningLanguages.total.songs", number: 5, description: "Different songs")
+        try ui.expectMetric("listeningLanguages.total.plays", number: 20, description: "Counted Plays")
+        try ui.expectMetric("listeningLanguages.total.songs", number: 5, description: "Different Songs")
         let tuning = ui.app.buttons["listeningLanguages.tune"]
         try ui.reveal(tuning)
         try ui.tap(tuning)
         try selectNudge("ta", title: "More", in: ui)
         try selectNudge("en", title: "Less", in: ui)
-        try ui.expectMetric("listeningLanguages.total.plays", number: 20, description: "Counted plays")
+        try ui.expectMetric("listeningLanguages.total.plays", number: 20, description: "Counted Plays")
         XCTAssertFalse(ui.element("listeningLanguages.row.ta").exists, "A nudge must not manufacture listening statistics")
-        try ui.tap(ui.app.navigationBars["Listening languages"].buttons.firstMatch)
+        try ui.tap(ui.app.navigationBars["Listening Languages"].buttons.firstMatch)
         try ui.reveal(languages)
-        XCTAssertTrue(ui.accessibleText(languages).contains("Listening languages"))
+        XCTAssertTrue(ui.accessibleText(languages).contains("Listening Languages"))
         ui.capture("settings-listening-language-return-navigation")
 
         try ui.relaunch()
@@ -76,6 +78,7 @@ final class GanaBajanaSettingsOrganizationUITests: XCTestCase {
         try ui.expectSwitch("settings.history", isOn: true)
         try ui.reveal(ui.app.buttons["settings.clearHistory"])
         XCTAssertTrue(ui.app.buttons["settings.clearHistory"].isEnabled)
+        try ui.openSettingsPage(.discovery)
         try ui.reveal(languages, maxSwipes: 16)
         try ui.tap(languages)
         try ui.reveal(tuning)
@@ -85,9 +88,9 @@ final class GanaBajanaSettingsOrganizationUITests: XCTestCase {
             try ui.reveal(menu)
             try ui.expectValue(menu, value)
         }
-        try ui.expectMetric("listeningLanguages.total.plays", number: 20, description: "Counted plays")
-        try ui.expectMetric("listeningLanguages.total.songs", number: 5, description: "Different songs")
-        try ui.tap(ui.app.navigationBars["Listening languages"].buttons.firstMatch)
+        try ui.expectMetric("listeningLanguages.total.plays", number: 20, description: "Counted Plays")
+        try ui.expectMetric("listeningLanguages.total.songs", number: 5, description: "Different Songs")
+        try ui.tap(ui.app.navigationBars["Listening Languages"].buttons.firstMatch)
         try ui.tap(ui.app.buttons["settings.done"])
         try ui.selectTab("library")
         try ui.openPlaylist(named: AppUIFixture.seededPlaylist)
@@ -101,12 +104,13 @@ final class GanaBajanaSettingsOrganizationUITests: XCTestCase {
         XCTAssertFalse(ui.app.buttons["home.customize"].exists)
         XCTAssertFalse(ui.app.buttons["home.customize.empty"].exists)
         try ui.openSettings()
+        try ui.openSettingsPage(.discovery)
         let customize = ui.app.buttons["settings.customizeHome"]
         try ui.reveal(customize, maxSwipes: 24)
         XCTAssertGreaterThanOrEqual(customize.frame.height + 1e-6, 44)
         try ui.tap(customize)
         try ui.wait("Settings must retain Home customization") { ui.app.navigationBars["Customize Home"].exists }
-        for section in ["recentlyPlayed", "madeForYou", "newReleases", "becauseYouLike", "charts", "discovery"] {
+        for section in ["recentlyPlayed", "madeForYou", "newReleases", "becauseYouLike", "charts", "discovery", "superLiked"] {
             try ui.setSwitch("home.customization.show.\(section)", to: false)
         }
         try ui.tap(ui.app.navigationBars["Customize Home"].buttons.firstMatch)
@@ -120,6 +124,7 @@ final class GanaBajanaSettingsOrganizationUITests: XCTestCase {
         try ui.relaunch()
         try ui.wait("Hidden Home sections must remain hidden across relaunch") { ui.element("home.empty.customized").exists }
         try ui.openSettings()
+        try ui.openSettingsPage(.discovery)
         try ui.reveal(customize, maxSwipes: 24)
         try ui.tap(customize)
         let reset = ui.app.buttons["home.customization.reset"]
@@ -141,31 +146,46 @@ final class GanaBajanaSettingsOrganizationUITests: XCTestCase {
         // Home's scroll containers remain in the accessibility tree behind the presented Settings form.
         let form = ui.element("settings.form")
         try ui.requireHittable(form)
-        let rows: [(id: String, hasDescription: Bool)] = [
-            ("settings.automix", true), ("settings.gapless", true), ("settings.autoplay", true),
-            ("settings.history", true), ("settings.customizeHome", false),
-            ("settings.encryptedDNS", true), ("settings.remoteFallback", true),
-            ("settings.tipJar", false), ("settings.support", false), ("settings.privacy", false),
-            ("settings.acknowledgements", false)
+        // Rows never carry description text; a row's note, when it has one, sits in its group's footer.
+        let rows: [(id: String, section: String, hasNote: Bool)] = [
+            ("settings.automix", "playback.transitions", true), ("settings.gapless", "playback.transitions", false),
+            ("settings.autoplay", "playback.transitions", false),
+            ("settings.history", "library.history", true), ("settings.customizeHome", "discovery.home", false),
+            ("settings.encryptedDNS", "account.connection", true), ("settings.remoteFallback", "account.connection", true),
+            ("settings.tipJar", "about.breezy", false), ("settings.support", "about.breezy", false),
+            ("settings.privacy", "about.breezy", false), ("settings.acknowledgements", "about.credits", false)
         ]
-        for (id, hasDescription) in rows {
+        var rowHeights: [String: CGFloat] = [:]
+        for (id, section, hasNote) in rows {
             try XCTContext.runActivity(named: "Check Settings row \(id)") { _ in
+                try ui.openSettingsPage(containing: id)
                 // Measure the identified switch row, not its potentially zero-bounds virtual Toggle child.
-                let row = hasDescription ? form.switches.matching(identifier: id).firstMatch : form.buttons[id]
-                let detail: XCUIElement? = hasDescription ? form.staticTexts["\(id).description"] : nil
-                try revealSettingsRow(row, description: detail, in: form, ui: ui)
+                let isSwitch = ["settings.automix", "settings.gapless", "settings.autoplay", "settings.history",
+                                "settings.encryptedDNS", "settings.remoteFallback"].contains(id)
+                let row = isSwitch ? form.switches.matching(identifier: id).firstMatch : form.buttons[id]
+                try revealSettingsRow(row, description: nil, in: form, ui: ui)
                 let frame = row.frame
                 XCTAssertGreaterThanOrEqual(frame.height + 1e-6, 44, id)
-                if let detail {
-                    let gap = detail.frame.minY - frame.maxY
-                    XCTAssertGreaterThanOrEqual(gap + 1e-6, 0, "Descriptions must not overlap \(id)")
-                    XCTAssertLessThanOrEqual(gap, 12, "A second row-sized spacer must not separate \(id) from its description")
+                XCTAssertLessThanOrEqual(frame.height, 52, "Rows keep one 44-point shape without description text: \(id)")
+                rowHeights[id] = frame.height
+                let detail = form.staticTexts["\(id).description"]
+                if hasNote {
+                    try revealSettingsRow(detail, description: nil, in: form, ui: ui)
+                    let footer = form.otherElements["settings.footer.\(section)"]
+                    // A footer cell with one note reports that note with the whole cell's frame, so the footer
+                    // container carries the geometry and the note is checked by membership.
+                    XCTAssertTrue(footer.exists && footer.staticTexts[detail.identifier].exists,
+                                  "\(id) explains itself in the \(section) footer")
                     XCTAssertFalse(detail.label.isEmpty)
+                    XCTAssertEqual(footer.frame.minX - form.frame.minX, 36, accuracy: 1, "Notes align with the row content inset")
                 } else {
-                    XCTAssertLessThanOrEqual(frame.height, 52, "Single-line rows should not add vertical padding around a full touch target: \(id)")
+                    XCTAssertFalse(detail.exists, "\(id) needs no note")
                 }
             }
         }
+        // The Automix switch shares its cell with a hairline divider, so heights compare at whole points.
+        let distinctHeights = Set(rowHeights.values.map { $0.rounded() })
+        XCTAssertEqual(distinctHeights.count, 1, "Every checked row shares one height at the default text size: \(rowHeights)")
         ui.capture("settings-consistent-native-row-spacing")
     }
 
@@ -175,38 +195,43 @@ final class GanaBajanaSettingsOrganizationUITests: XCTestCase {
         try ui.launch(additionalArguments: ["--light", "-UIPreferredContentSizeCategoryName",
                                             UIContentSizeCategory.accessibilityExtraExtraExtraLarge.rawValue])
         try ui.openSettings()
+        let form = ui.element("settings.form")
         for (id, disclosure) in [("settings.history", "device backups"), ("settings.releaseAlerts", "background"),
                                   ("settings.encryptedDNS", "Cloudflare"), ("settings.remoteFallback", "including headers")] {
+            try ui.openSettingsPage(containing: id)
             let detail = ui.app.staticTexts["\(id).description"]
-            try ui.reveal(detail, maxSwipes: 40)
+            // Home's scrollers stay in the tree behind the sheet at this size, so drags stay on the page's form.
+            try revealSettingsRow(detail, description: nil, in: form, ui: ui, maxDrags: 30)
             XCTAssertTrue(detail.label.contains(disclosure), "The full disclosure must remain available for \(id)")
             let bounds = ui.app.windows.firstMatch.frame
             XCTAssertGreaterThan(detail.frame.height, 20)
             XCTAssertGreaterThanOrEqual(detail.frame.minX + 1e-6, bounds.minX)
             XCTAssertLessThanOrEqual(detail.frame.maxX, bounds.maxX + 1e-6)
         }
+        try ui.openSettingsPage(.library)
         let clear = ui.app.buttons["settings.clearHistory"]
-        try ui.reveal(clear, direction: .down, maxSwipes: 40)
+        try revealSettingsRow(clear, description: nil, in: form, ui: ui, maxDrags: 30)
         XCTAssertGreaterThanOrEqual(clear.frame.height + 1e-6, 44)
-        XCTAssertTrue(clear.label.contains("Clear listening history"))
+        XCTAssertTrue(clear.label.contains("Clear Listening History"))
         try ui.tap(clear)
-        let confirmation = ui.app.alerts["Clear your listening history?"]
+        let confirmation = ui.app.alerts["Clear Your Listening History?"]
         try ui.requireHittable(confirmation.buttons["Cancel"])
         XCTAssertTrue(confirmation.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "recommendation adjustments stay")).firstMatch.exists)
         try ui.tap(confirmation.buttons["Cancel"])
         XCTAssertTrue(clear.isEnabled)
-        try ui.reveal(ui.app.sliders["settings.crossfade"], direction: .down, maxSwipes: 40)
+        try ui.openSettingsPage(.playback)
+        try revealSettingsRow(ui.app.sliders["settings.crossfade"], description: nil, in: form, ui: ui, maxDrags: 30)
         XCTAssertGreaterThanOrEqual(ui.app.sliders["settings.crossfade"].frame.width + 1e-6, 44)
         ui.capture("settings-readable-disclosures-accessibility-xxxl")
     }
 
     private func revealSettingsRow(_ row: XCUIElement, description: XCUIElement?, in form: XCUIElement,
-                                   ui: AppUITestDriver) throws {
+                                   ui: AppUITestDriver, maxDrags: Int = 8) throws {
         let targets = [row] + (description.map { [$0] } ?? [])
         let window = ui.app.windows.firstMatch
-        let navigation = ui.app.navigationBars["Settings"]
+        let navigation = ui.settingsNavigationBar
         var lastContext = ""
-        for attempt in 0...8 {
+        for attempt in 0...maxDrags {
             let bounds = window.frame
             let formBounds = form.frame.intersection(bounds)
             let top = max(formBounds.minY, navigation.frame.maxY)
@@ -224,7 +249,7 @@ final class GanaBajanaSettingsOrganizationUITests: XCTestCase {
             if laidOutFrames.count == targets.count,
                frames.allSatisfy({ viewport.insetBy(dx: -1e-6, dy: -1e-6).contains($0) }),
                targets.allSatisfy(\.isHittable) { return }
-            guard attempt < 8 else { break }
+            guard attempt < maxDrags else { break }
 
             let targetBounds = laidOutFrames.reduce(CGRect.null) { $0.union($1) }
             var movement = -viewport.height * 0.4
@@ -244,7 +269,7 @@ final class GanaBajanaSettingsOrganizationUITests: XCTestCase {
             // Edge drags avoid toggling a switch; the held release prevents momentum from skipping a row.
             start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.1)
         }
-        throw AppUIWorkflowFailure(message: "Settings row \(row.identifier) and its description must be fully visible after at most 8 drags; \(lastContext)")
+        throw AppUIWorkflowFailure(message: "Settings row \(row.identifier) and its description must be fully visible after at most \(maxDrags) drags; \(lastContext)")
     }
 
     private func selectNudge(_ code: String, title: String, in ui: AppUITestDriver) throws {

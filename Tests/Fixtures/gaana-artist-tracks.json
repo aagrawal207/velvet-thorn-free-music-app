@@ -1,0 +1,298 @@
+{
+ "count": "193",
+ "status": 1,
+ "eof": 0,
+ "entities": [
+  {
+   "language": "Hindi",
+   "seokey": "dil-hi-toh-hai-MWQ5xlkMWq",
+   "name": "Dil Hi Toh Hai",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/lJvKa16KDV/vKaXQ4rRbD/size_m.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/lJvKa16KDV/vKaXQ4rRbD/size_m.jpg",
+   "entity_id": "80884606",
+   "entity_type": "TR",
+   "artwork_medium": "https://a10.gaanacdn.com/gn_img/albums/lJvKa16KDV/vKaXQ4rRbD/size_l.jpg",
+   "favorite_count": 0,
+   "premium_content": "0",
+   "entity_info": [
+    {
+     "key": "stream_url",
+     "value": {
+      "medium": {
+       "message": "66Pu2CWwQao4FcnltWtypIXUlVfPnnrWgBfl+dFc8BsZMPGPNOlIIN9Hc2iXvNP//P3zlKcHTCJUC+IZ42XfZDV/JRXZhBuJdmvDo3nbkcGdMH0a6ovAbA9yD9jOtTh/ZCIvKM4pXxkEXRu+5eDbICjeRtzze+kNSL14EtD12fZz+ggi/ZwzLDb0DCgoRLq7K8dA9oOuJsYLoEjXQNS4Ga8wda/4tVkSPQTSqAmaFmXGs2fQcgefw00Z0mb5Khfhh/W4sD4XbeXkcWlpDGPrkHT8gn6tMLJUQosqRNH/ZrKIWooLUy3yQ0gCn01E98hBk=",
+       "bitRate": "64",
+       "expiryTime": 1790431509
+      },
+      "high": {
+       "message": "5tuhCvDIbpOK3hauUpwauRTgE//Z0f6gi/sxvLiENwpBUvvxm6Qu4KwgZ4ROgcHKXjqCkm/14ReDs6WlIDVyFVj+ddqJydY7y/5v/r2xGC+7P71IsTpaxJbPP35rL2HZt4Dd+wsy/BdVpjZcTGeLYZ4lL07FJlQnP50BqTqq6+Pcz6/goI8rRKeZPHTUqH5w0Wplh1iCI5Xk5E3aKRGqWf7Fn0SrSvNVt4D9Hxb606kUo21EOErtKW/i6ekKsamltIIEhJ9+VFhOXHAgMHF2XyQY/Xiz3HUnCUvLKRSvB2we+XWIZ42RNB4CncdgFl50=",
+       "bitRate": "128",
+       "expiryTime": 1790431509
+      },
+      "auto": {
+       "message": "5khdL2A9QTQ9hwKPVMJ389VnC3JVSoZGLMPC9lSBpLfcQX5cdYbHiPg7WRYdyzKAuF15QA2Jjo6USaE+TNj++TZHqOzl0FVtNSNBlnGUV0mGBKon3HSHAebFvH6Su6KNKhBJYMLQXdpDrBKVjFXFwKEKufy38Z8WbVJVoc6f4xgtS5zxy4DC4vWDuCvaDz1vjNPmCsZJgIMcZJElETeOwGczwtxvPYECiY0DvIfvayAPgRYEA+VMRZ/mqFhbB1eL4tMav2HVtyHVJclCKZXeIts+KAWgKpaCY+p4nOhDC/YL40l/zV4lk0MN0cEE+5FU=",
+       "bitRate": "",
+       "expiryTime": 1790431509
+      }
+     }
+    },
+    {
+     "key": "artist",
+     "value": [
+      {
+       "artist_id": "11468",
+       "name": "Pritam",
+       "seokey": "pritam"
+      },
+      {
+       "artist_id": "52767",
+       "name": "Arijit Singh",
+       "seokey": "arijit-singh"
+      },
+      {
+       "artist_id": "487",
+       "name": "Antara Mitra",
+       "seokey": "antara-mitra"
+      },
+      {
+       "artist_id": "198048",
+       "name": "Nikhil D'Souza",
+       "seokey": "nikhil-dsouza-2"
+      }
+     ]
+    },
+    {
+     "key": "album",
+     "value": [
+      {
+       "album_id": "17742444",
+       "name": "With Love - Arijit Singh",
+       "album_seokey": "with-love-arijit-singh"
+      }
+     ]
+    },
+    {
+     "key": "parental_warning",
+     "value": 0
+    },
+    {
+     "key": "play_ct",
+     "value": "<100K"
+    },
+    {
+     "key": "artwork_large",
+     "value": "https://a10.gaanacdn.com/gn_img/albums/lJvKa16KDV/vKaXQ4rRbD/size_l.jpg"
+    },
+    {
+     "key": "duration",
+     "value": "281"
+    },
+    {
+     "key": "isrc",
+     "value": "INZ031406155"
+    },
+    {
+     "key": "rest_lev",
+     "value": "0"
+    },
+    {
+     "key": "vendor_rest_lev",
+     "value": "0"
+    },
+    {
+     "key": "download_enabled",
+     "value": 0
+    },
+    {
+     "key": "is_premium",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "language": "Hindi",
+   "seokey": "atak-gaya-arijit-singh-4W8dAOwOWx",
+   "name": "Atak Gaya - Arijit Singh",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/lJvKa16KDV/vKaXQ4rRbD/size_m.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/lJvKa16KDV/vKaXQ4rRbD/size_m.jpg",
+   "entity_id": "80884607",
+   "entity_type": "TR",
+   "artwork_medium": "https://a10.gaanacdn.com/gn_img/albums/lJvKa16KDV/vKaXQ4rRbD/size_l.jpg",
+   "favorite_count": 0,
+   "premium_content": "0",
+   "entity_info": [
+    {
+     "key": "stream_url",
+     "value": {
+      "medium": {
+       "message": "5gzSkbU3Ga5fi2frKDwxexK1djJTSz7u8fGJTNZMJBZUl8Oh2wqGkRgSw5uPTiulmepi8Yq+BfwTAW6c5gCCYvsmqKo9KVzquFRMwChTzoPCBohQqlxKfJEsBYL0N4mqBWpcYi5D1ssNwF2Oe0KkkPYpa82kKsEY5sj9uZJ5GNKVavwhEbMeR4u8BvDrST2dG5PMdCcDF678tEkXXbLhAO/Atdt3/a4yVBQq39XiqFmks28iVkUK6aJKidTSQClC0wUUHs28PYAM6/ibDggrsLZ83SLHc79ipBHVSXqeG+e54W6j0hrjj23pdH1tKilI=",
+       "bitRate": "64",
+       "expiryTime": 1790431509
+      },
+      "high": {
+       "message": "3ppwPEL4aBANfhXYz9bzzuPEbapdk1eVzW6qTIG01/Ho5cpTpJR93Zi98AtGac9NSJDJRIIs2Mf30aZ8S/LHXgOwAZllETSsdNiWwjmFVInQGoTlUG4xEcAXjIkFKP0dB618RwvjoUdezqPDmSymBa8c2q/zRYkoqcwkqvgAnfFV6mGbee+IWTTBjV86eG+Sv9MU6t+gAGDIrJaIs1tgOqi2CcHe1f5YwjKDdEdCQF+fQh/o8l0jBb0tu6tMZrcpY5yJlqTFDmI9/Lq2QQw+p5oje8+XdYxQdkQbanhqDTqtqBj7oh6sOzFFpOz3rk=",
+       "bitRate": "128",
+       "expiryTime": 1790431509
+      },
+      "auto": {
+       "message": "5lUKvH81aGDjnDs36W4b4gHIi25U6REXcwtZZCdOZtgD7YN3B9VWCuZMsAMtZANro+iG0pTsy8izMmSetDY50o2hRN4N703nAPvg/As3mbE9G7yt1a9qul06wfIUeYDA9A6+C0faNSsboiVMLVL2ztNVjvQTL6HQVjBbICIiVgAUtyYwgPa6od16Trao2E+SxJASe1aAZnbkV/g9qcT+IIDcD7tAE/xC/GeeXVCJsbjD21iqZdNBo2jPHkBzeFcq+XPaY6t1DoLOAeGqP8JXv0Bpo+XvM2OvXxoZz4frlvl+L25HLyHgQSXcarbyq36E=",
+       "bitRate": "",
+       "expiryTime": 1790431509
+      }
+     }
+    },
+    {
+     "key": "artist",
+     "value": [
+      {
+       "artist_id": "52767",
+       "name": "Arijit Singh",
+       "seokey": "arijit-singh"
+      },
+      {
+       "artist_id": "314907",
+       "name": "Rupali Moghe",
+       "seokey": "rupali-moghe"
+      }
+     ]
+    },
+    {
+     "key": "album",
+     "value": [
+      {
+       "album_id": "17742444",
+       "name": "With Love - Arijit Singh",
+       "album_seokey": "with-love-arijit-singh"
+      }
+     ]
+    },
+    {
+     "key": "parental_warning",
+     "value": 0
+    },
+    {
+     "key": "play_ct",
+     "value": "<100K"
+    },
+    {
+     "key": "artwork_large",
+     "value": "https://a10.gaanacdn.com/gn_img/albums/lJvKa16KDV/vKaXQ4rRbD/size_l.jpg"
+    },
+    {
+     "key": "duration",
+     "value": "200"
+    },
+    {
+     "key": "isrc",
+     "value": "INZ031410254"
+    },
+    {
+     "key": "rest_lev",
+     "value": "0"
+    },
+    {
+     "key": "vendor_rest_lev",
+     "value": "0"
+    },
+    {
+     "key": "download_enabled",
+     "value": 0
+    },
+    {
+     "key": "is_premium",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "language": "Hindi",
+   "seokey": "tujhe-kitna-chahne-lage",
+   "name": "Tujhe Kitna Chahne Lage",
+   "artwork": "https://a10.gaanacdn.com/gn_img/song/ZaP37RKDy7/P371NLRVbD/size_m_1559305408.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/song/ZaP37RKDy7/P371NLRVbD/size_m_1559305408.jpg",
+   "entity_id": "26974811",
+   "entity_type": "TR",
+   "artwork_medium": "https://a10.gaanacdn.com/gn_img/song/ZaP37RKDy7/P371NLRVbD/size_l_1559305408.jpg",
+   "favorite_count": 2397805,
+   "premium_content": "0",
+   "entity_info": [
+    {
+     "key": "stream_url",
+     "value": {
+      "medium": {
+       "message": "6htqiOX0n6gFtQCRI25GuJN1jzOe2crQrkSOn7kAAl0LCBGStd+/8K+6oUzhhLu9MAqfnmv7WerpD2pDmb387oQY3CCtDiA04ROa81sctIFK9ub3ZBp/OJKCFEziF81ZhMZL+mSEHe8YB6PFc/a1570OXY7ce0dDx2L8hQ3ArKGGn90z4y93WoUlQNtrHUB1d3NkymmrodK1vNiZiSlhSiw7tjIytQcqyb1TinA38iNn+EYQ3hny4qfdn96/R1ZA4tOkXjt/mbAjhpXqGvKxzaGuOGzWBGIcFd/tHsVeaVr7CUvjJ7i+f1Ztw0zsP3BDU=",
+       "bitRate": "64",
+       "expiryTime": 1790431509
+      },
+      "high": {
+       "message": "4fyCTNd16SEDyX0ACrWNeZy0yNEIRHuMQAj/padV0JqhCSZUKXs+QWoxnhqeX12mA9wTLBRppgMBVXJNEI++R7BuP2OA4I1D+J6UARLt5F07BEplNI2kinehoJm/wJQFvIDLK5NhjI5eFRKil7PuMo/DFzg/pfULl5Vhj+vNgbS6DVDGWsc1zT2kD06kKBcKg4kbCfo1gv5Tj9Nu6axgxzsFKDlvIWQe1u4CViEvHWM6Iw1EGFAWZNlClMZciAgDLGzJScOohUBG9cPbfjFnPzcgdbAWXslbmpB99xbTI/ex0H9QdKCsRrhHHSLOIac=",
+       "bitRate": "128",
+       "expiryTime": 1790431509
+      },
+      "auto": {
+       "message": "3tbixcSK3GLu1plpxavNdb2RQIns1fG283r09mAK+1hKUPRLTY5ogiK3Rx4jIWnGmkxPmP2CrWiNfQENWKCZ0COh+kMXLL6lkHoAsbqdi+BhwuHMVJFzX7kSbDGcbho0BrD9ufD4A04uAoA8jNwHgPigfizTJW1BDK74Dq1vMPLGqCgWTJazcOkiJqiYhnuc3iEJowIAGu5urxZ4QID7T9+vzlAXX+2nEgV/DsgaiD9cFM1k0lyBIJag39A4TxXPOFht9ApFxvNaIZWjfS1RldZ+Rj4p07WnOf/4Q73O/dC6I922mXBsmhZTWL/3aQ=",
+       "bitRate": "",
+       "expiryTime": 1790431509
+      }
+     }
+    },
+    {
+     "key": "artist",
+     "value": [
+      {
+       "artist_id": "52767",
+       "name": "Arijit Singh",
+       "seokey": "arijit-singh"
+      }
+     ]
+    },
+    {
+     "key": "album",
+     "value": [
+      {
+       "album_id": "2602904",
+       "name": "Kabir Singh",
+       "album_seokey": "kabir-singh"
+      }
+     ]
+    },
+    {
+     "key": "parental_warning",
+     "value": 0
+    },
+    {
+     "key": "play_ct",
+     "value": "345M+"
+    },
+    {
+     "key": "artwork_large",
+     "value": "https://a10.gaanacdn.com/gn_img/song/ZaP37RKDy7/P371NLRVbD/size_l_1559305408.jpg"
+    },
+    {
+     "key": "duration",
+     "value": "285"
+    },
+    {
+     "key": "isrc",
+     "value": "INS181902088"
+    },
+    {
+     "key": "rest_lev",
+     "value": "0"
+    },
+    {
+     "key": "vendor_rest_lev",
+     "value": "0"
+    },
+    {
+     "key": "download_enabled",
+     "value": 0
+    },
+    {
+     "key": "is_premium",
+     "value": 1
+    }
+   ]
+  }
+ ],
+ "user_token_status": "0"
+}

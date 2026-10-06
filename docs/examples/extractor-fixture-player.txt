@@ -1,0 +1,1 @@
+var signatureTimestamp = {signatureEpoch:20000};

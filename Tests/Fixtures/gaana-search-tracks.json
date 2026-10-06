@@ -1,0 +1,71 @@
+{
+ "topFacet": "Track",
+ "gr": [
+  {
+   "ty": "Track",
+   "topSc": 2178,
+   "va": "1",
+   "stxt": "Songs",
+   "gd": [
+    {
+     "iid": "944286",
+     "id": 944286,
+     "ti": "Tum Hi Ho",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+     "sti": "Mithoon,Arijit Singh",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "tumhiho",
+     "ty": "Track",
+     "language": "Hindi",
+     "alist": "[Mithoon,Arijit Singh]",
+     "isrc": "INS181303031",
+     "pw": 0,
+     "isDolby": true
+    },
+    {
+     "iid": "1739997",
+     "id": 1739997,
+     "ti": "Uska Hi Banana",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjzk0NWP/size_m.jpg",
+     "sti": "Arijit Singh",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "uska-hi-banana-2",
+     "ty": "Track",
+     "language": "Hindi",
+     "alist": "[Arijit Singh]",
+     "isrc": "INS181204311",
+     "pw": 0
+    },
+    {
+     "iid": "944317",
+     "id": 944317,
+     "ti": "Meri Aashiqui",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+     "sti": "Palak Muchhal,Arijit Singh",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "meriaashiqui",
+     "ty": "Track",
+     "language": "Hindi",
+     "alist": "[Palak Muchhal,Arijit Singh]",
+     "isrc": "INS181303035",
+     "isLyrics": true,
+     "pw": 0,
+     "isDolby": true
+    }
+   ]
+  }
+ ],
+ "srId": "trimmed",
+ "algo": "NEWSEARCH",
+ "action": 0,
+ "q": "tum hi ho",
+ "originalQuery": "tum hi ho",
+ "abFlag": 26,
+ "tabs": []
+}

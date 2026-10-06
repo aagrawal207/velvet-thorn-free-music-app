@@ -13,15 +13,16 @@ struct ArtistSpotlightSongRow: View {
         VStack(alignment: .leading, spacing: 0) {
             TrackRow(track: track, tracks: tracks, showsDuration: true)
                 .contextMenu {
-                    Button("Song language", systemImage: "globe") { chooseLanguage() }
+                    Button("Song Language", systemImage: "globe") { chooseLanguage() }
                 }
-                .accessibilityAction(named: Text("Review song language")) { chooseLanguage() }
+                .accessibilityAction(named: Text("Review Song Language")) { chooseLanguage() }
             if loader.isBrowsingLanguages {
                 languageButton
             }
         }
         .sheet(isPresented: AppNavigationIntent.binding($isChoosingLanguage, in: model)) {
             NavigationStack { ArtistSpotlightLanguageSheet(track: track, loader: loader) }
+                .appPresentationEnvironment(model)
                 .appSheetChrome()
         }
     }
@@ -94,16 +95,16 @@ private struct ArtistSpotlightLanguageSheet: View {
                     }
                     .accessibilityIdentifier("artist.spotlight.setLanguage.\(language.rawValue)")
                 }
-                Button("Keep unclassified") { save("und") }.appFont(.body)
+                Button("Keep Unclassified") { save("und") }.appFont(.body)
                     .accessibilityIdentifier("artist.spotlight.setLanguage.und")
             } header: {
-                Text("Set this recording's language").appFont(.footnote)
+                Text("Set This Recording's Language").appFont(.footnote)
             } footer: {
                 Text("Saved in your library. Your choice takes priority over automatic detection.").appFont(.footnote)
             }
             .listRowBackground(AppTheme.surface)
             if model.library.recordingLanguageOverrides[track.id] != nil {
-                Button("Clear my correction") { save(nil) }.appFont(.body)
+                Button("Clear My Correction") { save(nil) }.appFont(.body)
                     .accessibilityIdentifier("artist.spotlight.clearLanguage")
                     .listRowBackground(AppTheme.surface)
             }
@@ -114,7 +115,7 @@ private struct ArtistSpotlightLanguageSheet: View {
         .scrollContentBackground(.hidden)
         .background(AppTheme.background)
         .tint(AppTheme.accent)
-        .navigationTitle("Song language")
+        .navigationTitle("Song Language")
         .navigationBarTitleDisplayMode(.inline)
         .appSheetDoneButton(id: "songLanguage.done") { AppNavigationIntent.perform(in: model) { dismiss() } }
     }

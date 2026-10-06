@@ -90,7 +90,7 @@ enum MusicWidgetRoute: Equatable, Sendable {
             self = .playTrack(source: kind, id: id)
         case "/mix":
             guard Set(values.keys) == ["kind", "period", "play"], let raw = values["kind"],
-                  let kind = GeneratedPlaylistKind(rawValue: raw), let period = values["period"],
+                  let kind = GeneratedPlaylistKind(identifier: raw), let period = values["period"],
                   let play = values["play"], play == "0" || play == "1" else { return nil }
             self = .mix(kind: kind, periodKey: period, play: play == "1")
         default:

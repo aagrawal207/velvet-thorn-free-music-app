@@ -138,7 +138,7 @@ final class GanaBajanaArtistSpotlightUITests: XCTestCase {
         try ui.tap(ui.app.buttons["Add to a playlist"])
         try ui.requireHittable(ui.app.textFields["collection.playlistName"])
         XCTAssertEqual(ui.app.textFields["collection.playlistName"].value as? String, "This is A. R. Rahman")
-        XCTAssertTrue(ui.app.buttons["Create and add 1 song"].exists)
+        XCTAssertTrue(ui.app.buttons["Create and Add 1 Song"].exists)
         ui.capture("artist-spotlight-filtered-collection-playlist")
     }
 

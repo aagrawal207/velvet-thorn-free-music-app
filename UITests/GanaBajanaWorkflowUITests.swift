@@ -49,8 +49,9 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         try ui.selectSearchFilter("songs")
         try ui.clearSearch()
         try ui.dismissSearchKeyboard()
-        try ui.requireHittable(ui.app.buttons["search.library.likes"])
-        try ui.requireHittable(ui.app.buttons["search.library.cached"])
+        try ui.requireHittable(ui.app.buttons["search.radio.open"])
+        XCTAssertFalse(ui.app.buttons["search.library.likes"].exists, "R13: liked and cached shortcuts moved to Library")
+        XCTAssertFalse(ui.app.buttons["search.library.cached"].exists)
         XCTAssertFalse(ui.app.buttons["search.filter.songs"].exists)
         XCTAssertFalse(ui.app.staticTexts["Start somewhere good"].exists)
         XCTAssertFalse(ui.app.buttons["track.play.\(AppUIFixture.tumHiHo)"].exists)
@@ -170,7 +171,7 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         let options = ui.app.buttons["track.options.\(AppUIFixture.blindingLights)"]
         try ui.reveal(options)
         try ui.tap(options)
-        try ui.tap(ui.app.buttons["Add to playlist"])
+        try ui.tap(ui.app.buttons["Add to Playlist"])
         try ui.tap(ui.app.buttons["Morning favorites"])
         try ui.selectTab("library")
         try ui.reveal(ui.element("library.playlist.track.\(AppUIFixture.blindingLights)"))
@@ -264,12 +265,14 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         try ui.openPlayer()
         try ui.expectPosition(131, tolerance: 4)
         XCTAssertEqual(try ui.position() + ui.remaining(), 262, accuracy: 1)
+        let trailing = try ui.trailingTime()
+        XCTAssertEqual(trailing.style, "Song length", "The right time label shows the song length until switched.")
+        XCTAssertEqual(trailing.seconds, 262, accuracy: 1)
 
-        // A tap a quarter of the way along the bar lands short of a quarter of the song: the trail continues
-        // around the heart, so the bar alone covers less than the whole recording.
+        // A tap a quarter of the way along the bar lands a quarter of the way into the song: the bar spans the whole
+        // seek element and touches map linearly across it.
         let quarterBar = try ui.seekPosition(atNormalizedX: 0.25)
-        XCTAssertLessThan(quarterBar, 65.5)
-        XCTAssertGreaterThan(quarterBar, 40)
+        XCTAssertEqual(quarterBar, 65.5, accuracy: 1e-6)
         ui.app.sliders["player.seek"].coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
         try ui.expectPosition(quarterBar, tolerance: 1)
         try ui.expectLabel(ui.app.buttons["player.playPause"], "Play")
@@ -356,22 +359,22 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
 
         try ui.openSleepTimerSheet()
         try ui.tap(ui.app.buttons["15 minutes"])
-        try ui.wait("Choosing a sleep timer must close the sheet") { !ui.app.navigationBars["Sleep timer"].exists }
+        try ui.wait("Choosing a sleep timer must close the sheet") { !ui.app.navigationBars["Sleep Timer"].exists }
         try ui.openPlayerMenu()
         let sleepItem = ui.sleepTimerMenuItem
         try ui.wait("The player menu must show when music stops") {
-            sleepItem.exists && sleepItem.label.hasPrefix("Sleep timer · stops at ")
+            sleepItem.exists && sleepItem.label.hasPrefix("Sleep Timer · stops at ")
         }
         XCTAssertTrue(ui.app.buttons["Cancel sleep timer"].exists, "An active timer adds a cancel action to the menu.")
         ui.capture("player-dark-menu-sleep-timer-active")
         try ui.tap(sleepItem)
-        try ui.wait("The Sleep timer sheet must open") { ui.app.navigationBars["Sleep timer"].exists }
+        try ui.wait("The Sleep timer sheet must open") { ui.app.navigationBars["Sleep Timer"].exists }
         // The sheet's "Timer active" section is the only place this button exists while the menu is closed.
         try ui.tap(ui.app.buttons["Cancel sleep timer"])
-        try ui.wait("Cancelling the sleep timer must close the sheet") { !ui.app.navigationBars["Sleep timer"].exists }
+        try ui.wait("Cancelling the sleep timer must close the sheet") { !ui.app.navigationBars["Sleep Timer"].exists }
         try ui.openPlayerMenu()
         try ui.wait("Cancelling the sleep timer must clear its deadline") {
-            sleepItem.exists && sleepItem.label == "Sleep timer" && !ui.app.buttons["Cancel sleep timer"].exists
+            sleepItem.exists && sleepItem.label == "Sleep Timer" && !ui.app.buttons["Cancel Sleep Timer"].exists
         }
     }
 
@@ -476,8 +479,8 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
                 selector.exists && selector.isSelected && ui.app.staticTexts["YOUR LAST \(days) DAYS"].exists
             }
             try ui.expectMetric("recap.totalListening", number: 89, description: "minutes listened")
-            try ui.expectMetric("recap.plays", number: 20, description: "Counted plays")
-            try ui.expectMetric("recap.songs", number: 5, description: "Different songs")
+            try ui.expectMetric("recap.plays", number: 20, description: "Counted Plays")
+            try ui.expectMetric("recap.songs", number: 5, description: "Different Songs")
             try ui.expectMetric("recap.artists", number: 4, description: "Artists")
             try ui.reveal(ui.element("recap.topArtist"), direction: .down)
             XCTAssertTrue(ui.accessibleText(ui.element("recap.topArtist")).contains("Arijit Singh"))
@@ -485,11 +488,17 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
             ui.capture("recap-dark-rolling-\(days)-days")
         }
 
-        try ui.selectTab("library")
-        let resume = ui.app.buttons["library.resume.\(AppUIFixture.shapeOfYou)"]
+        // Recently played is the final, initially collapsed section of Listening.
+        let recentToggle = ui.app.buttons["recap.recent.toggle"]
+        try ui.reveal(recentToggle, maxSwipes: 24)
+        try ui.expectValue(recentToggle, "Collapsed")
+        let resume = ui.app.buttons["recap.resume.\(AppUIFixture.shapeOfYou)"]
+        XCTAssertFalse(resume.exists)
+        try ui.tap(recentToggle)
+        try ui.expectValue(recentToggle, "Expanded")
         try ui.reveal(resume)
         XCTAssertTrue(resume.label.contains("0:48"))
-        ui.capture("library-dark-saved-resume-position")
+        ui.capture("recap-dark-saved-resume-position")
         let resumeStarted = ProcessInfo.processInfo.systemUptime
         try ui.tap(resume)
         try ui.openPlayer()
@@ -522,13 +531,14 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         ui.capture("recap-light-earlier-history-preserved")
 
         try ui.openSettings()
+        try ui.openSettingsPage(.library)
         let clear = ui.app.buttons["settings.clearHistory"]
         try ui.reveal(clear, maxSwipes: 24)
         try ui.tap(clear)
         try ui.tap(ui.app.buttons["Cancel"])
         try ui.wait("Cancelling the confirmation must preserve saved history") { clear.exists && clear.isEnabled }
         try ui.tap(clear)
-        try ui.tap(ui.app.buttons["Clear history"])
+        try ui.tap(ui.app.buttons["Clear History"])
         try ui.wait("Confirmed history deletion must disable the empty-history action") { clear.exists && !clear.isEnabled }
         try ui.tap(ui.app.buttons["settings.done"])
 
@@ -544,6 +554,7 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
 
         try ui.relaunch()
         try ui.openSettings()
+        try ui.openSettingsPage(.appearance)
         try ui.reveal(ui.element("settings.appearance"), maxSwipes: 24)
         XCTAssertTrue(ui.accessibleText(ui.element("settings.appearance")).contains("Light"))
         try ui.expectSwitch("settings.history", isOn: false)
@@ -584,7 +595,7 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         let ui = makeDriver()
         try ui.launch()
         try ui.selectTab("library")
-        let libraryTitle = ui.app.staticTexts["Your library"]
+        let libraryTitle = ui.app.staticTexts["Your Library"]
         try ui.requireHittable(libraryTitle)
         let standardTitleHeight = libraryTitle.frame.height
         ui.capture("library-compact-standard-text-baseline")
@@ -607,7 +618,7 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
             let mini = ui.app.buttons["miniPlayer.open"]
             return mini.exists && mini.label.contains("Tum Hi Ho")
         }
-        try ui.tap(ui.app.navigationBars["Liked songs"].buttons["Back"])
+        try ui.tap(ui.app.navigationBars["Liked Songs"].buttons["Back"])
         try ui.assertMiniPlayerAboveTabs()
 
         try ui.openPlayer()
@@ -662,7 +673,7 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         let ui = makeDriver()
         try ui.launch(skipWelcome: false)
         let start = ui.app.buttons["welcome.continue"]
-        try ui.expectLabel(start, "Start listening")
+        try ui.expectLabel(start, "Start Listening")
         XCTAssertTrue(start.isEnabled)
         XCTAssertGreaterThanOrEqual(start.frame.width + 1e-6, 44)
         XCTAssertGreaterThanOrEqual(start.frame.height + 1e-6, 44)
@@ -670,18 +681,19 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         XCTAssertFalse(ui.app.buttons["welcome.english"].exists)
         ui.capture("welcome-dark-single-start-action")
         try ui.tap(start)
-        try ui.requireHittable(ui.app.tabBars.buttons["Home"])
+        try ui.requireHittable(ui.tabButton("home"))
 
         try ui.relaunch()
         XCTAssertFalse(ui.app.buttons["welcome.continue"].exists,
                        "This relaunch omits --skip-welcome to verify persisted completion.")
         try ui.openSettings()
+        try ui.openSettingsPage(.discovery)
         let languages = ui.app.buttons["settings.languages"]
         try ui.reveal(languages, maxSwipes: 24)
-        XCTAssertTrue(languages.label.contains("Listening languages"))
+        XCTAssertTrue(languages.label.contains("Listening Languages"))
         try ui.tap(languages)
         try ui.wait("Language statistics must open without a required preference form") {
-            ui.app.navigationBars["Listening languages"].exists
+            ui.app.navigationBars["Listening Languages"].exists
         }
         XCTAssertFalse(ui.app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "settings.language.")).firstMatch.exists)
         let tuning = ui.app.buttons["listeningLanguages.tune"]
@@ -694,7 +706,7 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
             try ui.expectValue(menu, "Automatic")
             XCTAssertTrue(menu.isEnabled)
         }
-        try ui.tap(ui.app.navigationBars["Listening languages"].buttons.firstMatch)
+        try ui.tap(ui.app.navigationBars["Listening Languages"].buttons.firstMatch)
         try ui.tap(ui.app.buttons["settings.done"])
 
         try ui.searchAndPlayTumHiHo()
@@ -732,9 +744,12 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         try ui.searchAndPlayTumHiHo()
         try ui.openPlayer()
         try ui.expectCurrentTrack(AppUIFixture.tumHiHo)
+        XCTAssertFalse(ui.app.buttons["player.browse"].exists, "The bottom row has no Album and artists button.")
+        // One credit and no album id: the only destination opens without a chooser.
         let artistLine = ui.app.buttons["player.artistName"]
         try ui.expectLabel(artistLine, "Go to artist, Arijit Singh")
         try ui.tap(artistLine)
+        XCTAssertFalse(ui.element("player.browse.sheet").exists, "A single destination must not open the chooser.")
         try ui.expectArtistPage(named: "Arijit Singh")
         ui.capture("search-dark-artist-page-from-player")
 
@@ -747,15 +762,16 @@ final class GanaBajanaWorkflowUITests: XCTestCase {
         }
         try ui.openPlayer()
         try ui.expectCurrentTrack(AppUIFixture.agarTumSaathHo)
-        try ui.expectLabel(artistLine, "Go to artist, Alka Yagnik, Arijit Singh")
-        try ui.tap(ui.app.buttons["player.browse"])
-        try ui.wait("Browse must offer every credited artist immediately") {
+        try ui.expectLabel(artistLine, "Album and artists, Alka Yagnik, Arijit Singh")
+        try ui.tap(artistLine)
+        try ui.wait("Several credits must open the chooser with every credited artist immediately") {
             ui.app.buttons["player.artist.0"].exists && ui.app.buttons["player.artist.1"].exists
-                && ui.app.navigationBars["Album and artists"].exists
+                && ui.app.navigationBars["Album and Artists"].exists
         }
         let picker = ui.element("player.browse.sheet")
-        XCTAssertTrue(picker.exists, "Album and artists opens its own sheet rather than the options sheet.")
+        XCTAssertTrue(picker.exists, "The artist line opens the album and artists chooser rather than the options sheet.")
         XCTAssertFalse(ui.element("player.options.sheet").exists)
+        XCTAssertFalse(ui.element("player.artists.sheet").exists, "Several credits open the combined chooser, not an artist-only sheet.")
         XCTAssertFalse(ui.app.buttons["player.browse.album"].exists, "An album title alone must not invent an album destination.")
         try ui.requireHittable(ui.app.buttons["player.artist.1"])
         XCTAssertLessThan(picker.frame.maxY - ui.app.buttons["player.artist.1"].frame.maxY, 80,
@@ -879,8 +895,11 @@ final class AppUITestDriver {
                 return frame.height > frame.width
             }
         }
-        let initial = reset && !skipWelcome ? app.buttons["welcome.continue"] : app.tabBars.buttons["Home"]
-        try requireHittable(initial, timeout: 25)
+        if reset && !skipWelcome {
+            try requireHittable(app.buttons["welcome.continue"], timeout: 25)
+        } else {
+            try requireHittable(tabButton("home", timeout: 25))
+        }
     }
 
     func relaunch(adding arguments: [String] = []) throws {
@@ -953,12 +972,7 @@ final class AppUITestDriver {
         guard usableFrame(frame) else { return .null }
         var viewport = frame.intersection(app.windows.firstMatch.frame)
         guard usableFrame(viewport) else { return .null }
-        let indicators = region.otherElements.matching(NSPredicate(format: "label BEGINSWITH %@", "Vertical scroll bar"))
-            .allElementsBoundByIndex.map(\.frame).filter { usableFrame($0) && $0.intersects(viewport) }
-        if let indicator = indicators.max(by: { $0.height < $1.height }) {
-            // Scroll indicators have their own top padding, even when the first content row is fully visible.
-            viewport.size.height = max(0, min(viewport.maxY, indicator.maxY) - viewport.minY)
-        }
+        // Scroll-indicator insets do not clip content; only the actual viewport and occluding UI bound visibility.
         for bar in app.navigationBars.allElementsBoundByIndex {
             let barFrame = bar.frame
             if usableFrame(barFrame), barFrame.intersects(viewport), barFrame.minY < viewport.midY {
@@ -972,18 +986,24 @@ final class AppUITestDriver {
         if keyboard.exists, usableFrame(keyboard.frame), keyboard.frame.intersects(viewport) {
             bottom = min(bottom, keyboard.frame.minY)
         }
-        for id in ["search.dismissKeyboard.toolbar", "radio.setup.dismissKeyboard"] {
-            let footer = app.buttons[id]
-            if footer.exists, usableFrame(footer.frame), footer.frame.intersects(viewport) {
-                bottom = min(bottom, footer.frame.minY)
-            }
+        let footer = app.buttons["search.dismissKeyboard.toolbar"]
+        if footer.exists, usableFrame(footer.frame), footer.frame.intersects(viewport) {
+            bottom = min(bottom, footer.frame.minY)
         }
         let tabs = app.tabBars.firstMatch
-        if tabs.exists, usableFrame(tabs.frame), tabs.isHittable, tabs.frame.intersects(viewport) {
+        let hasTabBar = tabs.exists
+        let tabsReachable = hasTabBar && usableFrame(tabs.frame) && tabs.isHittable
+        if tabsReachable, tabs.frame.intersects(viewport) {
             bottom = min(bottom, tabs.frame.minY)
-            let mini = app.buttons["miniPlayer.open"]
-            if mini.exists, usableFrame(mini.frame), mini.frame.intersects(viewport) {
-                bottom = min(bottom, mini.frame.minY)
+        }
+        // Content passes beneath the capsule's glass, so visibility ends at its top with or without a TabBar. A sheet or the
+        // full player covers the mini-player without removing it from the AX tree; reachable tabs prove it is on top.
+        let mini = app.otherElements["miniPlayer.container"]
+        if mini.exists {
+            let glass = mini.frame
+            if usableFrame(glass), glass.intersects(viewport), glass.midY > viewport.midY,
+               (hasTabBar ? tabsReachable : reachableTabButton("home") != nil) {
+                bottom = min(bottom, glass.minY)
             }
         }
         viewport.size.height = max(0, bottom - viewport.minY)
@@ -1093,9 +1113,31 @@ final class AppUITestDriver {
         throw AppUIWorkflowFailure(message: "The requested UI element could not be reached by scrolling.")
     }
 
+    func tabButton(_ tab: String, timeout: TimeInterval = 10) throws -> XCUIElement {
+        try wait("The \(tab) navigation target must be reachable", timeout: timeout) {
+            self.reachableTabButton(tab) != nil
+        }
+        guard let button = reachableTabButton(tab) else {
+            throw AppUIWorkflowFailure(message: "The \(tab) navigation target disappeared before selection.")
+        }
+        return button
+    }
+
+    private func reachableTabButton(_ tab: String) -> XCUIElement? {
+        // iPad exposes top tabs as plain buttons; older phone tab bars may expose only their labels.
+        let identified = app.buttons.matching(identifier: "tab.\(tab)").allElementsBoundByIndex
+        if !identified.isEmpty { return identified.first { isReachable($0) } }
+        let labels = tab == "recap" ? ["Stats"] : [tab.capitalized]
+        for label in labels {
+            let matches = app.tabBars.buttons.matching(NSPredicate(format: "label == %@", label)).allElementsBoundByIndex
+            if let button = matches.first(where: { isReachable($0) }) { return button }
+        }
+        return nil
+    }
+
     func selectTab(_ tab: String) throws {
         if app.buttons["search.dismissKeyboard"].exists { try dismissSearchKeyboard() }
-        let button = app.tabBars.buttons[tab.capitalized]
+        let button = try tabButton(tab)
         try tap(button)
         if tab == "search" {
             try wait("The Search tab must show the search field") {
@@ -1123,14 +1165,14 @@ final class AppUITestDriver {
     func replaceSearchQuery(_ query: String, dismissKeyboard: Bool = true) throws {
         let field = app.textFields["search.field"]
         try requireHittable(field)
-        if app.buttons["Clear search"].exists { try clearSearch() }
+        if app.buttons["Clear Search"].exists { try clearSearch() }
         else { try tap(field) }
         field.typeText(query)
         if dismissKeyboard { try dismissSearchKeyboard() }
     }
 
     func clearSearch() throws {
-        try tap(app.buttons["Clear search"])
+        try tap(app.buttons["Clear Search"])
         try wait("The clear control must empty the search field") {
             let field = self.app.textFields["search.field"]
             guard field.exists, let value = field.value as? String else { return false }
@@ -1145,7 +1187,7 @@ final class AppUITestDriver {
         let entered = field.value as? String
         try tap(done)
         try wait("Done must end search editing, preserve the query, and restore tab navigation") {
-            guard !done.exists, self.isReachable(self.app.tabBars.buttons["Search"]), field.exists else { return false }
+            guard !done.exists, self.reachableTabButton("search") != nil, field.exists else { return false }
             let current = field.value as? String
             let wasEmpty = entered == "" || entered == field.placeholderValue
             let isEmpty = current == "" || current == field.placeholderValue
@@ -1246,7 +1288,7 @@ final class AppUITestDriver {
         }
         let total = try duration()
         guard total > 0 else { throw AppUIWorkflowFailure(message: "The seek slider has no usable range.") }
-        // The drag starts on the bar and may end past it: the last stretch of the song lies along the heart outline.
+        // The bar spans the whole seek element, so the drag starts and ends at the linear positions.
         let targetFraction = min(max(fraction, 0), 1)
         let currentFraction = min(max(try position() / total, 0), 1)
         let startX = min(app.playerSeekNormalizedX(forProgress: currentFraction), 0.98)
@@ -1275,12 +1317,18 @@ final class AppUITestDriver {
         return result
     }
 
+    /// Remaining playback time from the seek slider's total and the elapsed label; independent of the right label's style.
     func remaining() throws -> TimeInterval {
-        let remaining = app.staticTexts["Remaining time"]
-        guard remaining.exists, let result = AppUIClock.seconds(remaining.value as? String) else {
-            throw AppUIWorkflowFailure(message: "The visible Remaining time accessibility value is missing or invalid.")
+        try duration() - position()
+    }
+
+    /// The right time label's style, as its accessibility label names it, and the seconds it shows.
+    func trailingTime() throws -> (style: String, seconds: TimeInterval) {
+        let label = element("player.trailingTime")
+        guard label.exists, let seconds = AppUIClock.seconds(label.value as? String) else {
+            throw AppUIWorkflowFailure(message: "The visible trailing time accessibility value is missing or invalid.")
         }
-        return result
+        return (label.label, seconds)
     }
 
     func duration() throws -> TimeInterval {
@@ -1335,19 +1383,29 @@ final class AppUITestDriver {
 
     func openPlayerMenu() throws {
         try tap(app.buttons["player.menu"])
-        try wait("The player menu must open") { self.app.buttons["Add to playlist"].exists }
+        try wait("The player menu must open") { self.app.buttons["Add to Playlist"].exists }
+    }
+
+    /// A row's reported hittability does not prove the medium sheet has expanded enough to scroll.
+    func openExpandedPlayerMenu() throws {
+        try openPlayerMenu()
+        let list = app.scrollViews["player.options.list"]
+        let sheet = app.otherElements["player.options.sheet"]
+        let top = sheet.frame.minY
+        if list.exists { list.swipeUp(velocity: .slow) }
+        try wait("More must expand to the large detent") { sheet.frame.minY < top - 60 || sheet.frame.minY < 120 }
     }
 
     /// The sleep timer lives in the player menu; its label carries the deadline while a timer runs.
     var sleepTimerMenuItem: XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier == %@ OR label BEGINSWITH %@",
-                                         "player.sleepTimer", "Sleep timer")).firstMatch
+                                         "player.sleepTimer", "Sleep Timer")).firstMatch
     }
 
     func openSleepTimerSheet() throws {
         try openPlayerMenu()
         try tap(sleepTimerMenuItem)
-        try wait("The Sleep timer sheet must open") { self.app.navigationBars["Sleep timer"].exists }
+        try wait("The Sleep timer sheet must open") { self.app.navigationBars["Sleep Timer"].exists }
     }
 
     /// Artist pages open on the current tab and close the player first.
@@ -1399,6 +1457,7 @@ final class AppUITestDriver {
 
     func openHomeCustomization() throws {
         try openSettings()
+        try openSettingsPage(.discovery)
         let link = app.buttons["settings.customizeHome"]
         try reveal(link, maxSwipes: 24)
         try tap(link)
@@ -1407,12 +1466,13 @@ final class AppUITestDriver {
 
     func closeHomeCustomization() throws {
         try tap(app.navigationBars["Customize Home"].buttons.firstMatch)
-        try wait("Back from customization must return to Settings") { self.app.navigationBars["Settings"].exists }
+        try wait("Back from customization must return to Discovery") { self.app.navigationBars[SettingsPageID.discovery.title].exists }
         try tap(app.buttons["settings.done"])
         try requireHittable(app.buttons["home.settings"])
     }
 
     func setAppearance(_ appearance: String) throws {
+        try openSettingsPage(.appearance)
         try reveal(element("settings.appearance"), maxSwipes: 24)
         try tap(element("settings.appearance"))
         try tap(app.buttons[appearance])
@@ -1422,6 +1482,7 @@ final class AppUITestDriver {
     }
 
     func expectSwitch(_ id: String, isOn: Bool) throws {
+        try openSettingsPageIfNeeded(for: id)
         let control = app.switches[id]
         try reveal(control, maxSwipes: 24)
         try wait("\(id) must be \(isOn ? "on" : "off")") {
@@ -1430,6 +1491,7 @@ final class AppUITestDriver {
     }
 
     func setSwitch(_ id: String, to enabled: Bool) throws {
+        try openSettingsPageIfNeeded(for: id)
         let row = app.switches[id]
         try reveal(row, maxSwipes: 24)
         let current = row.value as? String
@@ -1563,11 +1625,14 @@ final class AppUITestDriver {
         }
         try requireHittable(mini)
         for tab in ["home", "search", "library", "recap"] {
-            let button = app.tabBars.buttons[tab.capitalized]
+            let button = try tabButton(tab)
             try requireHittable(button)
-            try wait("The mini-player must sit above the \(tab) navigation target") {
+            try wait("The mini-player must clear the \(tab) navigation target") {
                 let miniFrame = mini.frame, tabFrame = button.frame
-                return self.usableFrame(miniFrame) && self.usableFrame(tabFrame) && miniFrame.maxY <= tabFrame.minY
+                guard self.usableFrame(miniFrame), self.usableFrame(tabFrame) else { return false }
+                // iPad's native navigation targets sit at the top rather than below the mini-player.
+                let topTabs = tabFrame.maxY < self.app.windows.firstMatch.frame.midY
+                return topTabs ? tabFrame.maxY <= miniFrame.minY : miniFrame.maxY <= tabFrame.minY
             }
         }
     }

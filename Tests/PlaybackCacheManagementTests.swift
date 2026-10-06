@@ -145,10 +145,11 @@ final class PlaybackCacheManagementTests: XCTestCase {
         try await gate.complete(request, with: .success([a.id, c.id]))
 
         let result = try await clear.value
-        try await PlaybackTestSupport.waitUntil { delivered.count == 2 }
+        try await PlaybackTestSupport.waitUntil { delivered.count == 3 }
 
         XCTAssertEqual(result?.retainedSongCount, 2)
-        XCTAssertEqual(delivered, [c.id, a.id], "The cancelled next song cannot report completion or start an old current download")
+        // The current copy reports before and after the clear; the cancelled next song never does.
+        XCTAssertEqual(delivered, [a.id, a.id, c.id], "The cancelled next song cannot report completion or start an old download")
         XCTAssertEqual(fixture.mock.state.requests.count, 1)
         let oldNext = await fixture.cache.entry(for: b.id)
         XCTAssertNil(oldNext)

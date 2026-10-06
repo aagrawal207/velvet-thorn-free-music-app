@@ -158,8 +158,8 @@ final class GanaBajanaLibrarySearchUITests: XCTestCase {
         try query("Tamasha", in: "library.playlist", ui: ui)
         try submitQuery(scope: "library.playlist", ui: ui)
         try expectCount("0 songs · Made by you", scope: "library.playlist", ui: ui)
-        try ui.reveal(ui.app.staticTexts["The first song sets the mood"])
-        XCTAssertFalse(ui.app.staticTexts["No matching songs"].exists)
+        try ui.reveal(ui.app.staticTexts["The First Song Sets the Mood"])
+        XCTAssertFalse(ui.app.staticTexts["No Matching Songs"].exists)
         XCTAssertFalse(ui.app.buttons["library.playlist.play"].isEnabled)
         XCTAssertFalse(ui.app.buttons["library.playlist.shuffle"].isEnabled)
         try clearQuery(scope: "library.playlist", ui: ui)
@@ -184,7 +184,7 @@ final class GanaBajanaLibrarySearchUITests: XCTestCase {
         try assertMinimumTarget(song, ui: ui)
         try clearQuery(scope: "library.likes", ui: ui)
         try cancelSearch(scope: "library.likes", ui: ui)
-        try ui.tap(ui.app.navigationBars["Liked songs"].buttons["Back"])
+        try ui.tap(ui.app.navigationBars["Liked Songs"].buttons["Back"])
 
         try ui.openPlaylist(named: AppUIFixture.seededPlaylist)
         try beginSearch(ui, scope: "library.playlist")
@@ -248,7 +248,7 @@ final class GanaBajanaLibrarySearchUITests: XCTestCase {
         try selectTab("library", ui: ui)
         try ui.reveal(ui.app.buttons["library.likes"], direction: .down)
         try ui.tap(ui.app.buttons["library.likes"])
-        try ui.wait("Liked songs must open") { ui.app.navigationBars["Liked songs"].exists }
+        try ui.wait("Liked songs must open") { ui.app.navigationBars["Liked Songs"].exists }
     }
 
     private func openSettings(_ ui: AppUITestDriver) throws {
@@ -340,9 +340,9 @@ final class GanaBajanaLibrarySearchUITests: XCTestCase {
     }
 
     private func expectNoMatches(scope: String, ui: AppUITestDriver) throws {
-        try ui.reveal(ui.app.staticTexts["No matching songs"])
-        XCTAssertFalse(ui.app.staticTexts["The first song sets the mood"].exists)
-        XCTAssertFalse(ui.app.staticTexts["Save a song you love"].exists)
+        try ui.reveal(ui.app.staticTexts["No Matching Songs"])
+        XCTAssertFalse(ui.app.staticTexts["The First Song Sets the Mood"].exists)
+        XCTAssertFalse(ui.app.staticTexts["Save a Song You Love"].exists)
         try ui.reveal(ui.app.buttons["\(scope).play"], direction: .down)
         XCTAssertFalse(ui.app.buttons["\(scope).play"].isEnabled)
         XCTAssertFalse(ui.app.buttons["\(scope).shuffle"].isEnabled)

@@ -4,6 +4,7 @@ import UIKit
 @MainActor
 struct HomeView: View {
     @Environment(MusicAppModel.self) private var model
+    @Environment(\.momentMixController) private var momentMixController
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isVisible = false
@@ -18,6 +19,8 @@ struct HomeView: View {
                     masthead
                         .padding(.horizontal, 20)
 
+                    HomeAnniversaryCard()
+
                     ForEach(visibleHomeSections) { section in
                         if hasContent(for: section) {
                             VStack(alignment: .leading, spacing: 30) {
@@ -29,7 +32,7 @@ struct HomeView: View {
                     }
 
                     if visibleHomeSections.isEmpty {
-                        EmptyStateView(symbol: "square.grid.2x2", title: "Home sections are hidden",
+                        EmptyStateView(symbol: "square.grid.2x2", title: "Home Sections Are Hidden",
                                        message: "Open Settings, then Customize Home, to show your sections.")
                             .padding(20)
                             .frame(maxWidth: .infinity)
@@ -41,7 +44,7 @@ struct HomeView: View {
                             .padding(.vertical, 40)
                     } else if !isLoadingVisibleHome && !hasContent {
                         VStack(spacing: 18) {
-                            EmptyStateView(symbol: "sparkle.magnifyingglass", title: "Nothing here yet",
+                            EmptyStateView(symbol: "sparkle.magnifyingglass", title: "Nothing Here Yet",
                                            message: "Search for an artist you love to start listening.")
                             Button {
                                 model.selectTab(.search)
@@ -87,7 +90,7 @@ struct HomeView: View {
                         Image(AppIcons.option(named: UIApplication.shared.alternateIconName).previewImageName)
                             .resizable().frame(width: 34, height: 34).clipShape(RoundedRectangle(cornerRadius: 6))
                     }
-                    Text("Breezy")
+                    Text("Velvet Thorn")
                         .appFont(.title, weight: .bold, design: .rounded)
                 }
                 .accessibilityElement(children: .combine)
@@ -127,6 +130,7 @@ struct HomeView: View {
             recentListening(metrics: metrics)
         case .madeForYou:
             mixes(metrics: metrics)
+            momentMixes(metrics: metrics)
         case .newReleases:
             newReleases(metrics: metrics)
         case .becauseYouLike:
@@ -135,8 +139,26 @@ struct HomeView: View {
             charts(metrics: metrics)
         case .discovery:
             if let error = model.homeError { homeError(error).padding(.horizontal, 20) }
+            if !editorialSections.isEmpty {
+                Text(discoveryLanguageSubtitle)
+                    .appFont(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .padding(.horizontal, 20)
+                    .accessibilityIdentifier("home.discovery.languages")
+            }
             ForEach(editorialSections) { carousel($0, metrics: metrics) }
+        case .superLiked:
+            superLiked(metrics: metrics)
         }
+    }
+
+    private var discoveryLanguageSubtitle: String {
+        let profile = model.listeningLanguageProfile
+        if profile.isLearned { return "Languages based on your last 30 days of saved listening." }
+        let fallback = model.library.preferences.languages
+        let usesDefaults = (fallback.isEmpty || fallback == Set(MusicLanguage.allCases)) && profile.nudges.isAutomatic
+        return usesDefaults ? "Starting with Hindi and English. Listening shapes these shelves."
+            : "Languages start from your saved settings."
     }
 
     /// The first card keeps the column's 20-point inset; in wide windows the shelf scrolls out to the window edge.
@@ -150,22 +172,13 @@ struct HomeView: View {
 
     @ViewBuilder
     private func mixes(metrics: HomeShelfMetrics) -> some View {
-        let weekly = model.discoverWeekly
-        let daily = model.dailyMix
-        if weekly != nil || daily != nil {
+        let generated = (model.discoverWeekly.map { [$0] } ?? []) + model.dailyMixes
+        if !generated.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
-                sectionHeader(title: "Made for you")
+                sectionHeader(title: "Made for You")
                     .padding(.horizontal, 20)
-                shelf(metrics) {
-                    HStack(alignment: .top, spacing: 14) {
-                        if let weekly {
-                            MixTile(collection: weekly.collection, caption: "New every Monday", size: metrics.tileSize, tint: AppTheme.violet)
-                        }
-                        if let daily {
-                            MixTile(collection: daily.collection, caption: "Fresh every day", size: metrics.tileSize, tint: AppTheme.accent)
-                        }
-                    }
-                }
+                mixGrid(generated, metrics: metrics)
+                    .padding(.horizontal, 20)
             }
         } else if model.isGeneratingMixes {
             HStack(spacing: 14) {
@@ -194,9 +207,77 @@ struct HomeView: View {
         }
     }
 
+    /// Every mix on screen at once, in reading order; unlike the carousels it stays inside the column on wide iPads.
+    private func mixGrid(_ mixes: [GeneratedPlaylist], metrics: HomeShelfMetrics) -> some View {
+        let rows = HomeShelfMetrics.gridRows(mixes, columns: metrics.mixGridColumns)
+        return VStack(alignment: .leading, spacing: HomeShelfMetrics.mixGridRowSpacing) {
+            ForEach(rows.indices, id: \.self) { index in
+                HStack(alignment: .top, spacing: HomeShelfMetrics.mixGridSpacing) {
+                    ForEach(rows[index]) { mix in
+                        // Text sits below the art at the card's full width, so titles and focus lines stay readable.
+                        mixCard(mix, size: metrics.mixCardWidth, tint: mix.kind == .discoverWeekly ? AppTheme.violet : dailyMixTint(mix.kind))
+                    }
+                }
+                // The row takes its tallest card's ideal height, and the shorter cards stretch to match it.
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("home.mixes")
+    }
+
+    /// Distinct cover tints distinguish neighbouring mixes without repeating the title below each tile.
+    private func mixCard(_ mix: GeneratedPlaylist, size: CGFloat, tint: Color) -> some View {
+        MixTile(collection: mix.collection, caption: mix.caption, size: size, tint: tint, textLines: 2, fillsRowHeight: true)
+            .overlay(alignment: .top) {
+                LinearGradient(colors: [tint.opacity(0), tint.opacity(0.35), tint.opacity(0.85)],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+    }
+
+    @ViewBuilder
+    private func momentMixes(metrics: HomeShelfMetrics) -> some View {
+        if !momentCollections.isEmpty {
+            VStack(alignment: .leading, spacing: 16) {
+                sectionHeader(title: "Your Moments")
+                    .padding(.horizontal, 20)
+                shelf(metrics) {
+                    HStack(alignment: .top, spacing: 14) {
+                        ForEach(momentCollections.prefix(6)) { collection in
+                            MixTile(collection: collection, caption: "From Your Listening",
+                                    size: metrics.tileSize, tint: AppTheme.gold)
+                                .accessibilityIdentifier("home.\(collection.id)")
+                        }
+                    }
+                }
+            }
+            .accessibilityIdentifier("home.moments")
+        }
+    }
+
+    private var momentCollections: [MusicCollection] {
+        guard model.library.preferences.saveListeningHistory else { return [] }
+        return momentMixController?.collections ?? []
+    }
+
+    /// Fixed tints that stay distinct from Discover Weekly's violet and the accent used by Daily Mix 1.
+    private func dailyMixTint(_ kind: GeneratedPlaylistKind) -> Color {
+        switch kind {
+        case .dailyMix2: AppTheme.gold
+        case .dailyMix3:
+            ([AppAccent.teal, .ocean, .mint].first { $0 != model.library.preferences.accent } ?? .teal).color
+        default: AppTheme.accent
+        }
+    }
+
     private func newReleases(metrics: HomeShelfMetrics) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            sectionHeader(title: "New releases")
+            sectionHeader(title: "New Releases")
                 .padding(.horizontal, 20)
             shelf(metrics) {
                 LazyHStack(alignment: .top, spacing: 16) {
@@ -214,7 +295,7 @@ struct HomeView: View {
     private func recentListening(metrics: HomeShelfMetrics) -> some View {
         let recents = model.library.recentlyPlayed.map(\.track)
         return VStack(alignment: .leading, spacing: 16) {
-            sectionHeader(title: "Recently played", collection: MusicCollection(id: "home.recent", title: "Recently played",
+            sectionHeader(title: "Recently Played", collection: MusicCollection(id: "home.recent", title: "Recently Played",
                                                                                  kind: .mix, tracks: recents))
                 .padding(.horizontal, 20)
 
@@ -227,6 +308,33 @@ struct HomeView: View {
                 LazyHStack(alignment: .top, spacing: 16) {
                     ForEach(model.library.recentlyPlayed.prefix(12)) { recent in
                         TrackCard(track: recent.track, tracks: recents, size: metrics.cardSize)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The newest 20 super likes in Liked Songs order; the cap keeps the shelf a few swipes wide like New Releases.
+    static let superLikedShelfLimit = 20
+
+    /// Reads the library directly, so a promotion or demotion redraws the shelf through `favoritesRevision`.
+    static func superLikedShelf(_ superLikes: [Track]) -> [Track] {
+        Array(superLikes.prefix(superLikedShelfLimit))
+    }
+
+    /// The header opens Liked Songs on its Super Liked chip, on this tab, the way Stats' See All opens Recently Played.
+    private func superLiked(metrics: HomeShelfMetrics) -> some View {
+        let superLikes = model.library.superLikes
+        return VStack(alignment: .leading, spacing: 16) {
+            sectionHeader(title: "Super Liked", tracks: superLikes, identifier: "home.superLiked.seeAll") {
+                LibrarySavedSongsView(kind: .likes, initialFilter: .superLiked)
+            }
+            .padding(.horizontal, 20)
+
+            shelf(metrics) {
+                LazyHStack(alignment: .top, spacing: 16) {
+                    ForEach(Self.superLikedShelf(superLikes)) { track in
+                        TrackCard(track: track, tracks: superLikes, size: metrics.cardSize)
                     }
                 }
             }
@@ -278,39 +386,7 @@ struct HomeView: View {
     @ViewBuilder
     private func sectionHeader(title: String, collection: MusicCollection? = nil) -> some View {
         if let collection {
-            HStack(alignment: .center, spacing: 12) {
-                AppNavigationLink {
-                    CollectionDetailView(collection: collection)
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(title)
-                            .appFont(.title3, weight: .bold)
-                            .foregroundStyle(AppTheme.primaryText)
-                            .lineLimit(1)
-                        Image(systemName: "chevron.right")
-                            .appFont(.subheadline, weight: .semibold)
-                            .foregroundStyle(AppTheme.secondaryText)
-                    }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityLabel("\(title), see all")
-                Spacer(minLength: 0)
-                if !collection.tracks.isEmpty {
-                    Button {
-                        model.play(collection.tracks)
-                    } label: {
-                        Image(systemName: "play.fill")
-                            .appFont(.footnote, weight: .bold)
-                            .frame(width: 44, height: 44)
-                            .appGlass(in: Circle(), interactive: true)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Play \(title)")
-                }
-            }
+            sectionHeader(title: title, tracks: collection.tracks) { CollectionDetailView(collection: collection) }
         } else {
             Text(title)
                 .appFont(.title3, weight: .bold)
@@ -318,6 +394,43 @@ struct HomeView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    /// A shelf whose full list is its own page: title and chevron push it on this tab, play starts every song in order.
+    private func sectionHeader<Destination: View>(title: String, tracks: [Track], identifier: String? = nil,
+                                                  @ViewBuilder destination: () -> Destination) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            AppNavigationLink(destination: destination) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .appFont(.title3, weight: .bold)
+                        .foregroundStyle(AppTheme.primaryText)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.right")
+                        .appFont(.subheadline, weight: .semibold)
+                        .foregroundStyle(AppTheme.secondaryText)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityLabel("\(title), see all")
+            .accessibilityIdentifier(identifier ?? "")
+            Spacer(minLength: 0)
+            if !tracks.isEmpty {
+                Button {
+                    model.play(tracks)
+                } label: {
+                    Image(systemName: "play.fill")
+                        .appFont(.footnote, weight: .bold)
+                        .frame(width: 44, height: 44)
+                        .appGlass(in: Circle(), interactive: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Play \(title)")
+            }
         }
     }
 
@@ -331,7 +444,7 @@ struct HomeView: View {
             Button {
                 Task { await model.loadHome(force: true) }
             } label: {
-                Label("Try again", systemImage: "arrow.clockwise").appFont(.body).frame(minHeight: 44)
+                Label("Try Again", systemImage: "arrow.clockwise").appFont(.body).frame(minHeight: 44)
             }
             .buttonStyle(.bordered)
             .tint(AppTheme.accent)
@@ -386,7 +499,8 @@ struct HomeView: View {
         case .recentlyPlayed:
             model.library.preferences.saveListeningHistory && !model.library.recentlyPlayed.isEmpty
         case .madeForYou:
-            model.discoverWeekly != nil || model.dailyMix != nil || model.isGeneratingMixes
+            model.discoverWeekly != nil || !model.dailyMixes.isEmpty || model.isGeneratingMixes
+                || !momentCollections.isEmpty
                 || (model.library.preferences.saveListeningHistory && !model.hasListeningProfile)
         case .newReleases:
             !model.library.releases.isEmpty
@@ -396,6 +510,8 @@ struct HomeView: View {
             !visibleCharts.isEmpty
         case .discovery:
             !editorialSections.isEmpty || model.homeError != nil
+        case .superLiked:
+            !Self.superLikedShelf(model.library.superLikes).isEmpty
         }
     }
 

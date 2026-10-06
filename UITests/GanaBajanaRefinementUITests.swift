@@ -14,7 +14,8 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'music video'")).firstMatch.exists)
         capture(app, "liquid-glass-home-iphone17pro")
         for tab in ["search", "library", "recap", "home"] {
-            let button = app.tabBars.buttons[tab.capitalized]
+            // The fourth tab reads Stats while keeping its `recap` identity.
+            let button = app.tabBars.buttons[tab == "recap" ? "Stats" : tab.capitalized]
             XCTAssertTrue(button.waitForExistence(timeout: 5))
             button.tap()
             if tab == "search" {
@@ -33,15 +34,23 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         let app = launch(extra: ["--player"])
         let close = app.buttons["player.close"]
         XCTAssertTrue(close.waitForExistence(timeout: 10))
-        // These songs carry no album id, but their credited artist must remain available from Browse.
-        let browse = app.buttons["player.browse"]
-        XCTAssertTrue(browse.isHittable)
-        browse.tap()
+        // The artist line owns album browsing: one credit without an album id opens directly, while the duet, with two
+        // credits and no album id, still offers every credited artist in the chooser.
+        XCTAssertFalse(app.buttons["player.browse"].exists)
+        let artistLine = app.buttons["player.artistName"]
+        XCTAssertTrue(artistLine.isHittable)
+        XCTAssertEqual(artistLine.label, "Go to artist, Arijit Singh")
+        let duet = app.staticTexts["player.track.\(AppUIFixture.agarTumSaathHo)"]
+        for _ in 0..<5 where !duet.exists { app.buttons["player.next"].tap() }
+        XCTAssertTrue(duet.waitForExistence(timeout: 5))
+        waitFor("The duet's artist line must offer the chooser") { artistLine.label == "Album and artists, Alka Yagnik, Arijit Singh" }
+        artistLine.tap()
         XCTAssertTrue(app.otherElements["player.browse.sheet"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.buttons["player.artist.0"].label, "Arijit Singh")
+        XCTAssertEqual(app.buttons["player.artist.0"].label, "Alka Yagnik")
+        XCTAssertEqual(app.buttons["player.artist.1"].label, "Arijit Singh")
         XCTAssertFalse(app.buttons["player.browse.album"].exists)
         app.buttons["player.browse.done"].tap()
-        waitFor("Closing Browse must return to the player") { browse.isHittable }
+        waitFor("Closing the chooser must return to the player") { artistLine.isHittable }
 
         let firstTitle = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "player.track.")).firstMatch.identifier
         app.buttons["player.playPause"].tap()
@@ -54,8 +63,8 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         XCTAssertFalse(app.buttons["player.options.album"].isEnabled)
         reveal(app.buttons["player.options.share"], in: app.scrollViews["player.options.list"], app: app)
         XCTAssertFalse(app.buttons["player.options.dislike"].exists, "Liked songs must not offer a dislike action.")
-        XCTAssertFalse(app.buttons["Dislike song"].exists)
-        XCTAssertFalse(app.buttons["Remove dislike"].exists)
+        XCTAssertFalse(app.buttons["Don't Recommend This Song"].exists)
+        XCTAssertFalse(app.buttons["Allow Recommendations"].exists)
         closeOptions(app)
         let like = app.buttons["player.like"]
         XCTAssertEqual(like.label, "Unlike this song")
@@ -63,12 +72,12 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         waitFor("The heading must remove the like before Dislike is offered") { like.label == "Like this song" }
 
         openOptions(app)
-        let dislike = app.buttons["Dislike song"]
+        let dislike = app.buttons["Don't Recommend This Song"]
         XCTAssertTrue(dislike.waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["player.options.airplay"].exists, "AirPlay is directly available in the bottom action row.")
-        XCTAssertFalse(app.buttons["Like song"].exists)
-        XCTAssertFalse(app.buttons["Add to queue"].exists)
-        XCTAssertFalse(app.buttons["Play next"].exists)
+        XCTAssertFalse(app.buttons["Like Song"].exists)
+        XCTAssertFalse(app.buttons["Add to Queue"].exists)
+        XCTAssertFalse(app.buttons["Play Next"].exists)
         capture(app, "player-menu-iphone17pro")
         reveal(dislike, in: app.scrollViews["player.options.list"], app: app)
         dislike.tap()
@@ -109,7 +118,8 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         XCTAssertGreaterThan(menu.frame.midX, window.minX + window.width * 0.75)
         XCTAssertEqual(menu.frame.midY, app.buttons["player.close"].frame.midY, accuracy: 1)
         XCTAssertEqual(app.buttons.matching(identifier: "player.menu").count, 1)
-        for id in ["player.lyrics", "player.browse", "player.airplay", "player.queue"] {
+        XCTAssertFalse(app.buttons["player.browse"].exists, "The bottom row holds AirPlay, Download, Lyrics and Queue only.")
+        for id in ["player.airplay", "player.download", "player.lyrics", "player.queue"] {
             XCTAssertGreaterThan(app.buttons[id].frame.midY, window.minY + window.height * 0.80)
             XCTAssertGreaterThanOrEqual(app.buttons[id].frame.maxY, player.frame.maxY - 12)
         }
@@ -170,7 +180,7 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         tapInWindow(app.buttons["miniPlayer.next"], app: app, offset: CGVector(dx: 0.5, dy: 0.98))
         waitFor("The enlarged Next target must change songs") { app.buttons["miniPlayer.open"].label.contains("Kesariya") }
 
-        for tab in ["Search", "Library", "Recap", "Home"] {
+        for tab in ["Search", "Library", "Stats", "Home"] {
             app.tabBars.buttons[tab].tap()
             XCTAssertTrue(app.tabBars.buttons[tab].isSelected)
             assertMiniPlayerLayout(app, exactHeight: 64)
@@ -229,10 +239,9 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         let initialFrames = [slider.frame, app.buttons["player.playPause"].frame, app.buttons["player.menu"].frame]
         let start = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
         let end = slider.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        // The 262-second fixture; the release point maps through the trail, not the bar width alone.
+        // The 262-second fixture; the bar spans the whole seek element, so the release point maps linearly.
         let expected = 262 * app.playerSeekProgress(atNormalizedX: 0.5)
-        XCTAssertLessThan(expected, 131)
-        XCTAssertGreaterThan(expected, 90)
+        XCTAssertEqual(expected, 131, accuracy: 1e-6)
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.1)
         waitFor("A horizontal drag must seek within the paused recording") {
             guard let seconds = AppUIClock.seconds(elapsed.value as? String) else { return false }
@@ -312,9 +321,9 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         openOptions(app)
         let sleep = app.buttons["player.sleepTimer"]
         reveal(sleep, in: app.scrollViews["player.options.list"], app: app)
-        XCTAssertEqual(sleep.label, "Sleep timer")
+        XCTAssertEqual(sleep.label, "Sleep Timer")
         sleep.tap()
-        XCTAssertTrue(app.navigationBars["Sleep timer"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Sleep Timer"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.otherElements.matching(identifier: "player.options.sheet").count, 1)
         let timerList = app.descendants(matching: .any).matching(identifier: "player.sleepTimer.list").firstMatch
         reveal(app.buttons["player.sleepTimer.120"], in: timerList, app: app)
@@ -328,10 +337,10 @@ final class GanaBajanaRefinementUITests: XCTestCase {
 
         openOptions(app)
         reveal(sleep, in: app.scrollViews["player.options.list"], app: app)
-        XCTAssertTrue(sleep.label.hasPrefix("Sleep timer · stops at "))
-        XCTAssertTrue(app.buttons["Cancel sleep timer"].exists)
+        XCTAssertTrue(sleep.label.hasPrefix("Sleep Timer · stops at "))
+        XCTAssertTrue(app.buttons["player.sleepTimer.cancel"].exists)
         sleep.tap()
-        XCTAssertTrue(app.navigationBars["Sleep timer"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Sleep Timer"].waitForExistence(timeout: 5))
         reveal(app.buttons["player.sleepTimer.120"], in: timerList, app: app)
         let cancel = app.buttons["player.sleepTimer.cancel"]
         reveal(cancel, in: timerList, app: app, towardTop: true)
@@ -339,8 +348,8 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         cancel.tap()
         waitFor("Cancelling a timer must dismiss the entire options sheet") { !app.otherElements["player.options.sheet"].exists }
         openOptions(app)
-        XCTAssertEqual(sleep.label, "Sleep timer")
-        XCTAssertFalse(app.buttons["Cancel sleep timer"].exists)
+        XCTAssertEqual(sleep.label, "Sleep Timer")
+        XCTAssertFalse(app.buttons["player.sleepTimer.cancel"].exists)
         closeOptions(app)
     }
 
@@ -404,7 +413,7 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["player.track.\(AppUIFixture.agarTumSaathHo)"].waitForExistence(timeout: 5))
         openOptions(app)
         app.buttons["player.options.artist"].tap()
-        XCTAssertTrue(app.navigationBars["Go to artist"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Go to Artist"].waitForExistence(timeout: 5))
         let alka = app.buttons["player.artist.0"]
         let arijit = app.buttons["player.artist.1"]
         assertArtistsStartBelowTitle(app)
@@ -478,8 +487,9 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         let app = launch()
         XCTAssertTrue(app.buttons["home.settings"].waitForExistence(timeout: 10))
         app.buttons["home.settings"].tap()
+        XCTAssertTrue(app.buttons["settings.page.appearance"].waitForExistence(timeout: 5))
+        app.buttons["settings.page.appearance"].tap()
         let row = app.buttons["settings.appIcon"]
-        // Settings is a lazy list; the row below the account section only exists once scrolled into view.
         for _ in 0..<4 where !row.waitForExistence(timeout: 2) { app.swipeUp() }
         XCTAssertTrue(row.waitForExistence(timeout: 5))
         if !row.isHittable { app.swipeUp() }
@@ -511,16 +521,20 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         let play = app.buttons["player.playPause"]
         XCTAssertTrue(play.waitForExistence(timeout: 10))
         let ids = ["player.close", "player.previous", "player.next",
-                   "player.like", "player.lyrics", "player.queue", "player.browse", "player.airplay", "player.artistName", "player.menu"]
+                   "player.like", "player.lyrics", "player.queue", "player.airplay", "player.download", "player.artistName",
+                   "player.menu", "player.trailingTime"]
         for id in ids {
             XCTAssertTrue(app.buttons[id].isHittable, "\(id) must fit without scrolling")
         }
+        XCTAssertFalse(app.buttons["player.browse"].exists, "Album browsing belongs to the artist line, not the bottom row.")
         XCTAssertFalse(app.buttons["player.shuffle"].exists, "Shuffle belongs to the Queue sheet.")
         XCTAssertFalse(app.buttons["player.repeat"].exists, "Repeat belongs to the Queue sheet.")
         let seek = app.sliders["player.seek"]
         XCTAssertTrue(seek.isHittable)
+        let artwork = app.descendants(matching: .any).matching(identifier: "player.artwork").firstMatch
+        XCTAssertTrue(artwork.exists, "The artwork exposes its frame for layout checks")
         let elements = ids.map { app.buttons[$0] } + [play, seek, app.staticTexts["player.elapsed"],
-                                                     app.staticTexts["player.remaining"], app.staticTexts["player.track.\(AppUIFixture.tumHiHo)"]]
+                                                     artwork, app.staticTexts["player.track.\(AppUIFixture.tumHiHo)"]]
         let before = elements.map(\.frame)
         capture(app, "fixed-player-paused-iphone17pro")
         play.tap()
@@ -536,7 +550,17 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         assertFrames(elements.map(\.frame), equalTo: before)
         let player = app.otherElements["player.screen"]
         XCTAssertEqual(player.scrollViews.count, 0)
-        player.swipeUp()
+        // Swiping up over the transport row is not a player gesture: nothing scrolls and no sheet opens.
+        let transport = app.buttons["player.playPause"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        transport.press(forDuration: 0.05, thenDragTo: transport.withOffset(CGVector(dx: 0, dy: -260)), withVelocity: .fast, thenHoldForDuration: 0)
+        let lyrics = app.descendants(matching: .any).matching(identifier: "lyrics.screen").firstMatch
+        XCTAssertFalse(lyrics.waitForExistence(timeout: 1.5))
+        assertFrames(elements.map(\.frame), equalTo: before)
+        // Swiping up over the artwork opens Lyrics (the default choice); the fixed layout is unchanged afterwards.
+        artwork.swipeUp()
+        XCTAssertTrue(lyrics.waitForExistence(timeout: 5), "Swiping up on the artwork opens Lyrics")
+        app.buttons["lyrics.done"].tap()
+        waitFor("Closing Lyrics must return to the fixed player") { !lyrics.exists && play.isHittable }
         assertFrames(elements.map(\.frame), equalTo: before)
         assertNoVolumeSlider(app)
         capture(app, "fixed-player-playing-iphone17pro")
@@ -548,7 +572,7 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         waitFor("The player options button must be reachable", file: file, line: line) { menu.isHittable }
         menu.tap()
         XCTAssertTrue(app.otherElements["player.options.sheet"].waitForExistence(timeout: 5), file: file, line: line)
-        XCTAssertTrue(app.navigationBars["Song options"].exists, file: file, line: line)
+        XCTAssertTrue(app.navigationBars["Song Options"].exists, file: file, line: line)
     }
 
     private func assertMiniPlayerLayout(_ app: XCUIApplication, exactHeight: CGFloat? = nil,
@@ -568,7 +592,7 @@ final class GanaBajanaRefinementUITests: XCTestCase {
             XCTAssertTrue(frame.insetBy(dx: -1, dy: -1).contains(control.frame),
                           "\(id) must fit inside the glass bar.", file: file, line: line)
         }
-        for tab in ["Home", "Search", "Library", "Recap"] {
+        for tab in ["Home", "Search", "Library", "Stats"] {
             let button = app.tabBars.buttons[tab]
             XCTAssertTrue(button.isHittable, file: file, line: line)
             XCTAssertLessThanOrEqual(frame.maxY, button.frame.minY, "The mini-player must not cover native navigation.", file: file, line: line)
@@ -615,12 +639,13 @@ final class GanaBajanaRefinementUITests: XCTestCase {
 
         app.tabBars.buttons["Library"].tap()
         XCTAssertTrue(app.buttons["library.createPlaylist"].waitForExistence(timeout: 5))
-        let lastRecent = app.otherElements["library.recent.\(AppUIFixture.agarTumSaathHo)"]
-        try revealAboveMiniPlayer(lastRecent, app: app, requiresHittable: false)
-        XCTAssertTrue(app.buttons["library.resume.\(AppUIFixture.agarTumSaathHo)"].isHittable)
+        // Recently played moved to Recap, so the seeded playlist row is the Library's last content.
+        let lastPlaylist = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "library.playlist.menu.")).firstMatch
+        try revealAboveMiniPlayer(lastPlaylist, app: app)
+        XCTAssertTrue(lastPlaylist.isHittable)
         capture(app, "mini-player-library-scroll-end")
 
-        app.tabBars.buttons["Recap"].tap()
+        app.tabBars.buttons["Stats"].tap()
         let notes = app.descendants(matching: .any).matching(identifier: "recap.howCounted").firstMatch
         try revealAboveMiniPlayer(notes, app: app)
         tapInWindow(notes, app: app)
@@ -630,7 +655,7 @@ final class GanaBajanaRefinementUITests: XCTestCase {
     }
 
     private func assertPushedScrollEnds(_ app: XCUIApplication) throws {
-        let recents = app.buttons["Recently played, see all"]
+        let recents = app.buttons["Recently Played, see all"]
         try revealAboveMiniPlayer(recents, app: app)
         tapInWindow(recents, app: app)
         XCTAssertTrue(app.buttons["collection.actions"].waitForExistence(timeout: 5))
@@ -649,10 +674,11 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         app.tabBars.buttons["Search"].tap()
         XCTAssertTrue(app.textFields["search.field"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["search.filter.songs"].exists)
-        let searchLikes = app.buttons["search.library.likes"]
-        try revealAboveMiniPlayer(searchLikes, app: app)
-        tapInWindow(searchLikes, app: app)
-        XCTAssertTrue(app.navigationBars["Liked songs"].waitForExistence(timeout: 5))
+        // R13: the liked-songs card left Search; the playlist shortcut is the remaining local library link there.
+        let searchPlaylist = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.library.playlist.")).firstMatch
+        try revealAboveMiniPlayer(searchPlaylist, app: app)
+        tapInWindow(searchPlaylist, app: app)
+        XCTAssertTrue(app.navigationBars[AppUIFixture.seededPlaylist].waitForExistence(timeout: 5))
         try revealAboveMiniPlayer(app.buttons["track.play.\(AppUIFixture.tumHiHo)"], app: app)
         capture(app, "mini-player-search-library-shortcut-list-end")
         app.navigationBars.buttons.firstMatch.tap()
@@ -662,7 +688,7 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         let likes = app.buttons["library.likes"]
         try revealAboveMiniPlayer(likes, app: app)
         tapInWindow(likes, app: app)
-        XCTAssertTrue(app.navigationBars["Liked songs"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Liked Songs"].waitForExistence(timeout: 5))
         try revealAboveMiniPlayer(app.buttons["track.play.\(AppUIFixture.tumHiHo)"], app: app)
         capture(app, "mini-player-liked-songs-list-end")
         app.navigationBars.buttons.firstMatch.tap()
@@ -887,7 +913,7 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         var expandsByDragging: Bool { self == .options }
     }
 
-    private func assertArtistsStartBelowTitle(_ app: XCUIApplication, title: String = "Go to artist",
+    private func assertArtistsStartBelowTitle(_ app: XCUIApplication, title: String = "Go to Artist",
                                              file: StaticString = #filePath, line: UInt = #line) {
         let navigation = app.navigationBars[title]
         let first = app.buttons["player.artist.0"]
@@ -918,10 +944,11 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         let duet = app.staticTexts["player.track.\(AppUIFixture.agarTumSaathHo)"]
         for _ in 0..<5 where !duet.exists { app.buttons["player.next"].tap() }
         XCTAssertTrue(duet.waitForExistence(timeout: 5), file: file, line: line)
-        app.buttons["player.browse"].tap()
-        assertArtistsStartBelowTitle(app, title: "Album and artists", file: file, line: line)
+        // Two credits open the combined chooser from the artist line; the fixture duet has no album id.
+        app.buttons["player.artistName"].tap()
+        assertArtistsStartBelowTitle(app, title: "Album and Artists", file: file, line: line)
         let picker = app.otherElements["player.browse.sheet"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 5), "Album and artists opens its own content-sized chooser.", file: file, line: line)
+        XCTAssertTrue(picker.waitForExistence(timeout: 5), "The artist line opens its own content-sized chooser.", file: file, line: line)
         XCTAssertFalse(app.otherElements["player.options.sheet"].exists, file: file, line: line)
         let window = app.windows.firstMatch.frame
         let artists = app.scrollViews["player.browse.list"]
@@ -982,15 +1009,26 @@ final class GanaBajanaRefinementUITests: XCTestCase {
 
     private func assertThumbTargets(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let window = app.windows.firstMatch.frame.insetBy(dx: -1, dy: -1)
-        for id in ["player.close", "player.like", "player.previous", "player.next",
-                   "player.lyrics", "player.browse", "player.queue", "player.menu"] {
+        for id in ["player.close", "player.like", "player.previous", "player.next", "player.menu"] {
             let control = app.buttons[id]
             assertTarget(control, minimum: 52, file: file, line: line)
             XCTAssertTrue(window.contains(control.frame), "\(id) must fit in the window.", file: file, line: line)
         }
-        // AirPlay is AVKit's own 44-point button centered in its 56-point slot; the AirPlay suite checks its anchor.
-        assertTarget(app.buttons["player.airplay"], minimum: 44, file: file, line: line)
-        XCTAssertTrue(window.contains(app.buttons["player.airplay"].frame), file: file, line: line)
+        // The bottom row is four 44-point targets: AVKit's own AirPlay button, Download, then Lyrics and Queue; the
+        // AirPlay suite checks the native anchor. Album browsing lives on the artist line.
+        XCTAssertFalse(app.buttons["player.browse"].exists, file: file, line: line)
+        for id in ["player.airplay", "player.download", "player.lyrics", "player.queue"] {
+            assertTarget(app.buttons[id], minimum: 44, file: file, line: line)
+            XCTAssertTrue(window.contains(app.buttons[id].frame), "\(id) must fit in the window.", file: file, line: line)
+        }
+        XCTAssertEqual(app.buttons["player.download"].frame.minX, app.buttons["player.airplay"].frame.maxX + 8, accuracy: 1,
+                       "Download sits 8 points beside AirPlay", file: file, line: line)
+        XCTAssertEqual(app.buttons["player.lyrics"].frame.maxX + 8, app.buttons["player.queue"].frame.minX, accuracy: 1,
+                       "Lyrics sits 8 points inside Queue", file: file, line: line)
+        for id in ["player.download", "player.lyrics", "player.queue"] {
+            XCTAssertEqual(app.buttons[id].frame.midY, app.buttons["player.airplay"].frame.midY, accuracy: 1,
+                           "\(id) shares the row's centre line", file: file, line: line)
+        }
         // Previous and next flank the play button, evenly spaced and centered on the transport row.
         let previous = app.buttons["player.previous"].frame, play = app.buttons["player.playPause"].frame,
             next = app.buttons["player.next"].frame
@@ -1003,7 +1041,8 @@ final class GanaBajanaRefinementUITests: XCTestCase {
         XCTAssertTrue(window.contains(app.buttons["player.playPause"].frame), file: file, line: line)
         XCTAssertTrue(window.contains(app.sliders["player.seek"].frame), file: file, line: line)
         XCTAssertTrue(app.staticTexts["player.elapsed"].isHittable, file: file, line: line)
-        XCTAssertTrue(app.staticTexts["player.remaining"].isHittable, file: file, line: line)
+        // The right time label switches between song length and remaining time, so it carries a 44-point target.
+        assertTarget(app.buttons["player.trailingTime"], minimum: 44, file: file, line: line)
     }
 
     private func assertTarget(_ element: XCUIElement, minimum: CGFloat, requiresHittable: Bool = true,

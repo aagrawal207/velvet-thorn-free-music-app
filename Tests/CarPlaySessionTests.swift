@@ -1,3 +1,5 @@
+// CarPlay templates exist only on iPhone; Mac Catalyst links the framework but cannot host its scenes.
+#if !targetEnvironment(macCatalyst)
 import CarPlay
 import MediaPlayer
 import XCTest
@@ -47,7 +49,7 @@ final class CarPlaySessionTests: CarPlayTestCase {
         session.connect()
         let favorites = try rootList(session, at: 0)
         try await waitForRows(2, in: favorites)
-        XCTAssertEqual(rows(favorites).first?.text, "Breezy isn’t ready")
+        XCTAssertEqual(rows(favorites).first?.text, "Velvet Thorn isn’t ready")
         XCTAssertFalse(try XCTUnwrap(rows(favorites).first).isEnabled)
         registry.playback = CompanionPlaybackController(model: context.model)
         try select(try retryRow(favorites))
@@ -162,11 +164,12 @@ final class CarPlaySessionTests: CarPlayTestCase {
         let interface = CarPlayTestInterface()
         let session = makeSession(context: context, interface: interface)
         let controls = try XCTUnwrap(session.nowPlayingControls)
-        XCTAssertEqual(controls.buttons.count, 3)
+        XCTAssertEqual(controls.buttons.count, 4)
         controls.activate(.favorite)
         XCTAssertTrue(context.library.isFavorite(track))
         XCTAssertTrue(LibraryStore(directory: context.directory).isFavorite(track))
         XCTAssertTrue(controls.buttons[2].isSelected)
+        XCTAssertFalse(controls.buttons[3].isSelected)
         controls.activate(.shuffle)
         XCTAssertTrue(context.player.shuffleEnabled)
         XCTAssertTrue(controls.buttons[0].isSelected)
@@ -179,19 +182,67 @@ final class CarPlaySessionTests: CarPlayTestCase {
         XCTAssertEqual(interface.operations, [.root])
     }
 
-    func testAnOldTrackControlCannotMutateANewerPhoneSelection() throws {
-        let old = libraryTestTrack("carplay-control-old")
-        let new = libraryTestTrack("carplay-control-new")
-        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [old]))
+    func testSuperLikeControlPromotesDemotesAndTheFavoriteTapRemovesBothDurably() throws {
+        let track = libraryTestTrack("carplay-super-like")
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [track]))
         let interface = CarPlayTestInterface()
         let session = makeSession(context: context, interface: interface)
         let controls = try XCTUnwrap(session.nowPlayingControls)
-        context.model.play(new)
+        XCTAssertEqual(controls.buttonStates.map(\.control), [.shuffle, .repeatMode, .favorite, .superLike])
+        XCTAssertEqual(controls.buttonStates.suffix(2).map(\.label), ["Favorite", "Super like"])
+
+        controls.activate(.superLike)
+        XCTAssertTrue(context.library.isFavorite(track), "Promoting an unliked song likes it first")
+        XCTAssertTrue(context.library.isSuperLiked(track))
+        let promoted = LibraryStore(directory: context.directory)
+        XCTAssertEqual(promoted.favorites, [track])
+        XCTAssertTrue(promoted.isSuperLiked(track))
+        XCTAssertTrue(controls.buttons[2].isSelected)
+        XCTAssertTrue(controls.buttons[3].isSelected)
+        XCTAssertEqual(controls.buttonStates.suffix(2).map(\.symbol), ["bolt.heart.fill", "bolt.heart.fill"])
+        XCTAssertEqual(controls.buttonStates.suffix(2).map(\.label), ["Remove favorite", "Change to favorite"])
+
+        controls.activate(.superLike)
+        XCTAssertTrue(context.library.isFavorite(track), "Demotion keeps the like")
+        XCTAssertFalse(context.library.isSuperLiked(track))
+        XCTAssertFalse(LibraryStore(directory: context.directory).isSuperLiked(track))
+        XCTAssertTrue(controls.buttons[2].isSelected)
+        XCTAssertFalse(controls.buttons[3].isSelected)
+        XCTAssertEqual(controls.buttonStates.suffix(2).map(\.symbol), ["heart.fill", "bolt.heart"])
+        XCTAssertEqual(controls.buttonStates.suffix(2).map(\.label), ["Remove favorite", "Super like"])
+
+        controls.activate(.superLike)
+        XCTAssertTrue(context.library.isSuperLiked(track))
         controls.activate(.favorite)
-        XCTAssertFalse(context.library.isFavorite(old))
-        XCTAssertFalse(context.library.isFavorite(new))
-        XCTAssertEqual(context.player.currentTrack, new)
+        XCTAssertFalse(context.library.isFavorite(track), "Unliking a super liked song removes both tiers")
+        XCTAssertFalse(context.library.isSuperLiked(track))
+        let removed = LibraryStore(directory: context.directory)
+        XCTAssertTrue(removed.favorites.isEmpty)
+        XCTAssertTrue(removed.superLikedIDs.isEmpty)
+        XCTAssertFalse(controls.buttons[2].isSelected)
+        XCTAssertFalse(controls.buttons[3].isSelected)
+        XCTAssertEqual(controls.buttonStates.suffix(2).map(\.symbol), ["heart", "bolt.heart"])
+        XCTAssertFalse(context.player.isPlaying)
         XCTAssertEqual(interface.operations, [.root])
+    }
+
+    func testAnOldTrackControlCannotMutateANewerPhoneSelection() throws {
+        for control in [CarPlayNowPlayingControls.Control.favorite, .superLike] {
+            let old = libraryTestTrack("carplay-control-old")
+            let new = libraryTestTrack("carplay-control-new")
+            let context = try makeContext(snapshot: PlaybackSnapshot(queue: [old]))
+            let interface = CarPlayTestInterface()
+            let session = makeSession(context: context, interface: interface)
+            let controls = try XCTUnwrap(session.nowPlayingControls)
+            context.model.play(new)
+            controls.activate(control)
+            XCTAssertFalse(context.library.isFavorite(old), "\(control)")
+            XCTAssertFalse(context.library.isFavorite(new), "\(control)")
+            XCTAssertTrue(context.library.superLikedIDs.isEmpty, "\(control)")
+            XCTAssertEqual(context.player.currentTrack, new)
+            XCTAssertEqual(interface.operations, [.root])
+            session.disconnect()
+        }
     }
 
     func testADelayedControlDoesNotUndoANewerPhoneRepeatChoice() throws {
@@ -245,7 +296,7 @@ final class CarPlaySessionTests: CarPlayTestCase {
         try await AppModelFixtures.eventually { (interface.topTemplate as? CPListTemplate)?.title == "Playback" }
         let error = try XCTUnwrap(interface.topTemplate as? CPListTemplate)
         XCTAssertEqual(context.player.errorMessage, "Fixture playback failed")
-        XCTAssertEqual(rows(error).first?.detailText, "Playback couldn’t continue. Open Breezy on your iPhone to try again.")
+        XCTAssertEqual(rows(error).first?.detailText, "Playback couldn’t continue. Open Velvet Thorn on your iPhone to try again.")
         try select(try retryRow(error))
         XCTAssertTrue(interface.topTemplate === CPNowPlayingTemplate.shared)
         XCTAssertTrue(context.player.isLoading)
@@ -272,7 +323,7 @@ final class CarPlaySessionTests: CarPlayTestCase {
 
         try await AppModelFixtures.eventually { (interface.topTemplate as? CPListTemplate)?.title == "Playback" }
         let error = try XCTUnwrap(interface.topTemplate as? CPListTemplate)
-        XCTAssertEqual(rows(error).first?.detailText, "Playback couldn’t continue. Open Breezy on your iPhone to try again.")
+        XCTAssertEqual(rows(error).first?.detailText, "Playback couldn’t continue. Open Velvet Thorn on your iPhone to try again.")
         XCTAssertEqual(context.player.errorMessage, "Genuine playback failure")
         XCTAssertTrue(context.library.requiresReload)
         let retry = try retryRow(error)
@@ -303,7 +354,7 @@ final class CarPlaySessionTests: CarPlayTestCase {
 
         let completion = try select(oldRow)
         XCTAssertEqual(rows(favorites).first?.text, "Library needs attention")
-        XCTAssertEqual(rows(favorites).first?.detailText, "Your library change couldn’t be saved. Open Breezy on your iPhone to try again.")
+        XCTAssertEqual(rows(favorites).first?.detailText, "Your library change couldn’t be saved. Open Velvet Thorn on your iPhone to try again.")
         XCTAssertFalse(rows(favorites).contains { $0.text == "Retry" })
         XCTAssertEqual(favorites.trailingNavigationBarButtons.first?.title, "Reload")
         let reload = try select(try XCTUnwrap(rows(favorites).first { $0.text == "Reload" }))
@@ -412,10 +463,12 @@ final class CarPlaySessionTests: CarPlayTestCase {
         let dismissals = context.model.searchFocusDismissal
         try select(oldRow)
         oldControls.activate(.favorite)
+        oldControls.activate(.superLike)
         oldControls.nowPlayingTemplateUpNextButtonTapped(.shared)
         try interface.completeNext(success: false, message: "Late disconnected callback")
         XCTAssertEqual(context.model.searchFocusDismissal, dismissals)
         XCTAssertTrue(context.library.isFavorite(track))
+        XCTAssertFalse(context.library.isSuperLiked(track))
         XCTAssertTrue(context.player.isLoading, "CarPlay disconnect must not cancel the phone's stream resolution")
         XCTAssertNil(interface.delegate)
         interface.automaticallyCompletes = true
@@ -431,3 +484,4 @@ final class CarPlaySessionTests: CarPlayTestCase {
 private final class CarPlayTestRegistry {
     var playback: CompanionPlaybackController?
 }
+#endif

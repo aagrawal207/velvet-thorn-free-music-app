@@ -3,6 +3,8 @@ import XCTest
 
 @MainActor
 final class OpusMaintenanceTests: XCTestCase {
+    /// An ordinary first play streams the AAC without preparing Opus, so the listener-driven preparation that
+    /// maintenance can interrupt is the explicit best-quality reload.
     func testClearAndResizeLetCurrentPlaybackFallBackToAACWithoutPublishingStaleOpus() async throws {
         for operation in Maintenance.allCases {
             let gate = AppModelRequestGate<URL, OpusNativeAudio.Inspection>()
@@ -10,7 +12,7 @@ final class OpusMaintenanceTests: XCTestCase {
             let validated = CatalogTestRecorder<URL>()
             let resolver = YouTubeStreamResolver(extract: { _, _ in [] }, validate: { validated.record($0) },
                 fastExtract: { _ in OpusTestSupport.fast() }, audioCache: fixture.cache, opusEnabled: true)
-            let resolution = Task { try await resolver.resolve(track: OpusTestSupport.track, forceRefresh: false) }
+            let resolution = Task { try await resolver.refreshQuality(track: OpusTestSupport.track) }
             defer { resolution.cancel() }
             let request = try await gate.request(at: 0)
             let maintenance = Task { try await operation.perform(on: resolver) }
@@ -28,7 +30,7 @@ final class OpusMaintenanceTests: XCTestCase {
             XCTAssertEqual(usage?.bytes, 0)
             XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fixture.cache.directory.path), [])
 
-            let retry = Task { try await resolver.resolve(track: OpusTestSupport.track, forceRefresh: true) }
+            let retry = Task { try await resolver.download(OpusTestSupport.track) }
             defer { retry.cancel() }
             let next = try await gate.request(at: 1)
             try await gate.complete(next, with: .success(OpusTestSupport.inspection))
@@ -79,9 +81,10 @@ final class OpusMaintenanceTests: XCTestCase {
                 let validated = CatalogTestRecorder<URL>()
                 let resolver = YouTubeStreamResolver(extract: { _, _ in [] }, validate: { validated.record($0) },
                     fastExtract: { _ in OpusTestSupport.fast() }, audioCache: fixture.cache, opusEnabled: true)
+                // The complete download is the ordinary path that prepares Opus; a first play streams AAC instead.
                 let resolution = Task {
                     if refresh { return try await resolver.refreshQuality(track: track) }
-                    return try await resolver.resolve(track: track, forceRefresh: false)
+                    return try await resolver.download(track)
                 }
                 defer { resolution.cancel() }
                 let request = try await gate.request(at: 0)

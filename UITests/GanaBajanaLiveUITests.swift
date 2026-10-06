@@ -107,6 +107,7 @@ final class GanaBajanaLiveUITests: XCTestCase {
 
         // Crossfade is off by default; the test turns it up through the real setting.
         try ui.openSettings()
+        try ui.openSettingsPage(.playback)
         let slider = ui.app.sliders["settings.crossfade"]
         try ui.reveal(slider)
         slider.adjust(toNormalizedSliderPosition: 0.5)

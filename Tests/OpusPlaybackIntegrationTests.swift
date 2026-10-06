@@ -111,7 +111,11 @@ final class OpusPlaybackIntegrationTests: XCTestCase {
         let resolver = YouTubeStreamResolver(extract: { _, _ in [] }, validate: { _ in },
             fastExtract: { _ in OpusTestSupport.fast() }, audioCache: cache, opusEnabled: true)
         await resolver.retainCached([OpusTestSupport.track.id])
-        let prepared = try await resolver.resolve(track: OpusTestSupport.track, forceRefresh: false)
+        // The first play streams the AAC; the pipeline's complete download prepares the Opus upgrade.
+        let first = try await resolver.resolve(track: OpusTestSupport.track, forceRefresh: false)
+        XCTAssertEqual(first.url, OpusTestSupport.aacURL)
+        XCTAssertTrue(mock.state.requests.isEmpty)
+        let prepared = try await resolver.download(OpusTestSupport.track)
         XCTAssertTrue(prepared.url.isFileURL)
         XCTAssertTrue(resolver.isCachedStream(prepared))
         XCTAssertEqual(prepared.quality, OpusTestSupport.opusQuality)

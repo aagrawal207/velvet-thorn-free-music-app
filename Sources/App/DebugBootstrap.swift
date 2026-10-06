@@ -21,6 +21,7 @@ enum DebugBootstrap {
 
     static func installUITestGeometryRequests() {
         let arguments = ProcessInfo.processInfo.arguments
+        DebugCloudSyncStatusFixture.shared?.installObservers()
         guard arguments.contains("--uitesting"), arguments.contains("--ui-scene-geometry") else { return }
         for direction in ["portrait", "landscape"] {
             let name = "com.agraabhi.ganabajana.uitests.geometry.\(direction)" as CFString
@@ -81,7 +82,8 @@ enum DebugBootstrap {
         let unitTestHost = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
             && !arguments.contains("--uitesting")
         let testing = arguments.contains("--uitesting") || unitTestHost
-        let seededUITest = arguments.contains("--uitesting") && arguments.contains("--seed-ui")
+        let scrollPerformanceFixture = DebugScrollPerformanceFixture.isEnabled
+        let seededUITest = arguments.contains("--uitesting") && (arguments.contains("--seed-ui") || scrollPerformanceFixture)
         let welcomeFixture = arguments.contains("--uitesting") && !arguments.contains("--seed-ui")
             && !arguments.contains("--skip-welcome") && !arguments.contains("--play-live") && !arguments.contains("--search-results")
         let fixtures = unitTestHost || seededUITest || welcomeFixture
@@ -100,6 +102,16 @@ enum DebugBootstrap {
             FileManager.default.fileExists(atPath: $0.appendingPathComponent("library.json").path)
         } ?? false
         fixtureAudioDirectory = fixtures ? directory?.appendingPathComponent("FixtureAudio", isDirectory: true) : nil
+        if DebugR19Fixture.isEnabled, let directory {
+            return DebugR19Fixture.makeModel(directory: directory, initializingStore: !existingTestStore)
+        }
+        if DebugR18Fixture.isEnabled, let directory {
+            return DebugR18Fixture.makeModel(directory: directory, initializingStore: !existingTestStore, startsExtractor: true)
+        }
+        if DebugR17Fixture.isEnabled, let directory {
+            return DebugR17Fixture.makeModel(directory: directory, initializingStore: !existingTestStore)
+        }
+        if scrollPerformanceFixture, !existingTestStore, let directory { DebugScrollPerformanceFixture.seed(in: directory) }
         let library = LibraryStore(directory: directory)
         if arguments.contains("--skip-welcome") || unitTestHost { library.preferences.hasCompletedWelcome = true }
         if arguments.contains("--light") { library.preferences.appearance = .light }
@@ -109,11 +121,24 @@ enum DebugBootstrap {
             if seededUITest, !existingTestStore, arguments.contains("--listening-languages-unknown") {
                 library.setRecordingLanguageOverride("und", for: "xTvyyoF_LZY")
             }
+            if seededUITest, !existingTestStore, arguments.contains("--recap-history-fixture") {
+                DebugMusicFixtures.seedPreviousPeriodListening(library)
+            }
+            if seededUITest, !existingTestStore, arguments.contains("--daily-mixes-fixture") {
+                DebugMusicFixtures.seedDailyMixes(library)
+            }
+            if seededUITest, !existingTestStore, arguments.contains("--library-organisation-fixture") {
+                DebugMusicFixtures.seedLibraryOrganisation(library)
+            }
+            if seededUITest, !existingTestStore, arguments.contains("--recap-long-names-fixture") {
+                DebugMusicFixtures.seedLongRecapNames(library)
+            }
             let connectivity = ConnectivityMonitor(initialStatus: seededUITest && arguments.contains("--offline-fixture") ? .offline : .online,
                                                    monitorsSystem: false)
             let cachedResolver = directory.flatMap {
                 DebugCachedAudioFixture.makeResolver(directory: $0, initializingStore: !existingTestStore,
-                                                     connectivity: connectivity, arguments: arguments)
+                                                     connectivity: connectivity,
+                                                     arguments: arguments + (scrollPerformanceFixture ? ["--seed-ui", "--cache-fixture"] : []))
             }
             if cachedResolver != nil, !existingTestStore {
                 var preferences = library.preferences
@@ -128,6 +153,8 @@ enum DebugBootstrap {
             let resolver: any StreamResolving
             if let cachedResolver {
                 resolver = cachedResolver
+            } else if seededUITest, arguments.contains("--fast-start-fixture") {
+                resolver = DebugFastStartAudioResolver()
             } else if arguments.contains("--fail-audio-once") {
                 resolver = DebugFailOnceAudioResolver(delay: arguments.contains("--slow-audio") ? .seconds(4) : .milliseconds(300))
             } else {
@@ -158,17 +185,45 @@ enum DebugBootstrap {
                 catalog = provider
                 lyrics = provider
             }
+            if seededUITest, arguments.contains("--seed-radio-fixture") {
+                catalog = DebugSeedRadioCatalog(base: catalog, arguments: arguments)
+            }
             if seededUITest, arguments.contains("--slow-search") || arguments.contains("--fail-search-once") {
                 catalog = DebugSearchFixtureCatalog(base: catalog,
                     control: DebugSearchControl(delay: arguments.contains("--slow-search") ? .seconds(1) : .zero,
                                                 failOnce: arguments.contains("--fail-search-once")))
             }
+            var fixtureSources: [MusicSource: any MusicCatalogProviding] = [:]
+            if seededUITest, arguments.contains("--saavn-fixture") { fixtureSources[.jioSaavn] = DebugSaavnFixtureCatalog() }
+            if seededUITest, arguments.contains("--gaana-fixture") { fixtureSources[.gaana] = DebugGaanaFixtureCatalog() }
+            if !fixtureSources.isEmpty {
+                catalog = CompositeCatalog(youTube: catalog, secondary: fixtureSources,
+                                           enabledSources: library.preferences.enabledCatalogSources)
+            }
             // Fixtures never touch the device keychain, so UI runs start signed out and leave nothing behind.
-            let model = MusicAppModel(library: library, player: PlayerController(resolver: resolver),
+            let player = PlayerController(resolver: resolver)
+            if seededUITest, arguments.contains("--sponsorblock-fixture") { player.sponsorBlockProvider = DebugSponsorBlockFixture() }
+            let importFixture = seededUITest && arguments.contains("--youtube-import-fixture")
+            let account = YouTubeAccountStore(secrets: MemorySecretStore(initial: importFixture ? DebugYouTubeImportFixtureClient.sessionSecrets() : [:]),
+                                              registry: YouTubeSessionRegistry())
+            let youTubeImport = directory.map { directory in
+                DebugYouTubeImportFixtureClient.makeImporter(library: library, account: account, directory: directory,
+                                                             fixture: importFixture, seedLedger: importFixture && !existingTestStore)
+            }
+            let model = MusicAppModel(library: library, player: player,
                                       catalog: catalog, charts: DebugMusicFixtures(), lyrics: lyrics,
-                                      account: YouTubeAccountStore(secrets: MemorySecretStore(), registry: YouTubeSessionRegistry()),
-                                      recordingLanguageService: ArtistSpotlightLanguageService(provider: lyrics), connectivity: connectivity,
-                                      generatesMixes: !libraryRecoveryFixture && !DebugWidgetSupport.isEnabled)
+                                      account: account,
+                                      recordingLanguageService: ArtistSpotlightLanguageService(provider: lyrics),
+                                      songDetails: DebugTrackDetailsFixture.store(connectivity: connectivity),
+                                      genreEvidence: DebugGenreFixture.store(seeded: seededUITest && arguments.contains("--genre-fixture")),
+                                      connectivity: connectivity,
+                                      downloads: directory.flatMap { DebugCachedAudioFixture.makeDownloadCenter(directory: $0, connectivity: connectivity) },
+                                      youTubeImport: youTubeImport,
+                                      seedRadioCatalog: arguments.contains("--seed-radio-fixture")
+                                        ? DebugSeedRadioCatalog(base: DebugMusicFixtures(), arguments: arguments, handlesRadio: true) : nil,
+                                      generatesMixes: !libraryRecoveryFixture && !DebugWidgetSupport.isEnabled
+                                        && !arguments.contains("--seed-radio-fixture"),
+                                      asynchronousListeningCheckpoints: scrollPerformanceFixture)
             DebugCachedAudioFixture.attach(to: model)
             if libraryRecoveryFixture, !existingTestStore, let directory {
                 // The second writer changes storage after the live player has restored its own selection.
@@ -194,11 +249,25 @@ enum DebugBootstrap {
 
     static func performLaunchAction(_ model: MusicAppModel) async {
         let arguments = ProcessInfo.processInfo.arguments
+        if DebugR19Fixture.isEnabled {
+            await DebugR19Fixture.prepare(model)
+            return
+        }
+        if DebugR18Fixture.isEnabled {
+            await DebugR18Fixture.prepare(model)
+            return
+        }
+        if DebugR17Fixture.isEnabled, let resolver = model.player.resolver as? DebugR17AudioResolver {
+            do { try await resolver.prepare() }
+            catch { model.showToast("R17 fixture audio could not be prepared: \(error.localizedDescription)") }
+            return
+        }
         if DebugWidgetSupport.previewsWidget { model.isWidgetPreviewPresented = true }
         if DebugCachedAudioFixture.isActive {
             await DebugCachedAudioFixture.prepare()
             if let error = DebugCachedAudioFixture.setupError { model.showToast(error); return }
         }
+        DebugScrollPerformanceFixture.install(on: model)
         if arguments.contains("--uitesting"), arguments.contains("--seed-ui"), let index = arguments.firstIndex(of: "--search-results"),
            arguments.indices.contains(index + 1) {
             model.openSearch(arguments[index + 1])
@@ -210,9 +279,64 @@ enum DebugBootstrap {
                     model.isPlayerPresented = true
                 }
             } catch { model.showToast(error.localizedDescription) }
+        } else if arguments.contains("--uitesting"), arguments.contains("--seed-ui"), arguments.contains("--open-following-fixture") {
+            // Stands in for Settings > Following until that row exists; Home shows first so the tab switch is real.
+            try? await Task.sleep(for: .seconds(2))
+            model.openFollowingInLibrary()
         } else if arguments.contains("--uitesting"), arguments.contains("--seed-ui"), arguments.contains("--player") {
             model.player.restore(PlaybackSnapshot(queue: DebugMusicFixtures.tracks, currentIndex: 0, position: 32))
             model.isPlayerPresented = true
+        }
+    }
+}
+
+/// Stands in for `ICloudLibrarySync` in the Settings summary (`--icloud-status-fixture`) and replays one sync cycle
+/// on request, so a UI test can prove the status slot changes without moving the section around it.
+@MainActor @Observable
+final class DebugCloudSyncStatusFixture: CloudSyncStatusReporting {
+    static let shared: DebugCloudSyncStatusFixture? = {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--uitesting"), arguments.contains("--icloud-status-fixture") else { return nil }
+        return DebugCloudSyncStatusFixture()
+    }()
+
+    static let cycleNotification = "com.agraabhi.ganabajana.uitests.icloud.cycle"
+    /// Short-lived states stay under the 700 ms hold; Reading lasts long enough to be shown.
+    static let cycle: [(text: String, syncing: Bool, hold: Duration)] = [
+        ("Checking iCloud Drive…", true, .milliseconds(120)),
+        ("Reading your iCloud library…", true, .milliseconds(1_600)),
+        ("Saving your library to iCloud Drive…", true, .milliseconds(120)),
+        ("Handed to iCloud. Other devices may update later.", false, .zero),
+    ]
+
+    private(set) var isEnabled = true
+    private(set) var isSyncing = false
+    private(set) var statusText = "Waiting to sync with iCloud"
+    private(set) var errorMessage: String?
+    /// Visible status changes the Settings footer rendered; the slot reports it as part of its accessibility value.
+    var displayedTransitions = 0
+    @ObservationIgnored private var script: Task<Void, Never>?
+    @ObservationIgnored private var observing = false
+
+    func installObservers() {
+        guard !observing else { return }
+        observing = true
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, _, _, _ in
+            Task { @MainActor in DebugCloudSyncStatusFixture.shared?.runCycle() }
+        }, Self.cycleNotification as CFString, nil, .deliverImmediately)
+    }
+
+    func runCycle() {
+        script?.cancel()
+        script = Task { @MainActor [weak self] in
+            for step in Self.cycle {
+                guard let self, !Task.isCancelled else { return }
+                isSyncing = step.syncing
+                statusText = step.text
+                if step.hold > .zero {
+                    do { try await Task.sleep(for: step.hold) } catch { return }
+                }
+            }
         }
     }
 }
@@ -390,6 +514,8 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
         }
         let tracks = Self.tracks.filter { ($0.title + " " + $0.artistName).localizedCaseInsensitiveContains(query) }
         if filter == .songs { return CatalogPage(tracks: tracks) }
+        // Station style queries find no fixture playlist: the library album's songs must not join a station's pool.
+        if Self.styleQuery(matching: query) != nil { return CatalogPage() }
         let kind: CollectionKind = switch filter { case .artists: .artist; case .playlists: .playlist; default: .album }
         // Like the provider, search collections carry no songs; the page fetches them and the album's credits.
         return CatalogPage(collections: [MusicCollection(id: Self.albumID, title: "Evening favorites",
@@ -511,6 +637,74 @@ struct DebugMusicFixtures: MusicCatalogProviding, MusicChartsProviding, LyricsPr
         let id = library.createPlaylist(name: "Late night favorites")
         tracks.forEach { library.add($0, to: id) }
     }
+
+    /// Current-period Discover Weekly and Daily Mix 1 to 3 with disjoint synthetic songs, so Home needs no generation.
+    @MainActor static func seedDailyMixes(_ library: LibraryStore) {
+        let now = Date()
+        let day = RecommendationEngine.dayKey(for: now, calendar: .autoupdatingCurrent)
+        let week = RecommendationEngine.weekKey(for: now, calendar: .autoupdatingCurrent)
+        let artwork = DebugArtworkURLProtocol.url("album")
+        func songs(_ prefix: String, _ artists: [String], language: MusicLanguage?) -> [Track] {
+            (1...10).map { index in
+                Track(id: "fixture.mix.\(prefix).\(index)", title: "\(prefix.capitalized) fixture song \(index)",
+                      credits: [ArtistCredit(name: artists[(index - 1) % artists.count])], duration: 200 + Double(index),
+                      artworkURL: artwork, language: language, isAudioRecording: true)
+            }
+        }
+        library.saveMix(GeneratedPlaylist(kind: .discoverWeekly, tracks: songs("weekly", ["Fixture Weekly Artist"], language: .english),
+                                          generatedAt: now, periodKey: week, seedArtists: ["Arijit Singh"]))
+        library.saveDailyMixes([
+            GeneratedPlaylist(kind: .dailyMix, tracks: songs("bollywood", ["Arijit Singh", "Alka Yagnik", "Pritam"], language: .hindi),
+                              generatedAt: now, periodKey: day, seedArtists: ["Arijit Singh", "Alka Yagnik"],
+                              focus: "Arijit Singh, Alka Yagnik and more"),
+            GeneratedPlaylist(kind: .dailyMix2, tracks: songs("hiphop", ["Fixture Rapper", "Fixture MC"], language: .english),
+                              generatedAt: now, periodKey: day, seedArtists: ["Fixture Rapper"], focus: "Hip hop"),
+            GeneratedPlaylist(kind: .dailyMix3, tracks: songs("tamil", ["Fixture Tamil Composer", "Fixture Tamil Singer"], language: nil),
+                              generatedAt: now, periodKey: day, seedArtists: ["Fixture Tamil Composer"],
+                              focus: "Fixture Tamil Composer and Fixture Tamil Singer"),
+        ])
+    }
+
+    /// Sessions 8 to 13 days back give the week recap a previous period to compare with; the week total stays 89 min.
+    @MainActor static func seedPreviousPeriodListening(_ library: LibraryStore) {
+        for (index, track) in tracks.prefix(2).enumerated() {
+            for day in 8..<(11 + index) {
+                _ = library.recordListening(track: track, sessionID: UUID(),
+                                            startedAt: Date().addingTimeInterval(-Double(day) * 86_400 - 900),
+                                            seconds: track.duration ?? 200)
+            }
+        }
+    }
+
+    /// Enough playlists to push Following below the first screen, plus three followed artists (`--library-organisation-fixture`).
+    @MainActor static func seedLibraryOrganisation(_ library: LibraryStore) {
+        for index in 1...7 {
+            let id = library.createPlaylist(name: "Fixture playlist \(index)")
+            tracks.prefix(index % 5 + 1).forEach { library.add($0, to: id) }
+        }
+        for credit in [arijitSingh, theWeeknd, edSheeran] {
+            guard let id = credit.id else { continue }
+            library.follow(FollowedArtist(id: id, name: credit.name))
+        }
+    }
+
+    /// Three songs with the longest names the share card must fit, listened to more than the default seed.
+    @MainActor static func seedLongRecapNames(_ library: LibraryStore) {
+        let artist = ArtistCredit(name: "Shankar Ehsaan Loy featuring Shreya Ghoshal and Sonu Nigam", id: "UCfixtureLongArtist00001")
+        let titles = ["Kabhi Alvida Naa Kehna (Extended Film Version with Reprise and Instrumental)",
+                      "Mitwa Tu Hi Hai Mera (Unplugged Acoustic Session, Live at the Studio)",
+                      "Where the Rivers Meet the Monsoon Sky at the Edge of the Western Ghats"]
+        for (index, title) in titles.enumerated() {
+            let track = Track(id: "LongName00\(index + 1)", title: title, credits: [artist, arijitSingh],
+                              albumTitle: "A Very Long Soundtrack Album Title for Layout Checks", duration: 720,
+                              language: .hindi, isAudioRecording: true)
+            for session in 0..<(index == 0 ? 4 : 3) {
+                _ = library.recordListening(track: track, sessionID: UUID(),
+                                            startedAt: Date().addingTimeInterval(-Double(session) * 86_400 - 1_800),
+                                            seconds: 700)
+            }
+        }
+    }
 }
 
 private actor DebugSearchControl {
@@ -592,6 +786,120 @@ actor DebugFailOnceAudioResolver: StreamResolving {
             throw MusicServiceError.unavailable("Synthetic audio connection failure")
         }
         return try await DebugMusicFixtures().resolve(track: track, forceRefresh: forceRefresh)
+    }
+}
+
+/// Answers SponsorBlock lookups locally: the first fixture song carries one talk section at 3 to 8 s.
+struct DebugSponsorBlockFixture: SponsorBlockSegmentProviding {
+    static let segment = SponsorBlockSegment(start: 3, end: 8, category: .musicOfftopic)
+
+    func segments(forVideoID videoID: String, duration: TimeInterval?) async throws -> [SponsorBlockSegment] {
+        try await Task.sleep(for: .milliseconds(150))
+        return videoID == DebugMusicFixtures.tracks[0].id ? [Self.segment] : []
+    }
+}
+
+/// `--youtube-import-fixture`: a fixture sign-in plus canned account pages, so the import flow runs without Google.
+/// The remote "Late night favorites" is already mapped in the ledger to the seeded local playlist of that name.
+struct DebugYouTubeImportFixtureClient: YouTubeAccountLibraryProviding {
+    static let remoteLateNightID = "VLPLfixtureLateNightFavourites"
+    static let remoteRoadTripID = "VLPLfixtureRoadTrip"
+    static let likedSongs = [
+        Track(id: "ImportLike1", title: "Channa Mereya", credits: [DebugMusicFixtures.arijitSingh], albumTitle: "Ae Dil Hai Mushkil",
+              duration: 289, language: .hindi, isAudioRecording: true),
+        Track(id: "ImportLike2", title: "Raabta", credits: [DebugMusicFixtures.arijitSingh], albumTitle: "Agent Vinod",
+              duration: 240, language: .hindi, isAudioRecording: true),
+        // A liked music video stays a video entry, as playlist pages keep them.
+        Track(id: "ImportLike3", title: "Save Your Tears", credits: [DebugMusicFixtures.theWeeknd], albumTitle: "After Hours",
+              duration: 215, language: .english, isAudioRecording: false),
+    ]
+    static let roadTrip = [
+        Track(id: "ImportRoad1", title: "Ilahi", credits: [ArtistCredit(name: "Arijit Singh", id: DebugMusicFixtures.arijitSingh.id)],
+              albumTitle: "Yeh Jawaani Hai Deewani", duration: 227, language: .hindi, isAudioRecording: true),
+        Track(id: "ImportRoad2", title: "Perfect", credits: [DebugMusicFixtures.edSheeran], albumTitle: "Divide",
+              duration: 263, language: .english, isAudioRecording: true),
+    ]
+    static let artists = [
+        MusicCollection(id: "UCfixturePritamImport001", title: "Pritam", subtitle: "1.2M subscribers", kind: .artist),
+        MusicCollection(id: "UCfixtureDuaLipaImport01", title: "Dua Lipa", subtitle: "45M subscribers", kind: .artist),
+    ]
+    /// Five rows, newest first, with one repeat: four unique songs reach the history playlist.
+    static var history: [Track] {
+        [likedSongs[0], DebugMusicFixtures.tracks[0], likedSongs[1], DebugMusicFixtures.tracks[3], likedSongs[0]]
+    }
+
+    @MainActor static func sessionSecrets() -> [String: Data] {
+        let session = YouTubeAccountSession(cookies: [
+            StoredCookie(name: "SAPISID", value: "fixture-sapisid", domain: ".youtube.com"),
+            StoredCookie(name: "SID", value: "fixture-sid", domain: ".youtube.com"),
+        ], signedInAt: Date().addingTimeInterval(-3_600))
+        return (try? JSONEncoder().encode(session)).map { [YouTubeAccountStore.secretKey: $0] } ?? [:]
+    }
+
+    @MainActor static func makeImporter(library: LibraryStore, account: YouTubeAccountStore, directory: URL,
+                                        fixture: Bool, seedLedger: Bool) -> YouTubeLibraryImporter {
+        let store = YouTubeImportLedgerStore(url: directory.appendingPathComponent(YouTubeImportLedgerStore.fileName))
+        if seedLedger, let local = library.playlists.first(where: { $0.name == "Late night favorites" }) {
+            var ledger = YouTubeImportLedger()
+            ledger.playlists[remoteLateNightID] = local.id
+            try? store.save(ledger)
+        }
+        let client: any YouTubeAccountLibraryProviding = fixture ? DebugYouTubeImportFixtureClient() : YouTubeAccountLibraryClient()
+        return YouTubeLibraryImporter(library: library, account: account, client: client, ledgerStore: store)
+    }
+
+    func likedSongs(continuation: String?) async throws -> YouTubeLibraryPage<Track> {
+        try await Task.sleep(for: .milliseconds(150))
+        return YouTubeLibraryPage(items: Self.likedSongs)
+    }
+
+    func playlists(continuation: String?) async throws -> YouTubeLibraryPage<MusicCollection> {
+        try await Task.sleep(for: .milliseconds(150))
+        return YouTubeLibraryPage(items: [
+            MusicCollection(id: Self.remoteLateNightID, title: "Late night favorites", subtitle: "5 songs", kind: .playlist),
+            MusicCollection(id: Self.remoteRoadTripID, title: "Road trip", subtitle: "2 songs", kind: .playlist),
+        ])
+    }
+
+    func playlistTracks(id: String, continuation: String?) async throws -> YouTubeLibraryPage<Track> {
+        try await Task.sleep(for: .milliseconds(150))
+        return YouTubeLibraryPage(items: id == Self.remoteRoadTripID ? Self.roadTrip : DebugMusicFixtures.tracks)
+    }
+
+    func subscribedArtists(continuation: String?) async throws -> YouTubeLibraryPage<MusicCollection> {
+        try await Task.sleep(for: .milliseconds(150))
+        return YouTubeLibraryPage(items: Self.artists)
+    }
+
+    func history(continuation: String?) async throws -> YouTubeLibraryPage<Track> {
+        try await Task.sleep(for: .milliseconds(150))
+        return YouTubeLibraryPage(items: Self.history)
+    }
+}
+
+/// Network-free genre evidence for fixture launches. Without the marker the store stays empty, so every existing
+/// fixture flow keeps its default radio order, recap layout and details rows.
+@MainActor
+enum DebugGenreFixture {
+    static let bollywoodTrackID = "fsiPzT50ZiM"
+    static let hipHopTrackID = "J7p4bzqLvCw"
+
+    static func store(seeded: Bool) -> GenreEvidenceStore {
+        let store = GenreEvidenceStore(url: nil)
+        guard seeded else { return store }
+        for track in DebugMusicFixtures.tracks {
+            switch track.id {
+            case bollywoodTrackID:
+                store.record(GenreDistribution(shares: [GenreShare(family: .bollywood, share: 1)], source: .recording),
+                             for: LyricsRequestKey(track))
+            case hipHopTrackID:
+                store.record(GenreDistribution(shares: [GenreShare(family: .hipHop, share: 1)], source: .artist),
+                             for: LyricsRequestKey(track))
+            default:
+                break
+            }
+        }
+        return store
     }
 }
 #endif

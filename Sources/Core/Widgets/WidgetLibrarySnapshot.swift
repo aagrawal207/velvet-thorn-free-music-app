@@ -7,7 +7,8 @@ struct WidgetLibrarySnapshot: Codable, Equatable, Sendable {
 
     static let currentVersion = 1
     static let maximumTracksPerList = 6
-    static let maximumMixes = 2
+    /// Discover Weekly plus Daily Mix 1 to 3.
+    static let maximumMixes = 4
     static let maximumIdentifierBytes = 256
     static let maximumTextBytes = 384
     static let maximumCreditNameBytes = 192

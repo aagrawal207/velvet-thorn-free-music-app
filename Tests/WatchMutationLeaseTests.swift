@@ -36,16 +36,20 @@ final class WatchMutationLeaseTests: XCTestCase {
         client.start()
         let displayed = WatchTestSupport.snapshot()
         let staleLease = CompanionExecutionLease(id: UUID(), sessionID: displayed.sessionID)
-        for action in [CompanionAction.setFavorite(true), .setShuffle(true)] {
+        for action in [CompanionAction.setFavorite(true), .setShuffle(true), .setSuperLiked(true)] {
             let request = CompanionRequest(action: action, expectedTrackID: displayed.nowPlaying?.trackID, executionLease: staleLease)
             _ = try await client.request(request, displayed: displayed)
         }
-        XCTAssertEqual(transport.requests.map(\.action), [.snapshot, .setFavorite(true), .snapshot, .setShuffle(true)])
+        XCTAssertEqual(transport.requests.map(\.action),
+                       [.snapshot, .setFavorite(true), .snapshot, .setShuffle(true), .snapshot, .setSuperLiked(true)])
         let firstLease = try XCTUnwrap(transport.requests[1].executionLease)
         let secondLease = try XCTUnwrap(transport.requests[3].executionLease)
+        let thirdLease = try XCTUnwrap(transport.requests[5].executionLease)
         XCTAssertNotEqual(firstLease.id, staleLease.id)
         XCTAssertNotEqual(secondLease.id, staleLease.id)
-        XCTAssertNotEqual(firstLease.id, secondLease.id)
+        XCTAssertNotEqual(thirdLease.id, staleLease.id)
+        XCTAssertEqual(Set([firstLease.id, secondLease.id, thirdLease.id]).count, 3)
+        XCTAssertTrue(transport.requests.allSatisfy { $0.version == CompanionWire.version })
     }
 
     func testMissingLeaseStopsBeforeMutation() async throws {
@@ -86,14 +90,21 @@ final class WatchMutationLeaseTests: XCTestCase {
 
     func testPreflightValidatesDisplayedControlValues() async throws {
         let displayed = WatchTestSupport.snapshot(playing: false)
-        let changes: [(CompanionAction, CompanionSnapshot)] = [
-            (.play, WatchTestSupport.snapshot(sequence: 2, playing: true)),
-            (.pause, WatchTestSupport.snapshot(sequence: 2, playing: false, loading: true)),
-            (.setFavorite(true), WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true)),
-            (.setShuffle(true), WatchTestSupport.snapshot(sequence: 2, playing: false, shuffle: true)),
-            (.setRepeatMode(.all), WatchTestSupport.snapshot(sequence: 2, playing: false, repeatMode: .one))
+        let liked = WatchTestSupport.snapshot(playing: false, favorite: true)
+        let superLiked = WatchTestSupport.snapshot(playing: false, favorite: true, superLiked: true)
+        let changes: [(CompanionAction, CompanionSnapshot, CompanionSnapshot)] = [
+            (.play, displayed, WatchTestSupport.snapshot(sequence: 2, playing: true)),
+            (.pause, displayed, WatchTestSupport.snapshot(sequence: 2, playing: false, loading: true)),
+            (.setFavorite(true), displayed, WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true)),
+            (.setShuffle(true), displayed, WatchTestSupport.snapshot(sequence: 2, playing: false, shuffle: true)),
+            (.setRepeatMode(.all), displayed, WatchTestSupport.snapshot(sequence: 2, playing: false, repeatMode: .one)),
+            (.setSuperLiked(true), displayed, WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true, superLiked: true)),
+            (.setSuperLiked(true), liked, WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true, superLiked: true)),
+            (.setFavorite(false), liked, WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true, superLiked: true)),
+            (.setSuperLiked(false), superLiked, WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true)),
+            (.setFavorite(false), superLiked, WatchTestSupport.snapshot(sequence: 2, playing: false)),
         ]
-        for (action, current) in changes {
+        for (action, displayed, current) in changes {
             let transport = WatchTestTransport()
             transport.automaticResponse = { WatchTestSupport.response(for: $0, snapshot: current) }
             let client = WatchRequestClient(transport: transport)
@@ -101,8 +112,8 @@ final class WatchMutationLeaseTests: XCTestCase {
             do {
                 _ = try await client.request(.init(action: action, expectedTrackID: displayed.nowPlaying?.trackID), displayed: displayed)
                 XCTFail("Expected displayed-value rejection for \(action)")
-            } catch { XCTAssertEqual(error as? WatchRequestError, .staleContext) }
-            XCTAssertEqual(transport.requests.map(\.action), [.snapshot])
+            } catch { XCTAssertEqual(error as? WatchRequestError, .staleContext, "\(action)") }
+            XCTAssertEqual(transport.requests.map(\.action), [.snapshot], "\(action)")
         }
     }
 

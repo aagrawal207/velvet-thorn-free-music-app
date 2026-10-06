@@ -14,10 +14,12 @@ settings:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    # Mac Catalyst 18 runs on macOS 15; test bundles otherwise default to the SDK's macOS version.
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
     DEVELOPMENT_TEAM: W2NS9DM63G
     CODE_SIGN_STYLE: Automatic
     MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "6"
+    CURRENT_PROJECT_VERSION: "11"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 packages:
   YouTubeKit:
@@ -67,6 +69,19 @@ schemes:
         - GanaBajanaUITests
     archive:
       config: Release
+  GanaBajanaMac:
+    build:
+      targets:
+        GanaBajana: all
+    run:
+      config: Debug
+      storeKitConfiguration: Resources/TipJar.storekit
+    test:
+      config: Debug
+      targets:
+        - GanaBajanaTests
+    archive:
+      config: Release
   GanaBajanaLive:
     build:
       targets:
@@ -105,15 +120,19 @@ targets:
       - target: GanaBajanaWatch
         embed: true
         link: false
+        platformFilter: iOS
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.agraabhi.ganabajana
-        TARGETED_DEVICE_FAMILY: "1,2"
-        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
+        TARGETED_DEVICE_FAMILY: "1,2,6"
+        SUPPORTS_MACCATALYST: YES
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Signing/MacCatalyst.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
-        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-Beat AppIcon-Notes AppIcon-Boombox AppIcon-Speaker AppIcon-Waves AppIcon-Thorn AppIcon-Sonnet"
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIcon-Beat AppIcon-LeafPaper AppIcon-LeafSky AppIcon-LeafBlossom AppIcon-LeafMidnight AppIcon-LeafViolet AppIcon-LeafSunset AppIcon-LeafMono AppIcon-Thorn AppIcon-Sonnet AppIcon-ThornEdge AppIcon-ThornFrost AppIcon-ThornNoir AppIcon-ThornVenom AppIcon-ThornDusk AppIcon-ThornBlush AppIcon-Notes AppIcon-Boombox AppIcon-Speaker AppIcon-Waves"
         ENABLE_DEBUG_DYLIB: NO
         CODE_SIGN_ENTITLEMENTS: Signing/iCloud.entitlements
       configs:
@@ -127,16 +146,24 @@ targets:
     info:
       path: build/GanaBajana-Info.plist
       properties:
-        CFBundleDisplayName: Breezy
+        CFBundleDisplayName: Velvet Thorn
         MusicBrainzContactURL: https://gist.github.com/aagrawal207/95acc71ba167fb754c435de17d256e59#file-support-md
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
         UIBackgroundModes: [audio, fetch]
-        BGTaskSchedulerPermittedIdentifiers: [com.agraabhi.ganabajana.releases]
+        NSMotionUsageDescription: "Velvet Thorn can use motion activity to recognize active listening for moment mixes. This is optional and stays on this device."
+        BGTaskSchedulerPermittedIdentifiers: [com.agraabhi.ganabajana.releases, com.agraabhi.ganabajana.mixes]
+        NSUserActivityTypes: [com.agraabhi.ganabajana.playback]
+        NSBonjourServices: [_ganabajana._tcp]
+        NSLocalNetworkUsageDescription: "Velvet Thorn uses your local network to find your other devices, show what they are playing, and move playback between them."
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
           UISceneConfigurations:
+            UIWindowSceneSessionRoleExternalDisplayNonInteractive:
+              - UISceneConfigurationName: TV Lyrics
+                UISceneClassName: UIWindowScene
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).TVLyricsSceneDelegate
             CPTemplateApplicationSceneSessionRoleApplication:
               - UISceneConfigurationName: CarPlay
                 UISceneClassName: CPTemplateApplicationScene
@@ -172,15 +199,18 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.agraabhi.ganabajana.widgets
-        TARGETED_DEVICE_FAMILY: "1,2"
+        TARGETED_DEVICE_FAMILY: "1,2,6"
         APPLICATION_EXTENSION_API_ONLY: YES
         CODE_SIGN_ENTITLEMENTS: Signing/Widgets.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": Signing/WidgetsMac.entitlements
         SKIP_INSTALL: YES
-        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
+        SUPPORTS_MACCATALYST: YES
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
     info:
       path: build/BreezyWidgets-Info.plist
       properties:
-        CFBundleDisplayName: Breezy
+        CFBundleDisplayName: Velvet Thorn
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -202,7 +232,7 @@ targets:
     info:
       path: build/GanaBajanaWatch-Info.plist
       properties:
-        CFBundleDisplayName: Breezy
+        CFBundleDisplayName: Velvet Thorn
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         WKApplication: true
@@ -250,6 +280,8 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: true
         PRODUCT_BUNDLE_IDENTIFIER: com.agraabhi.ganabajana.tests
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
     dependencies:
       - target: GanaBajana
   GanaBajanaUITests:
@@ -257,7 +289,6 @@ targets:
     platform: iOS
     sources:
       - path: UITests
-      - path: Sources/UI/PlayerProgressTrail.swift
       - path: Resources/TipJar.storekit
         buildPhase: resources
     settings:

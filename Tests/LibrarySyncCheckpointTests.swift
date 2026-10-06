@@ -46,7 +46,8 @@ final class LibrarySyncCheckpointTests: XCTestCase {
         XCTAssertEqual(library.events.count, 10_000)
         XCTAssertEqual(library.events.first { $0.id == event.id }?.listenedSeconds, 105)
         let after = try library.cloudReplica(replicaID: LibrarySyncTestData.b).state
-        let changed = Set([LibrarySyncKey(.event, event.id.uuidString), LibrarySyncKey(.recent, event.track.id)])
+        let changed = Set([LibrarySyncKey(.event, event.id.uuidString), LibrarySyncKey(.recent, event.track.id),
+                           LibrarySyncKey(.lifetimeSession, event.id.uuidString)])
         for (key, register) in before.registers where !changed.contains(key) {
             XCTAssertEqual(after.registers[key], register)
         }
@@ -91,13 +92,15 @@ final class LibrarySyncCheckpointTests: XCTestCase {
         document.syncState = nil
         document.preferences.appearance = .light
         let file = harness.root.appendingPathComponent(LibraryPersistence.fileName)
-        try LibraryPersistence.write(LibraryPersistence.encode(document), to: file, replacing: nil)
+        let legacyBytes = try LibrarySyncTestData.legacyDocumentBytes(document)
+        try LibraryPersistence.write(legacyBytes, to: file, replacing: nil)
         var fullProjections = 0
         let library = LibraryStore(directory: harness.root, now: { LibrarySyncTestData.now }, projectSyncValues: { document in
             fullProjections += 1
             return try LibrarySyncProjection.values(document)
         })
         let event = document.events[0]
+        XCTAssertEqual(try Data(contentsOf: file), legacyBytes)
         XCTAssertTrue(library.recordListening(track: event.track, sessionID: event.id, startedAt: event.startedAt, seconds: 5))
         XCTAssertEqual(fullProjections, 1)
         XCTAssertTrue(library.recordListening(track: event.track, sessionID: event.id, startedAt: event.startedAt, seconds: 7))
@@ -186,9 +189,194 @@ final class LibrarySyncCheckpointTests: XCTestCase {
         try FileManager.default.moveItem(at: backup, to: file)
         XCTAssertTrue(library.recordListening(track: event.track, sessionID: event.id, startedAt: event.startedAt, seconds: 7))
         let after = try library.cloudReplica(replicaID: LibrarySyncTestData.b).state
-        XCTAssertEqual(after.clock?.counter, try XCTUnwrap(document.syncState?.clock).counter + 1)
+        XCTAssertEqual(after.clock?.counter, try XCTUnwrap(document.syncState?.clock).counter + 2)
         XCTAssertEqual(library.events.first?.listenedSeconds, 37)
         XCTAssertEqual(try LibraryPersistence.decode(Data(contentsOf: file), now: LibrarySyncTestData.now).events.first?.listenedSeconds, 37)
+    }
+
+    func testBatchedListeningAndRecentUsesOneCommitAndOnlyThreeRegisters() throws {
+        let harness = LibrarySyncTestHarness()
+        defer { harness.remove() }
+        let document = try seededDocument(eventCount: 20)
+        let file = harness.root.appendingPathComponent(LibraryPersistence.fileName)
+        try LibraryPersistence.write(LibraryPersistence.encode(document), to: file, replacing: nil)
+        var projections = 0
+        let library = LibraryStore(directory: harness.root, now: { LibrarySyncTestData.now }, writerID: LibrarySyncTestData.b,
+                                   projectSyncValues: { document in
+            projections += 1
+            return try LibrarySyncProjection.values(document)
+        })
+        let event = document.events[10]
+        let commits = library.durableCommitCount
+        let before = try XCTUnwrap(document.syncState)
+        XCTAssertTrue(library.recordListening(track: event.track, sessionID: event.id, startedAt: event.startedAt,
+                                              seconds: 7, recentPosition: 17))
+        XCTAssertEqual(library.durableCommitCount, commits + 1)
+        XCTAssertEqual(projections, 0)
+        let saved = try LibraryPersistence.decode(Data(contentsOf: file), now: LibrarySyncTestData.now)
+        XCTAssertEqual(saved.events.first { $0.id == event.id }?.listenedSeconds, 37)
+        XCTAssertEqual(saved.recentlyPlayed.first?.position, 17)
+        XCTAssertEqual(saved.playback.position, document.playback.position)
+        let after = try XCTUnwrap(saved.syncState)
+        let expected: Set<LibrarySyncKey> = [LibrarySyncKey(.event, event.id.uuidString), LibrarySyncKey(.recent, event.track.id),
+                                           LibrarySyncKey(.lifetimeSession, event.id.uuidString)]
+        let changed = Set(before.registers.keys).union(after.registers.keys).filter { before.registers[$0] != after.registers[$0] }
+        XCTAssertEqual(Set(changed), expected)
+        XCTAssertEqual(after.clock?.counter, try XCTUnwrap(before.clock).counter + 3)
+        XCTAssertEqual(after.registers[LibrarySyncKey(.event, event.id.uuidString)]?.value,
+                       try LibrarySyncProjection.listeningValue(XCTUnwrap(saved.events.first { $0.id == event.id })))
+        XCTAssertEqual(after.registers[LibrarySyncKey(.recent, event.track.id)]?.value,
+                       try LibrarySyncProjection.recentValue(XCTUnwrap(saved.recentlyPlayed.first)))
+        XCTAssertTrue(library.recordListening(track: event.track, sessionID: event.id, startedAt: event.startedAt,
+                                              seconds: 7, recentPosition: 17))
+        let repeated = try library.cloudReplica(replicaID: LibrarySyncTestData.b).state
+        XCTAssertEqual(library.durableCommitCount, commits + 2)
+        XCTAssertEqual(library.events.first { $0.id == event.id }?.listenedSeconds, 44, "Equal deltas are distinct acknowledged time")
+        XCTAssertEqual(repeated.registers[LibrarySyncKey(.recent, event.track.id)], after.registers[LibrarySyncKey(.recent, event.track.id)])
+        XCTAssertEqual(repeated.clock?.counter, try XCTUnwrap(after.clock).counter + 2)
+        XCTAssertEqual(library.lifetimeListeningSummary.seconds, 20 * 30 + 14)
+        XCTAssertEqual(library.lifetimeListeningSummary.plays, 20)
+        XCTAssertEqual(projections, 0)
+    }
+
+    func testBatchedFailureRollsBackBothRecordsAndRetryCommitsDeltaOnce() throws {
+        let harness = LibrarySyncTestHarness()
+        defer { harness.remove() }
+        let document = try seededDocument(eventCount: 1)
+        let file = harness.root.appendingPathComponent(LibraryPersistence.fileName)
+        let bytes = try LibraryPersistence.encode(document)
+        try LibraryPersistence.write(bytes, to: file, replacing: nil)
+        let library = LibraryStore(directory: harness.root, now: { LibrarySyncTestData.now }, writerID: LibrarySyncTestData.b,
+                                   projectSyncValues: { _ in throw LibrarySyncError.invalidData("unexpected full projection") })
+        let event = document.events[0]
+        let history = library.historyRevision
+        let backup = harness.root.appendingPathComponent("backup.json")
+        try FileManager.default.moveItem(at: file, to: backup)
+        try FileManager.default.createDirectory(at: file, withIntermediateDirectories: false)
+        XCTAssertFalse(library.recordListening(track: event.track, sessionID: event.id, startedAt: event.startedAt,
+                                               seconds: 7, recentPosition: 17))
+        XCTAssertEqual(library.durableCommitCount, 0)
+        XCTAssertEqual(library.historyRevision, history)
+        XCTAssertEqual(library.events.first?.listenedSeconds, 30)
+        XCTAssertTrue(library.recentlyPlayed.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: backup), bytes)
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.moveItem(at: backup, to: file)
+        XCTAssertTrue(library.recordListening(track: event.track, sessionID: event.id, startedAt: event.startedAt,
+                                              seconds: 7, recentPosition: 17))
+        XCTAssertEqual(library.durableCommitCount, 1)
+        XCTAssertEqual(library.historyRevision, history + 1)
+        let saved = try LibraryPersistence.decode(Data(contentsOf: file), now: LibrarySyncTestData.now)
+        XCTAssertEqual(saved.events.first?.listenedSeconds, 37)
+        XCTAssertEqual(saved.recentlyPlayed.first?.position, 17)
+        XCTAssertEqual(saved.syncState?.clock?.counter, try XCTUnwrap(document.syncState?.clock).counter + 3)
+        XCTAssertEqual(saved.lifetimeListening.summary.seconds, 37)
+    }
+
+    func testBatchedInvalidRecentAndSessionMismatchRejectEntireCheckpoint() throws {
+        let harness = LibrarySyncTestHarness()
+        defer { harness.remove() }
+        let library = LibraryStore(directory: harness.root, now: { LibrarySyncTestData.now })
+        let track = libraryTestTrack("batched")
+        let session = UUID()
+        XCTAssertTrue(library.recordListening(track: track, sessionID: session, startedAt: LibrarySyncTestData.now,
+                                              seconds: 5, recentPosition: 5))
+        let commits = library.durableCommitCount
+        for position in [-1.0, Double.infinity, Double.nan] {
+            XCTAssertFalse(library.recordListening(track: track, sessionID: session, startedAt: LibrarySyncTestData.now,
+                                                   seconds: 7, recentPosition: position))
+        }
+        XCTAssertFalse(library.recordListening(track: libraryTestTrack("wrong"), sessionID: session,
+                                               startedAt: LibrarySyncTestData.now, seconds: 7, recentPosition: 17))
+        XCTAssertEqual(library.durableCommitCount, commits)
+        XCTAssertEqual(library.events.first?.listenedSeconds, 5)
+        XCTAssertEqual(library.recentlyPlayed.first?.position, 5)
+    }
+
+    func testBatchedDisabledHistoryAndZeroDeltaAreAcknowledgedWithoutWrites() throws {
+        let harness = LibrarySyncTestHarness()
+        defer { harness.remove() }
+        let library = LibraryStore(directory: harness.root, now: { LibrarySyncTestData.now })
+        let track = libraryTestTrack("batched")
+        XCTAssertTrue(library.recordListening(track: track, sessionID: UUID(), startedAt: LibrarySyncTestData.now,
+                                              seconds: 0, recentPosition: 17))
+        XCTAssertEqual(library.durableCommitCount, 0)
+        library.preferences.saveListeningHistory = false
+        let commits = library.durableCommitCount
+        XCTAssertTrue(library.recordListening(track: track, sessionID: UUID(), startedAt: LibrarySyncTestData.now,
+                                              seconds: 7, recentPosition: 17))
+        XCTAssertEqual(library.durableCommitCount, commits)
+        XCTAssertTrue(library.events.isEmpty)
+        XCTAssertTrue(library.recentlyPlayed.isEmpty)
+        XCTAssertEqual(library.historyRevision, 0)
+    }
+
+    func testBatchedLegacyBootstrapProjectsOnceAndHonorsHistoryReset() throws {
+        let harness = LibrarySyncTestHarness()
+        defer { harness.remove() }
+        var projections = 0
+        let library = LibraryStore(directory: harness.root, now: { LibrarySyncTestData.now }, writerID: LibrarySyncTestData.b,
+                                   projectSyncValues: { document in
+            projections += 1
+            return try LibrarySyncProjection.values(document)
+        })
+        let track = libraryTestTrack("batched")
+        let session = UUID()
+        XCTAssertTrue(library.recordListening(track: track, sessionID: session, startedAt: LibrarySyncTestData.now,
+                                              seconds: 7, recentPosition: 17))
+        XCTAssertEqual(projections, 1)
+        XCTAssertEqual(library.durableCommitCount, 1)
+        library.clearHistory()
+        let resetState = try library.cloudReplica(replicaID: LibrarySyncTestData.b).state
+        let reset = try XCTUnwrap(resetState.historyReset)
+        let projectionsBefore = projections
+        let commits = library.durableCommitCount
+        XCTAssertTrue(library.recordListening(track: track, sessionID: UUID(), startedAt: LibrarySyncTestData.now,
+                                              seconds: 5, recentPosition: 5))
+        XCTAssertEqual(projections, projectionsBefore)
+        XCTAssertEqual(library.durableCommitCount, commits + 1)
+        let state = try library.cloudReplica(replicaID: LibrarySyncTestData.b).state
+        let event = try XCTUnwrap(library.events.first)
+        XCTAssertNil(state.registers[LibrarySyncKey(.event, session.uuidString)])
+        XCTAssertEqual(state.registers[LibrarySyncKey(.event, event.id.uuidString)]?.generation, reset)
+        XCTAssertEqual(state.registers[LibrarySyncKey(.recent, track.id)]?.generation, reset)
+        XCTAssertEqual(library.events.count, 1)
+        XCTAssertEqual(library.events.first?.listenedSeconds, 5)
+    }
+
+    func testBatchedExpiredEventStampsLifetimeReceiptAndRetainedRecent() throws {
+        let harness = LibrarySyncTestHarness()
+        defer { harness.remove() }
+        let document = try seededDocument(eventCount: 1)
+        let file = harness.root.appendingPathComponent(LibraryPersistence.fileName)
+        try LibraryPersistence.write(LibraryPersistence.encode(document), to: file, replacing: nil)
+        let library = LibraryStore(directory: harness.root, now: { LibrarySyncTestData.now }, writerID: LibrarySyncTestData.b,
+                                   projectSyncValues: { _ in throw LibrarySyncError.invalidData("unexpected full projection") })
+        let session = UUID()
+        let track = libraryTestTrack("expired")
+        let history = library.historyRevision
+        XCTAssertTrue(library.recordListening(track: track, sessionID: session,
+                                              startedAt: LibrarySyncTestData.now.addingTimeInterval(-800 * 86_400),
+                                              seconds: 5, recentPosition: 17))
+        let state = try library.cloudReplica(replicaID: LibrarySyncTestData.b).state
+        XCTAssertNil(state.registers[LibrarySyncKey(.event, session.uuidString)])
+        XCTAssertNotNil(state.registers[LibrarySyncKey(.recent, track.id)])
+        let receiptKey = LibrarySyncKey(.lifetimeSession, session.uuidString)
+        let receipt = try LibrarySyncCodec.decode(LifetimeListeningContribution.self, from: XCTUnwrap(state.registers[receiptKey]?.value))
+        XCTAssertEqual(receipt.seconds, 5)
+        for (key, register) in try XCTUnwrap(document.syncState).registers { XCTAssertEqual(state.registers[key], register) }
+        XCTAssertEqual(library.historyRevision, history)
+        XCTAssertEqual(library.durableCommitCount, 1)
+        XCTAssertEqual(library.recentlyPlayed.first?.position, 17)
+        XCTAssertTrue(library.recordListening(track: track, sessionID: session,
+                                              startedAt: LibrarySyncTestData.now.addingTimeInterval(-800 * 86_400), seconds: 5))
+        XCTAssertEqual(library.durableCommitCount, 2, "The second delta changes lifetime time even though detail remains expired")
+        let repeated = try library.cloudReplica(replicaID: LibrarySyncTestData.b).state
+        let changed = Set(state.registers.keys).union(repeated.registers.keys).filter { state.registers[$0] != repeated.registers[$0] }
+        XCTAssertEqual(Set(changed), [receiptKey])
+        XCTAssertEqual(try LibrarySyncCodec.decode(LifetimeListeningContribution.self, from: XCTUnwrap(repeated.registers[receiptKey]?.value)).seconds, 10)
+        XCTAssertEqual(library.lifetimeListeningSummary.seconds, 40)
+        XCTAssertEqual(library.historyRevision, history)
     }
 
     private func seededDocument(eventCount: Int) throws -> LibraryDocument {
@@ -205,6 +393,7 @@ final class LibrarySyncCheckpointTests: XCTestCase {
         document.events = (0..<eventCount).map { index in
             ListeningEvent(id: UUID(), track: track, startedAt: time.addingTimeInterval(-Double(index + 1) * 900), listenedSeconds: 30)
         }
+        for event in document.events { try document.lifetimeListening.include(event) }
         document.syncState = try LibrarySyncJournal.seed(document, now: time, writer: LibrarySyncTestData.a)
         return document
     }

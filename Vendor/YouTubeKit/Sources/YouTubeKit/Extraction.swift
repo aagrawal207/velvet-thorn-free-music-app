@@ -140,6 +140,7 @@ class Extraction {
     /// - parameter js: The javascript contents of the watch page
     /// - returns: The signature timestamp (sts) or nil if not found
     class func extractSignatureTimestamp(fromJS js: String) -> Int? {
+        if let updated = YouTubeKitHooks.extractionCompatibility.rules.signatureTimestamp(in: js) { return updated }
         // Return hardcoded STS that matches overridden player
         if let PLAYER_STS_OVERRIDE {
             return PLAYER_STS_OVERRIDE

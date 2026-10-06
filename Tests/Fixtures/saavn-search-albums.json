@@ -1,0 +1,99 @@
+{
+ "total": 45,
+ "start": 1,
+ "results": [
+  {
+   "id": "1139549",
+   "title": "Aashiqui 2",
+   "subtitle": "Jeet Gannguli, Mithoon, Ankit Tiwari",
+   "type": "album",
+   "perma_url": "https://www.jiosaavn.com/album/aashiqui-2/-iNdCmFNV9o_",
+   "image": "https://c.saavncdn.com/430/Aashiqui-2-Hindi-2013-150x150.jpg",
+   "language": "hindi",
+   "year": "2013",
+   "play_count": "",
+   "explicit_content": "0",
+   "list_count": "0",
+   "more_info": {
+    "music": "Mithoon, Ankit Tiwari, Jeet Gannguli",
+    "song_count": "10",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "464912",
+       "name": "Jeet Gannguli",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "484852",
+       "name": "Ankit Tiwari",
+       "role": "primary_artists",
+       "type": "artist"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "1144010",
+   "title": "Aashiqui 2",
+   "subtitle": "Various Artists",
+   "type": "album",
+   "perma_url": "https://www.jiosaavn.com/album/aashiqui-2/IccdeENHzSk_",
+   "image": "https://c.saavncdn.com/222/Aashiqui-2-Bhojpuri-2013-150x150.jpg",
+   "language": "bhojpuri",
+   "year": "2013",
+   "play_count": "",
+   "explicit_content": "0",
+   "list_count": "0",
+   "more_info": {
+    "music": "Mithoon",
+    "song_count": "4",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "455494",
+       "name": "Various Artists",
+       "role": "primary_artists",
+       "type": "artist"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "1145317",
+   "title": "Aashiqui 2",
+   "subtitle": "Various Artists",
+   "type": "album",
+   "perma_url": "https://www.jiosaavn.com/album/aashiqui-2/Igl0W-YvnBo_",
+   "image": "https://c.saavncdn.com/607/Aashiqui-2-Bengali-2013-150x150.jpg",
+   "language": "bengali",
+   "year": "2013",
+   "play_count": "",
+   "explicit_content": "0",
+   "list_count": "0",
+   "more_info": {
+    "music": "Mithoon, Ankit Tiwari",
+    "song_count": "2",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "455494",
+       "name": "Various Artists",
+       "role": "primary_artists",
+       "type": "artist"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

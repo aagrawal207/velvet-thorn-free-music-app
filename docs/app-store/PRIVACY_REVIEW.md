@@ -22,7 +22,7 @@ The current `Resources/PrivacyInfo.xcprivacy` contains:
 
 - `NSPrivacyTracking = false` and an empty tracking-domain array.
 - An empty `NSPrivacyCollectedDataTypes` array.
-- Required-reason entries for system boot time (`35F9.1`) and file timestamps (`C617.1`).
+- Required-reason entries for system boot time (`35F9.1`), file timestamps (`C617.1`) and user defaults (`CA92.1`, the app's own device-local delight flags).
 
 That manifest is not proof that providers do not collect data. It must not be copied into a “Data Not Collected” store answer without assessment. `tools/audit-release.py` checks for the bundled manifest and its required-reason API key; it does not determine correct store answers or certify every API-use declaration.
 

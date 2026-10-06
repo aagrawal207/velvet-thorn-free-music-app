@@ -130,15 +130,16 @@ enum StreamValidation {
         request.httpShouldHandleCookies = false
         request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        let (bytes, response) = try await session.bytes(for: request)
+        let (body, response) = try await session.chunkedBody(for: request)
+        defer { body.cancel() }
         guard let http = response as? HTTPURLResponse else { throw PlaybackStreamError.invalidMedia }
         guard http.statusCode == 200 || http.statusCode == 206 else {
             throw PlaybackStreamError.httpStatus(http.statusCode)
         }
         var prefix = Data()
-        for try await byte in bytes {
+        for try await chunk in body {
             try Task.checkCancellation()
-            prefix.append(byte)
+            prefix.append(chunk.prefix(1024 - prefix.count))
             if prefix.count == 1024 { break }
         }
         try validate(response: http, prefix: prefix)

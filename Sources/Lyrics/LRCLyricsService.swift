@@ -1,6 +1,6 @@
 import Foundation
 
-actor LRCLyricsService: LyricsProviding {
+actor LRCLyricsService: LyricsVariantsProviding {
     struct CacheConfiguration: Sendable {
         var capacity = 64
         var maximumBytes = 4 * 1024 * 1024
@@ -36,6 +36,7 @@ actor LRCLyricsService: LyricsProviding {
     private var cache: [LyricsMatcher.RecordingKey: CacheEntry] = [:]
     private var flights: [LyricsMatcher.RecordingKey: Flight] = [:]
     private var access: UInt64 = 0
+    private var activeVariantLookups = 0
 
     var activity: Activity {
         Activity(cachedRecordings: cache.count, cachedBytes: cache.values.reduce(0) { $0 + $1.bytes },
@@ -110,6 +111,16 @@ actor LRCLyricsService: LyricsProviding {
         var rebound = document
         rebound.trackID = track.id
         return rebound
+    }
+
+    func lyricVariants(for track: Track) async throws -> [LyricsDocument] {
+        try Task.checkCancellation()
+        guard activeVariantLookups < 2 else { throw LyricsLookupError.sourcesFailed }
+        activeVariantLookups += 1
+        defer { activeVariantLookups -= 1 }
+        let documents = try await client.variants(track)
+        try Task.checkCancellation()
+        return documents
     }
 
     private func cancel(waiterID: UUID, key: LyricsMatcher.RecordingKey) {

@@ -36,6 +36,7 @@ final class GanaBajanaMiniPlayerProgressUITests: XCTestCase {
         try ui.expectLabel(open, "Open player, Kesariya, Arijit Singh")
         try ui.expectValue(open, "Paused, 0:00 elapsed")
         try ui.expectLabel(transport, "Play")
+        try revealPlaylistEndAboveGlass(ui)
         ui.capture("mini-progress-dark-next-song-reset")
         let next = try MiniPlayerPixels(ui.element("miniPlayer.container").screenshot())
         XCTAssertLessThan(try next.difference(from: empty, in: rightInterior), 0.015,
@@ -123,8 +124,48 @@ final class GanaBajanaMiniPlayerProgressUITests: XCTestCase {
         try ui.expectLabel(ui.app.buttons["miniPlayer.open"], "Open player, Tum Hi Ho, Arijit Singh")
         try ui.expectValue(ui.app.buttons["miniPlayer.open"], "Paused, \(elapsed) elapsed")
         try ui.expectLabel(ui.app.buttons["miniPlayer.playPause"], "Play")
+        try revealPlaylistEndAboveGlass(ui)
         ui.capture(name)
         return try MiniPlayerPixels(ui.element("miniPlayer.container").screenshot())
+    }
+
+    /// The seeded playlist sits under the capsule. Once its last row and footer clear the glass, only the flat page
+    /// background passes beneath it, so every sample differs by the progress fill alone.
+    private func revealPlaylistEndAboveGlass(_ ui: AppUITestDriver) throws {
+        let glass = ui.element("miniPlayer.container")
+        let lastRow = ui.element("library.playlist.track.\(AppUIFixture.shapeOfYou)")
+        let footer = ui.app.staticTexts["Use Edit to reorder or remove songs."]
+        let navigation = ui.app.navigationBars[AppUIFixture.seededPlaylist]
+        let window = ui.app.windows.firstMatch
+        var context = "The seeded playlist is not on screen"
+        for _ in 0...16 {
+            let glassFrame = glass.exists ? glass.frame : .null
+            let content = [lastRow, footer].map { $0.exists ? $0.frame : CGRect.null }
+            context = "glass: \(glassFrame), last row: \(content[0]), footer: \(content[1])"
+            guard navigation.exists, usable(glassFrame) else { break }
+            // Plain lists can pin a footer above rows still beneath the glass; the last row proves every row has cleared it.
+            if content.allSatisfy({ usable($0) && $0.maxY <= glassFrame.minY + 1e-6 }) {
+                // Sample only once any rubber-band motion has stopped moving the page under the glass.
+                Thread.sleep(forTimeInterval: 0.3)
+                if footer.exists, footer.frame == content[1] { return }
+                continue
+            }
+            let bounds = window.frame
+            let top = max(bounds.minY, navigation.frame.maxY)
+            let height = glassFrame.minY - top
+            guard usable(bounds), height > 88 else { break }
+            // Centered drags stay inside the regular-width column and away from row menus and the glass.
+            let origin = window.coordinate(withNormalizedOffset: .zero)
+            let start = origin.withOffset(CGVector(dx: bounds.width / 2, dy: glassFrame.minY - height * 0.2 - bounds.minY))
+            let end = start.withOffset(CGVector(dx: 0, dy: -height * 0.5))
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.1)
+        }
+        ui.captureFailure("mini-progress-backdrop", detail: context)
+        throw AppUIWorkflowFailure(message: "The playlist's end must clear the mini-player before sampling its glass; \(context)")
+    }
+
+    private func usable(_ frame: CGRect) -> Bool {
+        !frame.isEmpty && !frame.isNull && [frame.minX, frame.minY, frame.maxX, frame.maxY].allSatisfy(\.isFinite)
     }
 
     private func collapsedPosition(_ open: XCUIElement, state: String) -> TimeInterval? {

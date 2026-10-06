@@ -7,10 +7,10 @@ final class GanaBajanaArtistArtworkUITests: XCTestCase {
     func testCombinedChooserShowsTappableArtistsBeforeDelayedPhotos() throws {
         let ui = makeDriver()
         try openDuet(ui, pendingPhotos: true)
-        let browse = ui.app.buttons["player.browse"]
-        try ui.requireHittable(browse)
+        let artistLine = ui.app.buttons["player.artistName"]
+        try ui.requireHittable(artistLine)
         let started = ContinuousClock.now
-        browse.tap()
+        artistLine.tap()
         try assertImmediateRows(ui)
         XCTAssertLessThan(started.duration(to: .now), .seconds(4), "Opening the list must beat the five-second photo deadline")
 
@@ -33,23 +33,25 @@ final class GanaBajanaArtistArtworkUITests: XCTestCase {
         try assertArtistNavigation(ui, name: "Arijit Singh")
     }
 
-    func testArtistNameKeepsTheArtistOnlyChooserForMultipleCredits() throws {
+    func testArtistNameOpensTheCombinedChooserForMultipleCredits() throws {
         let ui = makeDriver()
         try openDuet(ui)
+        try ui.expectLabel(ui.app.buttons["player.artistName"], "Album and artists, Alka Yagnik, Arijit Singh")
         try ui.tap(ui.app.buttons["player.artistName"])
         try assertImmediateRows(ui)
-        XCTAssertTrue(ui.element("player.artists.sheet").exists)
-        XCTAssertTrue(ui.app.navigationBars["Go to artist"].exists)
-        XCTAssertFalse(ui.element("player.browse.sheet").exists)
+        // The duet has no album id, so the chooser lists only its credits under the combined title.
+        XCTAssertTrue(ui.element("player.browse.sheet").exists)
+        XCTAssertTrue(ui.app.navigationBars["Album and Artists"].exists)
+        XCTAssertFalse(ui.element("player.artists.sheet").exists)
         XCTAssertFalse(ui.app.buttons["player.browse.album"].exists)
-        try ui.tap(ui.app.buttons["player.artists.done"])
+        try ui.tap(ui.app.buttons["player.browse.done"])
         try ui.expectCurrentTrack(AppUIFixture.agarTumSaathHo)
     }
 
     func testUnavailablePhotosKeepTheFittedSheetAndRowsStableAcrossReopenAndBothRoutes() throws {
         let ui = makeDriver()
         try openDuet(ui)
-        try ui.tap(ui.app.buttons["player.browse"])
+        try ui.tap(ui.app.buttons["player.artistName"])
         try assertImmediateRows(ui)
         let first = ui.app.buttons["player.artist.0"]
         let second = ui.app.buttons["player.artist.1"]
@@ -63,7 +65,7 @@ final class GanaBajanaArtistArtworkUITests: XCTestCase {
         ui.capture("artist-picker-unavailable-photos")
 
         try ui.tap(ui.app.buttons["player.browse.done"])
-        try ui.tap(ui.app.buttons["player.browse"])
+        try ui.tap(ui.app.buttons["player.artistName"])
         try assertImmediateRows(ui)
         XCTAssertEqual(first.frame.height, initialFirst.height, accuracy: 1)
         XCTAssertEqual(second.frame.height, initialSecond.height, accuracy: 1)
@@ -88,7 +90,7 @@ final class GanaBajanaArtistArtworkUITests: XCTestCase {
         try ui.playSearchResult(id: AppUIFixture.agarTumSaathHo, title: "Agar Tum Saath Ho")
         try ui.openPlayer()
         ui.capture("artwork-backed-player")
-        try ui.tap(ui.app.buttons["player.browse"])
+        try ui.tap(ui.app.buttons["player.artistName"])
         try assertImmediateRows(ui)
         Thread.sleep(forTimeInterval: 1)
         ui.capture("artist-picker-loaded-fixture-artwork")
@@ -105,15 +107,16 @@ final class GanaBajanaArtistArtworkUITests: XCTestCase {
         try ui.seek(to: 0.25)
         try ui.expectPosition(86, tolerance: 3)
         let position = try ui.position()
-        let controls = [ui.app.buttons["player.browse"], ui.app.buttons["player.airplay"], ui.app.buttons["player.playPause"]]
+        let artistLine = ui.app.buttons["player.artistName"]
+        let controls = [artistLine, ui.app.buttons["player.airplay"], ui.app.buttons["player.playPause"]]
         let frames = controls.map(\.frame)
 
         for _ in 0..<3 {
-            try ui.tap(ui.app.buttons["player.browse"])
+            try ui.tap(artistLine)
             try assertImmediateRows(ui)
             try ui.tap(ui.app.buttons["player.browse.done"])
             try ui.wait("Dismissing the chooser must not wait for pending artist pictures", timeout: 2) {
-                !ui.element("player.browse.sheet").exists && ui.app.buttons["player.browse"].isHittable
+                !ui.element("player.browse.sheet").exists && artistLine.isHittable
             }
             try ui.expectPosition(position)
             try ui.expectLabel(ui.app.buttons["player.playPause"], "Play")
@@ -124,7 +127,7 @@ final class GanaBajanaArtistArtworkUITests: XCTestCase {
         }
         try ui.play()
         try ui.waitForAdvance(from: position, by: 1)
-        try ui.tap(ui.app.buttons["player.browse"])
+        try ui.tap(artistLine)
         try assertImmediateRows(ui)
         try ui.tap(ui.app.buttons["player.artist.1"])
         try assertArtistNavigation(ui, name: "Arijit Singh")

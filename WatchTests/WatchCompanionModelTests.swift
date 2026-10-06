@@ -60,6 +60,35 @@ final class WatchCompanionModelTests: XCTestCase {
         model.setForeground(false)
     }
 
+    func testSuperLikeCommandWaitsForAcknowledgementAndShowsThePromotedTier() async throws {
+        let transport = WatchTestTransport()
+        let liked = WatchTestSupport.snapshot(playing: false, favorite: true)
+        transport.automaticResponse = { request in
+            request.action == .snapshot ? WatchTestSupport.response(for: request, snapshot: liked) : nil
+        }
+        let model = WatchCompanionModel(client: WatchRequestClient(transport: transport))
+        model.setForeground(true)
+        try await WatchTestSupport.waitUntil { model.isCurrent }
+        let displayed = try XCTUnwrap(model.timeline.snapshot)
+        XCTAssertEqual(displayed.nowPlaying?.isFavorite, true)
+        XCTAssertEqual(displayed.nowPlaying?.isSuperLiked, false)
+        let promote = Task { await model.command(.setSuperLiked(true), displayed: displayed) }
+        try await WatchTestSupport.waitUntil { transport.messages.count == 3 }
+        XCTAssertNotNil(model.pendingCommand)
+        XCTAssertEqual(transport.requests[2].action, .setSuperLiked(true))
+        XCTAssertEqual(transport.requests[2].expectedTrackID, "watch-test-track")
+        XCTAssertEqual(transport.requests[2].version, 2)
+        XCTAssertNotNil(transport.requests[2].executionLease)
+        XCTAssertEqual(model.nowPlaying?.isSuperLiked, false)
+        try transport.reply(at: 2, snapshot: WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true, superLiked: true))
+        let accepted = await promote.value
+        XCTAssertTrue(accepted)
+        XCTAssertEqual(model.nowPlaying?.isFavorite, true)
+        XCTAssertEqual(model.nowPlaying?.isSuperLiked, true)
+        XCTAssertNil(model.pendingCommand)
+        model.setForeground(false)
+    }
+
     func testRapidNextTapsSendOneIntent() async throws {
         let transport = WatchTestTransport()
         transport.automaticResponse = { request in
@@ -273,11 +302,17 @@ final class WatchCompanionModelTests: XCTestCase {
     func testRenderedValuesCannotOverwriteNewerPlayFavoriteShuffleOrRepeatState() async throws {
         let paused = WatchTestSupport.snapshot(playing: false)
         let playing = WatchTestSupport.snapshot(playing: true)
+        let liked = WatchTestSupport.snapshot(playing: false, favorite: true)
+        let superLiked = WatchTestSupport.snapshot(playing: false, favorite: true, superLiked: true)
         let changes: [(CompanionAction, CompanionSnapshot, CompanionSnapshot)] = [
             (.play, paused, WatchTestSupport.snapshot(sequence: 2, playing: true)),
             (.pause, playing, WatchTestSupport.snapshot(sequence: 2, playing: false)),
             (.pause, WatchTestSupport.snapshot(playing: false, loading: true), WatchTestSupport.snapshot(sequence: 2, playing: false)),
             (.setFavorite(true), paused, WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true)),
+            (.setSuperLiked(true), paused, WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true, superLiked: true)),
+            (.setSuperLiked(true), liked, WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true, superLiked: true)),
+            (.setFavorite(false), liked, WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true, superLiked: true)),
+            (.setSuperLiked(false), superLiked, WatchTestSupport.snapshot(sequence: 2, playing: false, favorite: true)),
             (.setShuffle(true), paused, WatchTestSupport.snapshot(sequence: 2, playing: false, shuffle: true)),
             (.setRepeatMode(.all), paused, WatchTestSupport.snapshot(sequence: 2, playing: false, repeatMode: .one))
         ]

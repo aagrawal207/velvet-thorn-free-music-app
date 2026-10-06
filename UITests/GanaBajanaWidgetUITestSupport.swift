@@ -76,7 +76,7 @@ final class WidgetUITestSupport {
         }
         // The native Home Screen suite covers warm widget delivery; this API verifies real URL launches and restored state.
         app.open(url)
-        try ui.wait("The URL must activate Breezy", timeout: 25) { self.app.state == .runningForeground }
+        try ui.wait("The URL must activate Velvet Thorn", timeout: 25) { self.app.state == .runningForeground }
     }
 
     func expectPreview() throws {
@@ -185,7 +185,7 @@ final class WidgetUITestSupport {
     }
 
     func expectSavedList(_ kind: String, count: Int) throws -> XCUIElement {
-        let title = kind == "likes" ? "Liked songs" : "Recent listens"
+        let title = kind == "likes" ? "Liked Songs" : "Recently Played"
         try ui.wait("The widget must open the live \(title) destination") { self.app.navigationBars[title].exists }
         let identifier = "library.\(kind).count"
         let lists = app.collectionViews.containing(.staticText, identifier: identifier)
@@ -299,7 +299,8 @@ final class WidgetUITestSupport {
                 viewport = CGRect(x: viewport.minX, y: top, width: viewport.width, height: max(0, viewport.maxY - top))
             }
             if !player.exists {
-                for control in [app.buttons["tab.home"].firstMatch, app.buttons["miniPlayer.open"]] where control.exists {
+                // Rows pass beneath the mini-player's glass, so its capsule, not the inset open button, bounds the viewport.
+                for control in [app.buttons["tab.home"].firstMatch, app.otherElements["miniPlayer.container"]] where control.exists {
                     let frame = control.frame
                     if frame.intersects(viewport), frame.midY > viewport.midY {
                         viewport.size.height = max(0, frame.minY - viewport.minY)

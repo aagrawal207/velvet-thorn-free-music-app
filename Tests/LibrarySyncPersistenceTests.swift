@@ -13,7 +13,7 @@ final class LibrarySyncPersistenceTests: XCTestCase {
         legacy.preferences.appearance = .light
         legacy.recentSearches = ["Newest", "Older"]
         legacy.playback = PlaybackSnapshot(queue: [libraryTestTrack("local-queue")], position: 19)
-        let bytes = try LibraryPersistence.encode(legacy)
+        let bytes = try LibrarySyncTestData.legacyDocumentBytes(legacy)
         let url = directory.appendingPathComponent(LibraryPersistence.fileName)
         try LibraryPersistence.write(bytes, to: url, replacing: nil)
         let library = LibraryStore(directory: directory, now: { LibrarySyncTestData.now }, writerID: LibrarySyncTestData.a)
@@ -66,6 +66,64 @@ final class LibrarySyncPersistenceTests: XCTestCase {
         XCTAssertEqual(fields["appIconID"], Data("\"Sonnet\"".utf8), "The coordinator's Codable appIconID is part of the generic projection")
         XCTAssertEqual(fields, try LibrarySyncPreferences.fields(a.library.preferences))
         XCTAssertEqual(try b.saved().preferences, preferences)
+    }
+
+    func testPlayerQualityEqualizerAndSourceFieldsFlattenIntoSlashFreeLeavesAndTravelBetweenDevices() throws {
+        let defaults = try LibrarySyncPreferences.fields(UserPreferences())
+        let paths = ["trailingTimeStyle", "audioQuality", "equalizer/isEnabled", "equalizer/preset", "equalizer/gains",
+                     "equalizer/preamp", "downloadsOverCellular", "autoDownloadLikedSongs", "enabledCatalogSources",
+                     "sponsorBlockSkipping"]
+        for path in paths { XCTAssertNotNil(defaults[path], path) }
+        XCTAssertNil(defaults["equalizer"], "Nested settings flatten into one register per leaf")
+        XCTAssertTrue(defaults.keys.allSatisfy { key in
+            key.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty }
+        })
+        XCTAssertEqual(defaults["trailingTimeStyle"], Data("\"songLength\"".utf8))
+        XCTAssertEqual(defaults["audioQuality"], Data("\"best\"".utf8))
+        XCTAssertEqual(defaults["equalizer/isEnabled"], Data("false".utf8))
+        XCTAssertEqual(defaults["equalizer/preset"], Data("\"flat\"".utf8))
+        XCTAssertEqual(defaults["equalizer/gains"], Data("[0,0,0,0,0,0,0,0,0,0]".utf8), "Gains stay one ordered leaf")
+        XCTAssertEqual(defaults["equalizer/preamp"], Data("0".utf8))
+        XCTAssertEqual(defaults["enabledCatalogSources"], Data(#"["youtube","saavn","gaana"]"#.utf8))
+
+        var preferences = UserPreferences()
+        preferences.trailingTimeStyle = .remaining
+        preferences.audioQuality = .balanced
+        preferences.equalizer = EqualizerSettings(isEnabled: true, preset: .custom,
+                                                  gains: [-12, -6, -3, -1.5, 0, 0.5, 1.5, 3, 6, 12], preamp: -4.5)
+        preferences.downloadsOverCellular = true
+        preferences.autoDownloadLikedSongs = true
+        preferences.enabledCatalogSources = [.gaana, .youTubeMusic]
+        preferences.sponsorBlockSkipping = true
+        let fields = try LibrarySyncPreferences.fields(preferences)
+        XCTAssertEqual(fields["equalizer/preset"], Data("\"custom\"".utf8))
+        XCTAssertEqual(fields["equalizer/gains"], Data("[-12,-6,-3,-1.5,0,0.5,1.5,3,6,12]".utf8))
+        XCTAssertEqual(fields["enabledCatalogSources"], Data(#"["gaana","youtube"]"#.utf8), "Order is part of the register value")
+        XCTAssertEqual(fields.filter { defaults[$0.key] != $0.value }.keys.sorted(), paths.sorted())
+        XCTAssertEqual(try LibrarySyncPreferences.applying(fields, to: UserPreferences()), preferences)
+        let partial = fields.filter { $0.key.hasPrefix("equalizer/") }
+        var expected = UserPreferences()
+        expected.equalizer = preferences.equalizer
+        XCTAssertEqual(try LibrarySyncPreferences.applying(partial, to: UserPreferences()), expected)
+
+        // A remote value the lenient decoder would rewrite is refused like every other clamped preference.
+        XCTAssertThrowsError(try LibrarySyncPreferences.applying(["equalizer/gains": Data("[99,0,0,0,0,0,0,0,0,0]".utf8)], to: UserPreferences()))
+        XCTAssertThrowsError(try LibrarySyncPreferences.applying(["equalizer/gains": Data("[0,0,0]".utf8)], to: UserPreferences()))
+        XCTAssertThrowsError(try LibrarySyncPreferences.applying(["equalizer/preset": Data("\"future-preset\"".utf8)], to: UserPreferences()))
+        XCTAssertThrowsError(try LibrarySyncPreferences.applying(["enabledCatalogSources": Data(#"["spotify"]"#.utf8)], to: UserPreferences()))
+        XCTAssertThrowsError(try LibrarySyncPreferences.applying(["equalizer/bands": Data("[]".utf8)], to: UserPreferences()))
+
+        let harness = LibrarySyncTestHarness()
+        defer { harness.remove() }
+        let a = harness.device()
+        let b = harness.device(LibrarySyncTestData.b)
+        a.library.preferences = preferences
+        XCTAssertNil(a.library.errorMessage)
+        XCTAssertEqual(Set(try a.state().registers.keys.filter { $0.collection == .preference }.map(\.id)), Set(paths))
+        try b.library.mergeCloudState(a.state())
+        XCTAssertEqual(b.library.preferences, preferences)
+        XCTAssertEqual(try b.saved().preferences, preferences)
+        XCTAssertEqual(try LibrarySyncPreferences.fields(b.library.preferences), fields)
     }
 
     func testConcurrentLikesAndDifferentPreferencesSurviveBothDirections() throws {
@@ -357,12 +415,18 @@ final class LibrarySyncPersistenceTests: XCTestCase {
         let b = harness.device(LibrarySyncTestData.b)
         a.library.toggleFavorite(libraryTestTrack("a"))
         b.library.preferences.appearance = .light
+        XCTAssertTrue(b.library.recordListening(track: libraryTestTrack("remote-listen"), sessionID: UUID(),
+                                               startedAt: LibrarySyncTestData.now, seconds: 15))
         let prepared = try await a.library.prepareCloudMerge(b.state())
+        XCTAssertTrue(prepared.lifetimeChanged)
+        XCTAssertEqual(prepared.lifetimePublication?.summary.seconds, 15)
+        XCTAssertEqual(a.library.lifetimeListeningSummary.seconds, 0)
         a.library.updatePlayback(PlaybackSnapshot(queue: [libraryTestTrack("live")], position: 7))
         XCTAssertTrue(a.library.recordTip(transactionID: 123, credited: true))
         XCTAssertTrue(try a.library.applyCloudMerge(prepared))
         XCTAssertEqual(a.library.playback.position, 7)
         XCTAssertEqual(a.library.tipCredit(for: 123), true)
+        XCTAssertEqual(a.library.lifetimeListeningSummary.seconds, 15)
         b.library.preferences.useEncryptedDNS = false
         let stale = try await a.library.prepareCloudMerge(b.state())
         a.library.toggleFavorite(libraryTestTrack("new-edit"))

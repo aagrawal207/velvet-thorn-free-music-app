@@ -2,13 +2,24 @@ import SwiftUI
 
 struct LyricsView: View {
     let track: Track
+    let recordingLanguage: String?
+    private let requestLoad: (@MainActor (Track, String?) -> Void)?
     @Environment(MusicAppModel.self) private var model
-    @State private var loader = LyricsLoader()
+    @State private var loader: LyricsLoader
     @State private var retry = 0
+
+    init(track: Track, loader: LyricsLoader = LyricsLoader(), recordingLanguage: String? = nil,
+         requestLoad: (@MainActor (Track, String?) -> Void)? = nil) {
+        self.track = track
+        self.recordingLanguage = recordingLanguage
+        self.requestLoad = requestLoad
+        _loader = State(initialValue: loader)
+    }
 
     private struct RequestID: Hashable {
         let track: Track
         let retry: Int
+        let language: String?
     }
 
     private var currentTrack: Track {
@@ -23,6 +34,7 @@ struct LyricsView: View {
 
     var body: some View {
         let requestedTrack = currentTrack
+        let requestedLanguage = requestedTrack.id == track.id ? recordingLanguage : nil
         VStack(spacing: 0) {
             caption(for: requestedTrack)
             if loader.track != requestedTrack {
@@ -34,9 +46,10 @@ struct LyricsView: View {
                 case .failed(let message):
                     status(symbol: "wifi.exclamationmark", title: "Couldn’t load lyrics", message: message) {
                         Button { retry &+= 1 } label: {
-                            Text("Try again")
+                            Text("Try Again")
                                 .appFont(.body)
                                 .foregroundStyle(AppTheme.onAccent)
+                                .frame(minWidth: 44, minHeight: 44)
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(AppTheme.accent)
@@ -44,6 +57,7 @@ struct LyricsView: View {
                         .accessibilityIdentifier("lyrics.retry")
                     }
                 case .loaded(let document):
+                    variantControls(for: requestedTrack)
                     content(document, track: requestedTrack)
                 }
             }
@@ -55,11 +69,68 @@ struct LyricsView: View {
                 .ignoresSafeArea()
         }
         .foregroundStyle(AppTheme.primaryText)
-        .task(id: RequestID(track: requestedTrack, retry: retry)) {
-            await loader.load(for: requestedTrack, using: model.lyrics)
+        .task(id: RequestID(track: requestedTrack, retry: retry, language: requestedLanguage)) {
+            guard !Task.isCancelled else { return }
+            if let requestLoad { requestLoad(requestedTrack, requestedLanguage) }
+            else { await loader.load(for: requestedTrack, using: model.lyrics, recordingLanguage: requestedLanguage) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("lyrics.screen")
+    }
+
+    @ViewBuilder
+    private func variantControls(for track: Track) -> some View {
+        let selectedID = loader.selectedDocument?.selectionID
+        let selectedVariant = loader.variants.first { $0.id == selectedID }
+        VStack(alignment: .leading, spacing: 4) {
+            if loader.variants.count > 1 {
+                Menu {
+                    ForEach(loader.variants) { variant in
+                        Button {
+                            loader.selectVariant(id: variant.id, for: track)
+                        } label: {
+                            if selectedID == variant.id {
+                                Label(variant.title(recordingLanguage: loader.recordingLanguage), systemImage: "checkmark")
+                            } else {
+                                Text(variant.title(recordingLanguage: loader.recordingLanguage))
+                            }
+                        }
+                        .accessibilityIdentifier("lyrics.variant.\(variant.id)")
+                    }
+                } label: {
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Lyric Version").appFont(.caption)
+                            Text(selectedVariant?.title(recordingLanguage: loader.recordingLanguage) ?? "Published Text")
+                                .appFont(.callout, weight: .semibold)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.up.chevron.down")
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("lyrics.variantPicker")
+                Text("Latin text may be a romanisation or translation.")
+                    .appFont(.caption).foregroundStyle(AppTheme.secondaryText)
+            }
+            if loader.isDiscoveringVariants {
+                Text("Checking other lyric versions…")
+                    .appFont(.caption).foregroundStyle(AppTheme.secondaryText)
+                    .accessibilityIdentifier("lyrics.variants.loading")
+            } else if let message = loader.variantMessage {
+                Button { retry &+= 1 } label: {
+                    Text(message).appFont(.caption)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("lyrics.variants.retry")
+            }
+        }
+        .padding(.horizontal, 28)
     }
 
     /// The sheet title already says Lyrics; one line names the song so the artwork header's space goes to lines.
@@ -91,7 +162,7 @@ struct LyricsView: View {
         switch document.kind {
         case .synced:
             SyncedLyricsContent(track: track, document: document)
-                .id("\(track.id):\(document.sourceID ?? 0)")
+                .id("\(track.id):\(document.selectionID)")
         case .plain:
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 16) {
@@ -110,6 +181,7 @@ struct LyricsView: View {
                 .padding(.horizontal, 28)
                 .padding(.vertical, 24)
             }
+            .id(document.selectionID)
             .accessibilityIdentifier("lyrics.plain")
         case .instrumental:
             status(symbol: "waveform", title: "Instrumental",
@@ -120,7 +192,7 @@ struct LyricsView: View {
         case .unavailable:
             status(symbol: "text.quote", title: "No lyrics for this recording",
                    message: "No matching lyrics were found in the available sources.") {
-                Text("Lyrics are checked with LRCLIB and YouTube Music.")
+                Text("Availability varies by recording and source.")
                     .appFont(.caption).foregroundStyle(AppTheme.secondaryText)
             }
             .accessibilityIdentifier("lyrics.unavailable")
@@ -152,6 +224,7 @@ private struct SyncedLyricsContent: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @State private var currentLineID: Int?
     @State private var isFollowing = true
 
@@ -227,6 +300,11 @@ private struct SyncedLyricsContent: View {
         .accessibilityIdentifier("lyrics.synced")
     }
 
+    // Some accents sit below primary text's contrast on light backdrops; Increase Contrast keeps the strongest colour.
+    private var activeLineColor: Color {
+        colorSchemeContrast == .increased ? AppTheme.primaryText : AppTheme.accent
+    }
+
     private func lyricButton(_ line: LyricLine, proxy: ScrollViewProxy) -> some View {
         let active = line.id == currentLineID
         let seekTime = LyricsTiming.seekPosition(for: line, offset: offset, duration: track.duration)
@@ -247,7 +325,7 @@ private struct SyncedLyricsContent: View {
                 }
             }
             .multilineTextAlignment(.leading)
-            .foregroundStyle(active ? AppTheme.primaryText : AppTheme.secondaryText.opacity(0.72))
+            .foregroundStyle(active ? activeLineColor : AppTheme.secondaryText.opacity(0.72))
             .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
             .padding(.vertical, 10)
             .contentShape(Rectangle())
@@ -354,13 +432,7 @@ private struct LyricsSourceView: View {
     let document: LyricsDocument
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            LyricsAttributionView(document: document)
-            if let title = document.matchedTitle, let artist = document.matchedArtist {
-                Text("Matched: \(title) · \(artist)")
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        LyricsAttributionView(document: document)
         .appFont(.caption)
         .foregroundStyle(AppTheme.secondaryText)
         .tint(AppTheme.accent)

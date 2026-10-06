@@ -5,9 +5,29 @@ import UIKit
 /// One selectable app icon. Asset names follow a fixed scheme: `AppIcon` for the primary set,
 /// `AppIcon-<id>` for alternates, and `IconPreview-<id>` for the in-app preview image of every option.
 struct AppIconOption: Identifiable, Hashable, Sendable {
+    enum Family: String, CaseIterable, Sendable {
+        case leafnote, thorn, more
+
+        var title: String {
+            switch self {
+            case .leafnote: "Leafnote"
+            case .thorn: "Thorn"
+            case .more: "More Icons"
+            }
+        }
+    }
+
     let id: String
     let title: String
     let isPrimary: Bool
+    let family: Family
+
+    init(id: String, title: String, isPrimary: Bool = false, family: Family) {
+        self.id = id
+        self.title = title
+        self.isPrimary = isPrimary
+        self.family = family
+    }
 
     var previewImageName: String { "IconPreview-\(id)" }
     var alternateIconName: String? { isPrimary ? nil : "AppIcon-\(id)" }
@@ -17,13 +37,26 @@ enum AppIcons {
     /// Order matches the generator recipes in tools/generate-artwork.swift; the first entry is the shipped default.
     /// IDs keep saved icon choices, preview assets, and accessibility identifiers stable; titles are display-only.
     static let all: [AppIconOption] = [
-        AppIconOption(id: "Beat", title: "Leafnote", isPrimary: true),
-        AppIconOption(id: "Notes", title: "Drift", isPrimary: false),
-        AppIconOption(id: "Boombox", title: "Moonleaf", isPrimary: false),
-        AppIconOption(id: "Speaker", title: "Ripple", isPrimary: false),
-        AppIconOption(id: "Waves", title: "Tide", isPrimary: false),
-        AppIconOption(id: "Thorn", title: "Thorn", isPrimary: false),
-        AppIconOption(id: "Sonnet", title: "Sonnet", isPrimary: false),
+        AppIconOption(id: "Beat", title: "Leafnote", isPrimary: true, family: .leafnote),
+        AppIconOption(id: "LeafPaper", title: "Paper", family: .leafnote),
+        AppIconOption(id: "LeafSky", title: "Sky", family: .leafnote),
+        AppIconOption(id: "LeafBlossom", title: "Blossom", family: .leafnote),
+        AppIconOption(id: "LeafMidnight", title: "Midnight", family: .leafnote),
+        AppIconOption(id: "LeafViolet", title: "Violet", family: .leafnote),
+        AppIconOption(id: "LeafSunset", title: "Sunset", family: .leafnote),
+        AppIconOption(id: "LeafMono", title: "Mono", family: .leafnote),
+        AppIconOption(id: "Thorn", title: "Thorn", family: .thorn),
+        AppIconOption(id: "Sonnet", title: "Sonnet", family: .thorn),
+        AppIconOption(id: "ThornEdge", title: "Edge", family: .thorn),
+        AppIconOption(id: "ThornFrost", title: "Frost", family: .thorn),
+        AppIconOption(id: "ThornNoir", title: "Noir", family: .thorn),
+        AppIconOption(id: "ThornVenom", title: "Venom", family: .thorn),
+        AppIconOption(id: "ThornDusk", title: "Dusk", family: .thorn),
+        AppIconOption(id: "ThornBlush", title: "Blush", family: .thorn),
+        AppIconOption(id: "Notes", title: "Drift", family: .more),
+        AppIconOption(id: "Boombox", title: "Moonleaf", family: .more),
+        AppIconOption(id: "Speaker", title: "Ripple", family: .more),
+        AppIconOption(id: "Waves", title: "Tide", family: .more),
     ]
 
     static var primary: AppIconOption { all[0] }

@@ -104,7 +104,7 @@ final class WatchPhoneSession {
             let request = try CompanionWire.decode(CompanionRequest.self, from: data)
             guard transport.state.canMessage else {
                 let rejected = CompanionResponse(id: request.id, accepted: false, snapshot: readSnapshot(),
-                                                 error: "Open Breezy on iPhone, then try again.")
+                                                 error: "Open Velvet Thorn on iPhone, then try again.")
                 reply.finish(try CompanionWire.encode(rejected))
                 return
             }
@@ -188,13 +188,13 @@ final class WatchPhoneSession {
     }
 
     private static func sameSemantics(_ lhs: CompanionSnapshot, _ rhs: CompanionSnapshot) -> Bool {
-        guard lhs.sessionID == rhs.sessionID, lhs.libraryError == rhs.libraryError else { return false }
+        guard lhs.sessionID == rhs.sessionID, lhs.libraryError == rhs.libraryError, lhs.accent == rhs.accent else { return false }
         switch (lhs.nowPlaying, rhs.nowPlaying) {
         case (nil, nil): return true
         case (.some(let lhs), .some(let rhs)):
             return lhs.trackID == rhs.trackID && lhs.title == rhs.title && lhs.artist == rhs.artist
                 && lhs.duration == rhs.duration && lhs.isPlaying == rhs.isPlaying && lhs.isLoading == rhs.isLoading
-                && lhs.isFavorite == rhs.isFavorite && lhs.shuffleEnabled == rhs.shuffleEnabled
+                && lhs.isFavorite == rhs.isFavorite && lhs.isSuperLiked == rhs.isSuperLiked && lhs.shuffleEnabled == rhs.shuffleEnabled
                 && lhs.repeatMode == rhs.repeatMode && lhs.errorMessage == rhs.errorMessage
         default: return false
         }

@@ -51,7 +51,7 @@ final class GanaBajanaNativeWidgetsUITests: XCTestCase {
         } else {
             try addWidget(using: widget, springboard: springboard, page: 8, title: "Mix", finishEditing: false)
             attach(springboard, named: "native-mix-added")
-            let hosts = springboard.icons.matching(NSPredicate(format: "label == %@ AND value == %@", "Breezy", "Widget"))
+            let hosts = springboard.icons.matching(NSPredicate(format: "label == %@ AND value == %@", "Velvet Thorn", "Widget"))
             try widget.ui.wait("The saved Mix widget must be hosted on the Home Screen") {
                 hosts.allElementsBoundByAccessibilityElement.contains { $0.frame.width > $0.frame.height && $0.isHittable }
             }
@@ -61,7 +61,7 @@ final class GanaBajanaNativeWidgetsUITests: XCTestCase {
             host.tap()
         }
         attach(springboard, named: "native-mix-editor")
-        let selectedButton = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["Mix", "Daily Mix", "Discover Weekly"])).firstMatch
+        let selectedButton = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["Mix", "Daily Mix 1", "Discover Weekly"])).firstMatch
         try widget.ui.wait("The native Mix configuration must expose its selected value") {
             selectedButton.exists && selectedButton.isHittable
         }
@@ -95,8 +95,8 @@ final class GanaBajanaNativeWidgetsUITests: XCTestCase {
 
     private func addWidget(using widget: WidgetUITestSupport, springboard: XCUIApplication,
                            page: Int = 1, title: String = "Recently played", finishEditing: Bool = true) throws {
-        let icons = springboard.icons.matching(NSPredicate(format: "identifier == %@ AND (value == nil OR value != %@)", "Breezy", "Widget"))
-        try widget.ui.wait("The installed Breezy icon must be available on the QA Home Screen", timeout: 20) { icons.count > 0 }
+        let icons = springboard.icons.matching(NSPredicate(format: "identifier == %@ AND (value == nil OR value != %@)", "Velvet Thorn", "Widget"))
+        try widget.ui.wait("The installed Velvet Thorn icon must be available on the QA Home Screen", timeout: 20) { icons.count > 0 }
         // iPad also exposes the recent-app Dock icon, whose menu contains window actions instead of Home editing.
         let icon = try XCTUnwrap(icons.allElementsBoundByAccessibilityElement.filter { !$0.frame.isEmpty }
             .min { $0.frame.minY < $1.frame.minY })
@@ -124,17 +124,17 @@ final class GanaBajanaNativeWidgetsUITests: XCTestCase {
         let search = springboard.searchFields.firstMatch
         try widget.ui.wait("The native widget gallery must show search", timeout: 20) { search.exists }
         search.tap()
-        search.typeText("Breezy")
+        search.typeText("Velvet Thorn")
         let typingIntroduction = springboard.otherElements["UIContinuousPathIntroductionView"]
         if typingIntroduction.exists { typingIntroduction.buttons["Continue"].tap() }
         attach(springboard, named: "native-widget-gallery-search")
-        let result = springboard.collectionViews["add-sheet-collection-view"].cells["Breezy"]
-        try widget.ui.wait("The embedded Breezy extension must appear in the widget gallery", timeout: 30) {
+        let result = springboard.collectionViews["add-sheet-collection-view"].cells["Velvet Thorn"]
+        try widget.ui.wait("The embedded Velvet Thorn extension must appear in the widget gallery", timeout: 30) {
             result.exists && result.isHittable
         }
         result.tap()
         let galleryAdd = springboard.buttons.matching(NSPredicate(format: "label ENDSWITH %@", "Add Widget")).firstMatch
-        try widget.ui.wait("The Breezy widget gallery must present Add Widget", timeout: 20) { galleryAdd.exists }
+        try widget.ui.wait("The Velvet Thorn widget gallery must present Add Widget", timeout: 20) { galleryAdd.exists }
         for target in 2...max(2, page) where target <= page {
             let previews = springboard.buttons.matching(NSPredicate(format: "value BEGINSWITH %@", "Widget, "))
             let current = try XCTUnwrap(previews.allElementsBoundByAccessibilityElement.first { $0.isHittable })

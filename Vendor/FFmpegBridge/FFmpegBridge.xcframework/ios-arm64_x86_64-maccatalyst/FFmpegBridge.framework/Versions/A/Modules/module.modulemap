@@ -1,0 +1,5 @@
+framework module FFmpegBridge {
+    umbrella header "FFmpegBridge.h"
+    export *
+    link framework "FFmpegBridge"
+}

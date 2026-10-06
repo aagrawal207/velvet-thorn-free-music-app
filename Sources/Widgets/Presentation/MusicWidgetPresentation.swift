@@ -19,22 +19,22 @@ struct MusicWidgetPresentation: Equatable, Sendable {
 
         var message: String {
             switch self {
-            case .needsApp: "Open Breezy to load this widget."
-            case .unavailable: "Open Breezy to refresh your saved music."
+            case .needsApp: "Open Velvet Thorn to load this widget."
+            case .unavailable: "Open Velvet Thorn to refresh your saved music."
             case .historyOff: "Recently played stays hidden while listening history is off."
-            case .noRecentSongs: "Songs you play in Breezy will appear here."
-            case .noLikedSongs: "Like a song in Breezy to find it here."
-            case .likedPreviewUnavailable: "Open Breezy to view your liked songs."
-            case .noMix: "Open Breezy to find your next mix."
+            case .noRecentSongs: "Songs you play in Velvet Thorn will appear here."
+            case .noLikedSongs: "Like a song in Velvet Thorn to find it here."
+            case .likedPreviewUnavailable: "Open Velvet Thorn to view your liked songs."
+            case .noMix: "Open Velvet Thorn to find your next mix."
             }
         }
 
         var compactMessage: String {
             switch self {
             case .historyOff: "Recent songs stay hidden."
-            case .noRecentSongs: "Play a song in Breezy."
-            case .noLikedSongs: "Like a song in Breezy."
-            case .unavailable: "Open Breezy to try again."
+            case .noRecentSongs: "Play a song in Velvet Thorn."
+            case .noLikedSongs: "Like a song in Velvet Thorn."
+            case .unavailable: "Open Velvet Thorn to try again."
             default: message
             }
         }
@@ -122,7 +122,7 @@ struct MusicWidgetPresentation: Equatable, Sendable {
     var smallAccessibilityLabel: String {
         if let emptyState { return "\(heading). \(emptyState.title). \(emptyState.message)" }
         if kind == .mixes {
-            return "\(heading)\(countText.map { ". \($0)" } ?? ""). Open mix in Breezy."
+            return "\(heading)\(countText.map { ". \($0)" } ?? ""). Open mix in Velvet Thorn."
         }
         guard let first = tracks.first else { return heading }
         return "\(heading). Play \(first.title), \(first.artistName)\(first.isExplicit ? ". Explicit" : "")"
@@ -135,5 +135,14 @@ struct MusicWidgetPresentation: Equatable, Sendable {
 }
 
 extension GeneratedPlaylistKind {
-    var widgetTitle: String { self == .dailyMix ? "Daily Mix" : title }
+    var widgetTitle: String { title }
+}
+
+/// Mix widget choices. Stored selections are raw kind values; the original `dailyMix` value is Daily Mix 1.
+enum MixWidgetOptions {
+    static let kinds: [GeneratedPlaylistKind] = GeneratedPlaylistKind.dailyMixes + [.discoverWeekly]
+
+    static func kind(for selection: String?) -> GeneratedPlaylistKind {
+        selection.flatMap(GeneratedPlaylistKind.init(identifier:)) ?? .dailyMix
+    }
 }

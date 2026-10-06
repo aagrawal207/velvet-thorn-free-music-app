@@ -697,6 +697,7 @@ final class OfflinePlaybackTests: XCTestCase {
             addTeardownBlock { await resolver.downloads.close() }
             let player = PlayerController(resolver: resolver)
             defer { player.pause() }
+            player.nextDownloadSettleSeconds = 0
             player.play([track, other])
             let interrupted = try await resolver.downloads.request(at: 0)
             connectivity.setStatus(.offline)
@@ -745,7 +746,7 @@ final class OfflinePlaybackTests: XCTestCase {
         pipeline.sync(current: track, next: target)
         try await Task.sleep(for: .milliseconds(100))
         let after = await resolver.downloadRequests
-        XCTAssertEqual(before, [other.id, track.id])
+        XCTAssertEqual(before, [track.id, other.id])
         XCTAssertEqual(after, before)
     }
 

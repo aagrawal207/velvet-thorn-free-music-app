@@ -8,26 +8,26 @@ struct LibrarySyncMutation {
 }
 
 enum LibrarySyncCheckpoint {
-    case listening(ListeningEvent)
+    case listening(ListeningEvent, recent: RecentListen? = nil)
     case recent(RecentListen)
 
     var key: LibrarySyncKey {
         switch self {
-        case .listening(let event): LibrarySyncKey(.event, event.id.uuidString)
+        case .listening(let event, _): LibrarySyncKey(.event, event.id.uuidString)
         case .recent(let recent): LibrarySyncKey(.recent, recent.id)
         }
     }
 
     func isRetained(in document: LibraryDocument) -> Bool {
         switch self {
-        case .listening(let event): document.events.contains { $0.id == event.id }
+        case .listening(let event, _): document.events.contains { $0.id == event.id }
         case .recent(let recent): document.recentlyPlayed.contains { $0.id == recent.id }
         }
     }
 
     func encodedValue() throws -> Data {
         switch self {
-        case .listening(let event): try LibrarySyncProjection.listeningValue(event)
+        case .listening(let event, _): try LibrarySyncProjection.listeningValue(event)
         case .recent(let recent): try LibrarySyncProjection.recentValue(recent)
         }
     }
@@ -61,6 +61,7 @@ enum LibrarySyncJournal {
     static func seed(_ document: LibraryDocument, now: Date, writer: UUID,
                      projectValues: LibrarySyncValueProjection = LibrarySyncProjection.values) throws -> LibrarySyncState {
         var retained = document
+        for event in retained.events { try retained.lifetimeListening.include(event) }
         LibraryHistoryRetention.apply(to: &retained, now: now)
         let values = try projectValues(retained)
         let defaults = try LibrarySyncPreferences.fields(UserPreferences())
@@ -151,10 +152,22 @@ enum LibrarySyncJournal {
     static func recordingCheckpoint(_ checkpoint: LibrarySyncCheckpoint, previous: LibraryDocument,
                                     candidate: LibraryDocument, historyWasPruned: Bool, now: Date, writer: UUID,
                                     projectValues: LibrarySyncValueProjection = LibrarySyncProjection.values) throws -> LibrarySyncState? {
-        let retained = checkpoint.isRetained(in: candidate)
-        guard previous.syncState != nil || retained else { return nil }
+        try recordingCheckpoints([checkpoint], previous: previous, candidate: candidate, historyWasPruned: historyWasPruned,
+                                 now: now, writer: writer, projectValues: projectValues)
+    }
+
+    static func recordingCheckpoints(_ batch: [LibrarySyncCheckpoint], previous: LibraryDocument,
+                                     candidate: LibraryDocument, historyWasPruned: Bool, now: Date, writer: UUID,
+                                     projectValues: LibrarySyncValueProjection = LibrarySyncProjection.values) throws -> LibrarySyncState? {
+        var checkpoints = batch
+        for checkpoint in batch {
+            if case .listening(_, let recent?) = checkpoint { checkpoints.append(.recent(recent)) }
+        }
+        let retained = checkpoints.filter { $0.isRetained(in: candidate) }
+        guard previous.syncState != nil || !retained.isEmpty
+            || previous.lifetimeListening != candidate.lifetimeListening else { return nil }
         var state = try previous.syncState ?? seed(previous, now: now, writer: writer, projectValues: projectValues)
-        if retained {
+        for checkpoint in retained {
             let value = try checkpoint.encodedValue()
             let existing = state.registers[checkpoint.key]
             if existing?.value != value || existing?.generation != state.historyReset {
@@ -162,12 +175,18 @@ enum LibrarySyncJournal {
                 state.put(checkpoint.key, value: value, revision: revision)
             }
         }
+        try LibraryLifetimeSync.record(previous: previous.lifetimeListening, candidate: candidate.lifetimeListening,
+                                       sessionIDs: Set(batch.compactMap {
+                                           if case .listening(let event, _) = $0 { return event.id.uuidString }
+                                           return nil
+                                       }), state: &state, now: now, writer: writer)
         if historyWasPruned { LibrarySyncMerge.compactHistory(&state, retaining: candidate) }
         guard state.registers.count <= LibrarySyncCodec.maximumRegisters else { throw LibrarySyncError.tooLarge }
         return state
     }
 
     static func restoreAggregates(in document: inout LibraryDocument, from state: LibrarySyncState) throws {
+        document.lifetimeListening = try LibraryLifetimeSync.materialize(state)
         document.releases = Array(document.releases.prefix(LibraryPersistence.releaseLimit))
         LibrarySyncProjection.prunePendingNotifications(in: &document)
         for index in document.followedArtists.indices {

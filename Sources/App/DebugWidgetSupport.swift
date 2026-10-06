@@ -48,7 +48,8 @@ enum DebugWidgetSupport {
             library.toggleFavorite(track)
             library.recordRecent(track: track, position: Double(index + 1) * 12)
         }
-        for kind in GeneratedPlaylistKind.allCases {
+        // Widget fixtures keep one mix of each cadence; Daily Mix 2 and 3 have their own Home fixture.
+        for kind in [GeneratedPlaylistKind.discoverWeekly, .dailyMix] {
             let period = kind == .dailyMix ? RecommendationEngine.dayKey(for: Date(), calendar: .current)
                 : RecommendationEngine.weekKey(for: Date(), calendar: .current)
             library.saveMix(GeneratedPlaylist(kind: kind, tracks: tracks, generatedAt: Date(), periodKey: period, seedArtists: []))
@@ -131,7 +132,7 @@ struct DebugWidgetPreviewView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("widgetPreview.canvas")
                 Spacer(minLength: 0)
-                Text("Breezy").font(.caption).foregroundStyle(.secondary)
+                Text("Velvet Thorn").font(.caption).foregroundStyle(.secondary)
             }
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity)

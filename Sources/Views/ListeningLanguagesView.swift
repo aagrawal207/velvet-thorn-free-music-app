@@ -51,7 +51,7 @@ struct ListeningLanguagesView: View {
         .background(AppTheme.background)
         .foregroundStyle(AppTheme.primaryText)
         .tint(AppTheme.accent)
-        .navigationTitle("Listening languages")
+        .navigationTitle("Listening Languages")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .task { model.refreshListeningLanguages() }
@@ -63,8 +63,8 @@ struct ListeningLanguagesView: View {
             : AnyLayout(HStackLayout(alignment: .top, spacing: 20))
         return VStack(alignment: .leading, spacing: 16) {
             layout {
-                metric(summary.totalPlays, title: "Counted plays", id: "plays")
-                metric(summary.totalSongs, title: "Different songs", id: "songs")
+                metric(summary.totalPlays, title: "Counted Plays", id: "plays")
+                metric(summary.totalSongs, title: "Different Songs", id: "songs")
             }
             Divider()
             Text("Language identified for \(summary.identifiedPlays.formatted()) of \(summary.totalPlays.formatted()) counted plays.")
@@ -152,7 +152,7 @@ struct ListeningLanguagesView: View {
             if model.library.preferences.saveListeningHistory,
                model.languageDiscovery.hasPendingChecks || model.languageDiscovery.hadFailures {
                 Button { model.refreshListeningLanguages() } label: {
-                    Label("Check more songs", systemImage: "arrow.clockwise")
+                    Label("Check More Songs", systemImage: "arrow.clockwise")
                         .appFont(.subheadline, weight: .semibold)
                         .frame(minHeight: 44)
                         .contentShape(Rectangle())
@@ -204,7 +204,7 @@ struct ListeningLanguagesView: View {
                 .appFont(.subheadline)
                 .foregroundStyle(AppTheme.secondaryText)
             Button { model.updatePreferences { $0.saveListeningHistory = true } } label: {
-                Text("Turn on listening history")
+                Text("Turn On Listening History")
                     .appFont(.subheadline, weight: .semibold)
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
@@ -228,7 +228,7 @@ struct ListeningLanguagesView: View {
             } label: {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Tune recommendations").appFont(.headline, weight: .semibold)
+                        Text("Tune Recommendations").appFont(.headline, weight: .semibold)
                         Text(model.library.preferences.languageNudges.isAutomatic ? "Optional" : "Your adjustments are saved")
                             .appFont(.caption)
                             .foregroundStyle(AppTheme.secondaryText)
@@ -243,7 +243,7 @@ struct ListeningLanguagesView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Tune recommendations")
+            .accessibilityLabel("Tune Recommendations")
             .accessibilityValue(isTuningExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint("Shows optional language adjustments")
             .accessibilityIdentifier("listeningLanguages.tune")
@@ -260,7 +260,7 @@ struct ListeningLanguagesView: View {
                     }
                     Divider()
                     Button { model.resetLanguageNudges() } label: {
-                        Label("Reset adjustments", systemImage: "arrow.counterclockwise")
+                        Label("Reset Adjustments", systemImage: "arrow.counterclockwise")
                             .appFont(.subheadline, weight: .semibold)
                             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                             .contentShape(Rectangle())

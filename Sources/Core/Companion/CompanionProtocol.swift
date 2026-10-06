@@ -6,6 +6,14 @@ enum CompanionRepeatMode: String, Codable, Equatable, Sendable {
     case one
 }
 
+/// The phone's accent, mirrored by raw value because the watch target cannot see `AppAccent` or its palette.
+enum CompanionAccent: String, CaseIterable, Codable, Equatable, Sendable {
+    case coral, mint, ocean, violet, amber, rose, teal
+
+    /// Matches the phone's default accent, so a watch that has never heard from its phone looks like an unchanged phone.
+    static let fallback: CompanionAccent = .coral
+}
+
 struct CompanionExecutionLease: Codable, Equatable, Sendable {
     let id: UUID
     let sessionID: UUID
@@ -30,25 +38,41 @@ struct CompanionSnapshot: Codable, Equatable, Sendable {
     let updatedAt: Date
     let nowPlaying: CompanionNowPlaying?
     let libraryError: String?
+    /// Nil when absent or unrecognised; the watch then keeps the last accent it applied.
+    let accent: CompanionAccent?
 
-    init(sessionID: UUID, sequence: UInt64, updatedAt: Date, nowPlaying: CompanionNowPlaying?, libraryError: String? = nil) {
+    init(sessionID: UUID, sequence: UInt64, updatedAt: Date, nowPlaying: CompanionNowPlaying?, libraryError: String? = nil,
+         accent: CompanionAccent? = nil) {
         self.sessionID = sessionID
         self.sequence = sequence
         self.updatedAt = updatedAt
         self.nowPlaying = nowPlaying
         self.libraryError = libraryError.map(CompanionWire.boundedText)
+        self.accent = accent
     }
 
-    private enum CodingKeys: String, CodingKey { case sessionID, sequence, updatedAt, nowPlaying, libraryError }
+    private enum CodingKeys: String, CodingKey { case sessionID, sequence, updatedAt, nowPlaying, libraryError, accent }
 
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let date = try values.decode(Date.self, forKey: .updatedAt)
         guard date.timeIntervalSince1970.isFinite else { throw CompanionWireError.malformedRequest }
+        // Cosmetic and optional: an unknown or mistyped accent must never cost the watch its playback snapshot.
+        let accent = (try? values.decodeIfPresent(String.self, forKey: .accent)).flatMap(CompanionAccent.init(rawValue:))
         self.init(sessionID: try values.decode(UUID.self, forKey: .sessionID),
                   sequence: try values.decode(UInt64.self, forKey: .sequence), updatedAt: date,
                   nowPlaying: try values.decodeIfPresent(CompanionNowPlaying.self, forKey: .nowPlaying),
-                  libraryError: try values.decodeIfPresent(String.self, forKey: .libraryError))
+                  libraryError: try values.decodeIfPresent(String.self, forKey: .libraryError), accent: accent)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(sessionID, forKey: .sessionID)
+        try values.encode(sequence, forKey: .sequence)
+        try values.encode(updatedAt, forKey: .updatedAt)
+        try values.encodeIfPresent(nowPlaying, forKey: .nowPlaying)
+        try values.encodeIfPresent(libraryError, forKey: .libraryError)
+        try values.encodeIfPresent(accent, forKey: .accent)
     }
 }
 
@@ -61,6 +85,8 @@ struct CompanionNowPlaying: Codable, Equatable, Sendable {
     let isPlaying: Bool
     let isLoading: Bool
     let isFavorite: Bool
+    /// The super-like tier; always false when `isFavorite` is false.
+    let isSuperLiked: Bool
     let shuffleEnabled: Bool
     let repeatMode: CompanionRepeatMode
     let errorMessage: String?
@@ -74,6 +100,7 @@ struct CompanionNowPlaying: Codable, Equatable, Sendable {
         isPlaying: Bool,
         isLoading: Bool,
         isFavorite: Bool,
+        isSuperLiked: Bool = false,
         shuffleEnabled: Bool,
         repeatMode: CompanionRepeatMode,
         errorMessage: String? = nil
@@ -87,13 +114,15 @@ struct CompanionNowPlaying: Codable, Equatable, Sendable {
         self.isPlaying = isPlaying
         self.isLoading = isLoading
         self.isFavorite = isFavorite
+        self.isSuperLiked = isFavorite && isSuperLiked
         self.shuffleEnabled = shuffleEnabled
         self.repeatMode = repeatMode
         self.errorMessage = errorMessage.map(CompanionWire.boundedText)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case trackID, title, artist, position, duration, isPlaying, isLoading, isFavorite, shuffleEnabled, repeatMode, errorMessage
+        case trackID, title, artist, position, duration, isPlaying, isLoading, isFavorite, isSuperLiked, shuffleEnabled, repeatMode
+        case errorMessage
     }
 
     init(from decoder: any Decoder) throws {
@@ -107,6 +136,7 @@ struct CompanionNowPlaying: Codable, Equatable, Sendable {
                   isPlaying: try values.decode(Bool.self, forKey: .isPlaying),
                   isLoading: try values.decode(Bool.self, forKey: .isLoading),
                   isFavorite: try values.decode(Bool.self, forKey: .isFavorite),
+                  isSuperLiked: try values.decode(Bool.self, forKey: .isSuperLiked),
                   shuffleEnabled: try values.decode(Bool.self, forKey: .shuffleEnabled),
                   repeatMode: try values.decode(CompanionRepeatMode.self, forKey: .repeatMode),
                   errorMessage: try values.decodeIfPresent(String.self, forKey: .errorMessage))
@@ -123,6 +153,7 @@ struct CompanionNowPlaying: Codable, Equatable, Sendable {
         try values.encode(isPlaying, forKey: .isPlaying)
         try values.encode(isLoading, forKey: .isLoading)
         try values.encode(isFavorite, forKey: .isFavorite)
+        try values.encode(isSuperLiked, forKey: .isSuperLiked)
         try values.encode(shuffleEnabled, forKey: .shuffleEnabled)
         try values.encode(repeatMode, forKey: .repeatMode)
         try values.encodeIfPresent(errorMessage, forKey: .errorMessage)
@@ -136,7 +167,7 @@ struct CompanionRequest: Codable, Equatable, Sendable {
     let expectedTrackID: String?
     let executionLease: CompanionExecutionLease?
 
-    init(version: Int = 1, id: UUID = UUID(), action: CompanionAction, expectedTrackID: String? = nil,
+    init(version: Int = CompanionWire.version, id: UUID = UUID(), action: CompanionAction, expectedTrackID: String? = nil,
          executionLease: CompanionExecutionLease? = nil) {
         self.version = version
         self.id = id
@@ -177,7 +208,7 @@ struct CompanionRequest: Codable, Equatable, Sendable {
             }
         case .seek(let position):
             guard position.isFinite, position >= 0 else { throw CompanionWireError.invalidSeek }
-        case .snapshot, .play, .pause, .next, .previous, .setFavorite, .setShuffle, .setRepeatMode:
+        case .snapshot, .play, .pause, .next, .previous, .setFavorite, .setSuperLiked, .setShuffle, .setRepeatMode:
             break
         }
     }
@@ -192,12 +223,14 @@ enum CompanionAction: Codable, Equatable, Sendable {
     case previous
     case seek(Double)
     case setFavorite(Bool)
+    /// True promotes the current song to a super like (liking it if needed); false steps it back to a like.
+    case setSuperLiked(Bool)
     case setShuffle(Bool)
     case setRepeatMode(CompanionRepeatMode)
     case playItem(location: String, itemID: String, revision: String)
 
     private enum CodingKeys: String, CodingKey {
-        case snapshot, browse, play, pause, next, previous, seek, setFavorite, setShuffle, setRepeatMode, playItem
+        case snapshot, browse, play, pause, next, previous, seek, setFavorite, setSuperLiked, setShuffle, setRepeatMode, playItem
     }
 
     private enum ArgumentKeys: String, CodingKey {
@@ -222,13 +255,14 @@ enum CompanionAction: Codable, Equatable, Sendable {
             case .next: self = .next
             default: self = .previous
             }
-        case .browse, .seek, .setFavorite, .setShuffle, .setRepeatMode:
+        case .browse, .seek, .setFavorite, .setSuperLiked, .setShuffle, .setRepeatMode:
             try CompanionWire.requireKeys(["_0"], in: payload)
             let arguments = try payload.container(keyedBy: ArgumentKeys.self)
             switch key {
             case .browse: self = .browse(try arguments.decode(String.self, forKey: .value))
             case .seek: self = .seek(try arguments.decode(Double.self, forKey: .value))
             case .setFavorite: self = .setFavorite(try arguments.decode(Bool.self, forKey: .value))
+            case .setSuperLiked: self = .setSuperLiked(try arguments.decode(Bool.self, forKey: .value))
             case .setShuffle: self = .setShuffle(try arguments.decode(Bool.self, forKey: .value))
             default: self = .setRepeatMode(try arguments.decode(CompanionRepeatMode.self, forKey: .value))
             }
@@ -258,6 +292,9 @@ enum CompanionAction: Codable, Equatable, Sendable {
         case .setFavorite(let favorite):
             var arguments = values.nestedContainer(keyedBy: ArgumentKeys.self, forKey: .setFavorite)
             try arguments.encode(favorite, forKey: .value)
+        case .setSuperLiked(let superLiked):
+            var arguments = values.nestedContainer(keyedBy: ArgumentKeys.self, forKey: .setSuperLiked)
+            try arguments.encode(superLiked, forKey: .value)
         case .setShuffle(let shuffled):
             var arguments = values.nestedContainer(keyedBy: ArgumentKeys.self, forKey: .setShuffle)
             try arguments.encode(shuffled, forKey: .value)
@@ -398,7 +435,7 @@ enum CompanionWireError: Error, LocalizedError, Equatable, Sendable {
         switch self {
         case .oversizedMessage: "This companion message is too large. Refresh and try again."
         case .malformedRequest: "This companion request couldn’t be read. Refresh and try again."
-        case .unsupportedVersion: "Update Breezy on your iPhone and Apple Watch to use these controls."
+        case .unsupportedVersion: "Update Velvet Thorn on your iPhone and Apple Watch to use these controls."
         case .invalidLocation: "This library page is unavailable. Refresh and try again."
         case .invalidTrackID: "This song can’t be controlled from here. Refresh and try again."
         case .invalidItem: "This library item is unavailable. Refresh and try again."
@@ -408,7 +445,9 @@ enum CompanionWireError: Error, LocalizedError, Equatable, Sendable {
 }
 
 enum CompanionWire {
-    static let version = 1
+    /// Version 2 adds `isSuperLiked` to the snapshot and the `setSuperLiked` action; both sides ship together.
+    /// The optional snapshot `accent` needs no bump: snapshot decoding ignores unknown keys and tolerates its absence.
+    static let version = 2
     static let maximumMessageBytes = 60 * 1_024
     static let maximumItems = 40
     static let maximumIdentifierBytes = 256

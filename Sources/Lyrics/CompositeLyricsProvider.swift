@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-actor CompositeLyricsProvider: LyricsProviding {
+actor CompositeLyricsProvider: LyricsVariantsProviding {
     typealias MetadataPreparation = @Sendable (Track) async throws -> Track
 
     struct Configuration: Sendable {
@@ -50,20 +50,42 @@ actor CompositeLyricsProvider: LyricsProviding {
     private var cache: [LyricsRequestKey: Entry] = [:]
     private var flights: [LyricsRequestKey: Flight] = [:]
     private var access: UInt64 = 0
+    private let variantDiscovery = LyricsVariantDiscovery()
+    private let additionalVariantSource: (any LyricsProviding)?
 
     init(primary: any LyricsProviding = LRCLyricsService(), fallback: (any LyricsProviding)?,
          prepareTrack: MetadataPreparation? = nil,
-         configuration: Configuration = Configuration(), now: @escaping @Sendable () -> Date = { Date() }) {
+         configuration: Configuration = Configuration(), now: @escaping @Sendable () -> Date = { Date() },
+         additionalVariantSource: (any LyricsProviding)? = nil) {
         self.primary = primary
         self.fallback = fallback
         self.prepareTrack = prepareTrack
         self.configuration = configuration
         self.now = now
+        self.additionalVariantSource = additionalVariantSource
     }
 
     var activity: Activity {
         Activity(cachedRecordings: cache.count, activeLookups: flights.count,
                  waitingCallers: flights.values.reduce(0) { $0 + $1.waiters.count })
+    }
+
+    func lyricVariants(for track: Track) async throws -> [LyricsDocument] {
+        try Task.checkCancellation()
+        var prepared = track
+        if LyricsMatcher.validDuration(track.duration) == nil, let prepareTrack {
+            do {
+                let metadata = try await PlaybackDeadline.run(seconds: configuration.metadataTimeout) {
+                    try await prepareTrack(track)
+                }
+                try Task.checkCancellation()
+                if metadata.id == track.id { prepared.duration = LyricsMatcher.validDuration(metadata.duration) }
+            } catch {
+                if error is CancellationError || Task.isCancelled { throw CancellationError() }
+            }
+        }
+        let sources = [primary] + (fallback.map { [$0] } ?? []) + (additionalVariantSource.map { [$0] } ?? [])
+        return try await variantDiscovery.documents(for: prepared, baseline: self, sources: sources)
     }
 
     func lyrics(for track: Track) async throws -> LyricsDocument {

@@ -47,7 +47,7 @@ final class ArtistSpotlightLanguagePresentationTests: XCTestCase {
         XCTAssertEqual(suggestion.unclassifiedCount, 1)
         let multilingual = ArtistSpotlightLoader(artist: ArtistSpotlightTestSupport.page([english, likelyTamil, hindi]))
         XCTAssertTrue(multilingual.hasUsefulLanguageFacets)
-        XCTAssertEqual(multilingual.languageControlTitle, "Browse by language")
+        XCTAssertEqual(multilingual.languageControlTitle, "Browse by Language")
         XCTAssertEqual(multilingual.availableLanguages, [.english, .hindi])
         XCTAssertFalse(multilingual.isBrowsingLanguages)
         XCTAssertEqual(multilingual.visibleTracks.count, 3)
@@ -70,7 +70,7 @@ final class ArtistSpotlightLanguagePresentationTests: XCTestCase {
         try await provider.requests.complete(request, with: .success(ArtistSpotlightTestSupport.document(tamil, text: ArtistSpotlightFixtures.tamilText)))
         await load.value
         XCTAssertTrue(loader.hasUsefulLanguageFacets)
-        XCTAssertEqual(loader.languageControlTitle, "Browse by language")
+        XCTAssertEqual(loader.languageControlTitle, "Browse by Language")
         XCTAssertFalse(loader.isBrowsingLanguages)
         XCTAssertEqual(loader.filter, .unclassified)
         XCTAssertTrue(loader.visibleTracks.isEmpty)

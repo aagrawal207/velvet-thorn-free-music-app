@@ -1,0 +1,51 @@
+{
+ "total": 33,
+ "start": 1,
+ "results": [
+  {
+   "id": "32049168",
+   "title": "Bollywood Bappa",
+   "subtitle": "21 Songs",
+   "type": "playlist",
+   "image": "https://c.saavncdn.com/editorial/BollywoodBappa_20260908050242_150x150.jpg",
+   "perma_url": "https://www.jiosaavn.com/featured/bollywood-bappa/B6QQ8fKsUOQ_",
+   "explicit_content": "0",
+   "more_info": {
+    "song_count": "21",
+    "language": "hindi",
+    "entity_type": "playlist",
+    "firstname": "JioSaavn"
+   }
+  },
+  {
+   "id": "1299841359",
+   "title": "Bollywood Remix",
+   "subtitle": "46 Songs",
+   "type": "playlist",
+   "image": "https://c.saavncdn.com/editorial/BollywoodRemix_20260423042925_150x150.jpg",
+   "perma_url": "https://www.jiosaavn.com/featured/bollywood-remix/-VbP8k2Z6K6QBCMgztuf8A__",
+   "explicit_content": "0",
+   "more_info": {
+    "song_count": "46",
+    "language": "hindi",
+    "entity_type": "playlist",
+    "firstname": "JioSaavn"
+   }
+  },
+  {
+   "id": "1208889749",
+   "title": "Bollywood Love Songs",
+   "subtitle": "49 Songs",
+   "type": "playlist",
+   "image": "https://c.saavncdn.com/editorial/BollywoodLoveSongs_20231129150319_150x150.jpg",
+   "perma_url": "https://www.jiosaavn.com/featured/bollywood-love-songs/yZdsHaw6yb3wxP8tCU-flw__",
+   "explicit_content": "0",
+   "more_info": {
+    "song_count": "49",
+    "language": "hindi",
+    "entity_type": "playlist",
+    "firstname": "JioSaavn"
+   }
+  }
+ ]
+}

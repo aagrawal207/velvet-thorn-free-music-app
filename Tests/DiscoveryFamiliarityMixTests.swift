@@ -413,7 +413,7 @@ final class DiscoveryFamiliarityMixTests: XCTestCase {
         case .discoverWeekly:
             try await engine(catalog).discoverWeekly(profile: profile, languages: languages, periodKey: "2026-W22",
                 languageProfile: languageProfile, familiarity: mode)
-        case .dailyMix:
+        case .dailyMix, .dailyMix2, .dailyMix3:
             try await engine(catalog).dailyMix(profile: profile, languages: languages, periodKey: "2026-05-28",
                 languageProfile: languageProfile, familiarity: mode)
         }

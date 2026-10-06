@@ -3,11 +3,14 @@ import OSLog
 
 extension RecommendationEngine {
     func languageDiscovery(profile: TasteProfile, languageProfile: ListeningLanguageProfile,
-                           limit: Int = 2, familiarity: DiscoveryFamiliarity = .balanced) async throws -> [DiscoverySection] {
+                           limit: Int = 2, familiarity: DiscoveryFamiliarity = .balanced,
+                           genreProfile: ListeningGenreProfile? = nil) async throws -> [DiscoverySection] {
         var balance = DiscoveryBalanceMetrics()
+        var skips = SkipSignalMetrics(profile: profile)
         defer {
             balance.emit(mode: familiarity, scope: .languageDiscovery)
             Self.log.info("automaticDiscoverySuccess=\(balance.success) automaticDiscoveryEmpty=\(balance.empty) automaticDiscoveryFailure=\(balance.failure) automaticDiscoveryCancelled=\(balance.cancelled)")
+            skips.emit(.home)
         }
         do {
             try Task.checkCancellation()
@@ -17,7 +20,7 @@ extension RecommendationEngine {
                 .prefix(max(0, min(limit, 2))))
             guard !targets.isEmpty else { return [] }
             let seeds = profile.topTracks(limit: profile.trackAffinity.count).filter {
-                Self.isDiscoveryAudio($0) && !profile.dislikedTrackIDs.contains($0.id)
+                Self.isDiscoveryAudio($0) && !profile.dislikedTrackIDs.contains($0.id) && !profile.isResting($0)
             }
             // Each of two targets gets one seed radio and one search fallback, never extra fan-out per candidate.
             let results = try await withThrowingTaskGroup(of: (Int, LanguageDiscoveryResult).self) { group in
@@ -26,7 +29,8 @@ extension RecommendationEngine {
                     let seed = hasPlays ? seeds.first { languageProfile.language(for: $0) == language } : nil
                     group.addTask {
                         (index, try await self.discoverLanguage(language, seed: seed, profile: profile,
-                                                               languageProfile: languageProfile, familiarity: familiarity))
+                                                               languageProfile: languageProfile, familiarity: familiarity,
+                                                               genreProfile: genreProfile))
                     }
                 }
                 var collected: [(Int, LanguageDiscoveryResult)] = []
@@ -34,10 +38,11 @@ extension RecommendationEngine {
                 return collected.sorted { $0.0 < $1.0 }.map(\.1)
             }
             try Task.checkCancellation()
+            skips.restingExcluded = results.reduce(0) { $0 + $1.restingExcluded }
             let sections = results.compactMap(\.section)
             if results.allSatisfy({ !$0.hadResponse }), let error = results.compactMap(\.lastError).last {
                 throw (error as? MusicServiceError)
-                    ?? MusicServiceError.unavailable("Breezy couldn’t load recommendations. Please try again.")
+                    ?? MusicServiceError.unavailable("Velvet Thorn couldn’t load recommendations. Please try again.")
             }
             balance.record(sections.flatMap(\.tracks), profile: profile)
             return sections
@@ -54,6 +59,7 @@ extension RecommendationEngine {
         var section: DiscoverySection?
         var hadResponse = false
         var lastError: (any Error)?
+        var restingExcluded = 0
     }
 
     private enum LanguageDiscoveryRequest: Sendable {
@@ -62,7 +68,8 @@ extension RecommendationEngine {
 
     private func discoverLanguage(_ language: ArtistSongLanguage, seed: Track?, profile: TasteProfile,
                                   languageProfile: ListeningLanguageProfile,
-                                  familiarity: DiscoveryFamiliarity) async throws -> LanguageDiscoveryResult {
+                                  familiarity: DiscoveryFamiliarity,
+                                  genreProfile: ListeningGenreProfile?) async throws -> LanguageDiscoveryResult {
         var result = LanguageDiscoveryResult()
         var requests: [LanguageDiscoveryRequest] = seed.map { [.radio($0)] } ?? []
         requests.append(.search("\(language.title) songs"))
@@ -76,12 +83,15 @@ extension RecommendationEngine {
                 }
                 try Task.checkCancellation()
                 result.hadResponse = true
-                let candidates = tracks.enumerated().filter {
+                let usable = tracks.enumerated().filter {
                     $0.element.id != seed?.id && !profile.dislikedTrackIDs.contains($0.element.id) && Self.isDiscoveryAudio($0.element)
-                }.map {
+                }
+                let awake = usable.filter { !profile.isResting($0.element) }
+                result.restingExcluded += usable.count - awake.count
+                let candidates = Self.applyingGenres(awake.map {
                     Candidate(track: $0.element, score: 1, order: $0.offset).weighted(by: languageProfile)
                         .weighted(by: familiarity, heardTrackIDs: profile.heardTrackIDs)
-                }
+                }, profile: genreProfile, mix: false)
                 let picks = Self.select(candidates.sorted(by: Candidate.ranks).map(\.track),
                                         limit: Self.sectionTrackLimit, artistCap: Self.dailyMixArtistCap)
                 guard !picks.isEmpty else { continue }
@@ -110,6 +120,6 @@ extension RecommendationEngine {
     private static func discoverySubtitle(_ language: ArtistSongLanguage, profile: ListeningLanguageProfile) -> String {
         if profile.summary.rows.contains(where: { $0.language == language && $0.plays > 0 }) { return "Inspired by your listening" }
         if profile.nudges[language] == .more { return "A little more \(language.title)" }
-        return "A starting point while Breezy learns your listening"
+        return "A starting point while Velvet Thorn learns your listening"
     }
 }

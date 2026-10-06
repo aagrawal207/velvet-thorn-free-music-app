@@ -7,6 +7,10 @@ struct BreezyWidgets: WidgetBundle {
         RecentlyPlayedWidget()
         LikedSongsWidget()
         MixWidget()
+        NowPlayingWidget()
+        BreezyLauncherWidget()
+        PlayPauseControl()
+        OpenBreezyControl()
     }
 }
 
@@ -17,7 +21,7 @@ struct RecentlyPlayedWidget: Widget {
             MusicWidgetView(snapshot: entry.snapshot, kind: .recentlyPlayed)
         }
         .configurationDisplayName("Recently played")
-        .description("Return to songs you've played in Breezy.")
+        .description("Return to songs you've played in Velvet Thorn.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         .contentMarginsDisabled()
     }

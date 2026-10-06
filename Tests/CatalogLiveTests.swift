@@ -34,8 +34,55 @@ final class CatalogLiveTests: XCTestCase {
         XCTAssertFalse(Set(next.tracks.map(\.id)).subtracting(initial.tracks.map(\.id)).isEmpty)
         let playlist = try await catalog.browse(id: CatalogDiscovery.englishPlaylist)
         XCTAssertFalse(playlist.tracks.isEmpty)
-        XCTAssertTrue(playlist.tracks.allSatisfy { $0.isAudioRecording == true })
-        print("CATALOG LIVE pagination: \(initial.tracks.count) + \(next.tracks.count); editorial browse: \(playlist.tracks.count)")
+        // Playlist pages list video entries as `false`; Home's editorial selection must still take album audio only.
+        XCTAssertTrue(playlist.tracks.allSatisfy { $0.isAudioRecording != nil }, "Every playlist entry is classified")
+        XCTAssertTrue(playlist.tracks.contains { $0.isAudioRecording == true })
+        XCTAssertTrue(CatalogDiscovery.select(playlist.tracks, language: .english).allSatisfy { $0.isAudioRecording == true })
+        print("CATALOG LIVE pagination: \(initial.tracks.count) + \(next.tracks.count); editorial browse: \(playlist.tracks.count) (\(playlist.tracks.filter { $0.isAudioRecording == false }.count) video entries)")
+    }
+
+    /// R13 item 9: playlists found through Search must open with their songs. Browses the first three results the
+    /// way `CollectionDetailView` does and records each raw page when a browse comes back empty.
+    func testLivePlaylistSearchResultsOpenWithTheirSongs() async throws {
+        try requireLiveTests()
+        let catalog = YouTubeMusicService()
+        let page = try await catalog.search(query: "bollywood party", filter: .playlists, continuation: nil)
+        XCTAssertGreaterThanOrEqual(page.collections.count, 3, "The playlists filter must return a full first page")
+        XCTAssertTrue(page.collections.allSatisfy { $0.kind == .playlist && $0.id.hasPrefix("VL") && $0.tracks.isEmpty },
+                      page.collections.map(\.id).description)
+        print("CATALOG LIVE 'bollywood party' playlists: \(page.collections.count); \(page.collections.prefix(6).map { "\($0.title) [\($0.id)]" })")
+        var empty: [MusicCollection] = []
+        for collection in page.collections.prefix(3) {
+            let detail = try await catalog.browse(id: collection.id)
+            let audio = detail.tracks.filter { $0.isAudioRecording == true }.count
+            let video = detail.tracks.filter { $0.isAudioRecording == false }.count
+            print("CATALOG LIVE playlist browse \(collection.id) '\(collection.title)': \(detail.tracks.count) tracks (\(audio) audio, \(video) video entries), \(detail.collections.count) collections, title=\(detail.title ?? "-"), continuation=\(detail.continuation == nil ? 0 : 1); \(detail.tracks.prefix(3).map { "\($0.title) by \($0.artistName) [\($0.id)]" })")
+            XCTAssertTrue(detail.tracks.allSatisfy { CatalogText.videoID($0.id) != nil && $0.isAudioRecording != nil && $0.artworkURL != nil },
+                          "Every listed entry is a classified YouTube recording with artwork")
+            XCTAssertEqual(audio + video, detail.tracks.count)
+            XCTAssertEqual(Set(detail.tracks.map(\.id)).count, detail.tracks.count)
+            if detail.tracks.isEmpty { empty.append(collection) }
+        }
+        guard !empty.isEmpty else { return }
+        // Keep the provider's own words for the regression fixture: the raw page shows which renderer was missed.
+        let session = CatalogTransport.anonymousSession()
+        defer { session.invalidateAndCancel() }
+        let transport = CatalogTransport(session: session, maxCacheBytes: 0, maxCacheEntries: 0)
+        let version = try await WebRemixConfiguration(transport: transport).version()
+        let directory = FileManager.default.temporaryDirectory.appending(path: "ganabajana-live-playlists", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for collection in empty {
+            let response = try await transport.post(baseURL: CatalogTransport.musicURL, endpoint: "browse", body: [
+                "browseId": .string(collection.id),
+                "context": ["client": ["clientName": "WEB_REMIX", "clientVersion": .string(version), "hl": "en", "gl": "IN"]],
+            ], ttl: 0)
+            let url = directory.appending(path: "\(collection.id).json")
+            try response.json.encoded().write(to: url)
+            let shelves = ["musicPlaylistShelfRenderer", "musicShelfRenderer", "musicResponsiveListItemRenderer", "musicTwoRowItemRenderer"]
+                .map { "\($0)=\(response.json.values(for: $0).count)" }
+            print("CATALOG LIVE playlist raw \(collection.id): \(url.path); contents=\(response.json["contents"].object.keys.sorted()); \(shelves.joined(separator: " "))")
+            XCTFail("\(collection.title) [\(collection.id)] opened with no songs; raw page at \(url.path)")
+        }
     }
 
     func testLiveSeedRadioAndHindiEnglishDiscovery() async throws {

@@ -5,6 +5,7 @@ import SwiftUI
 struct AppIconPickerView: View {
     @Environment(MusicAppModel.self) private var model
     @Environment(AppIconController.self) private var icons
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var selectedID: String {
         let saved = model.library.preferences.appIconID
@@ -13,19 +14,27 @@ struct AppIconPickerView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: 3), spacing: 22) {
-                    ForEach(AppIcons.all) { option in
+            VStack(alignment: .leading, spacing: 20) {
+                ForEach(AppIconOption.Family.allCases, id: \.self) { family in
+                    Text(family.title)
+                        .appFont(.headline)
+                        .foregroundStyle(AppTheme.primaryText)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("settings.icon.family.\(family.rawValue)")
+                // Four columns keep every family on one screen; accessibility sizes need the room for titles.
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: dynamicTypeSize.isAccessibilitySize ? 2 : 4),
+                          spacing: 18) {
+                    ForEach(AppIcons.all.filter { $0.family == family }) { option in
                         Button {
                             model.selectAppIcon(option)
                         } label: {
                             VStack(spacing: 8) {
                                 Image(option.previewImageName)
                                     .resizable()
-                                    .frame(width: 72, height: 72)
-                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                    .frame(width: 64, height: 64)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
                                     .overlay {
-                                        RoundedRectangle(cornerRadius: 16)
+                                        RoundedRectangle(cornerRadius: 14)
                                             .strokeBorder(option.id == selectedID ? AppTheme.accent : AppTheme.secondaryText.opacity(0.25),
                                                           lineWidth: option.id == selectedID ? 3 : 1)
                                     }
@@ -51,10 +60,12 @@ struct AppIconPickerView: View {
                         .accessibilityIdentifier("settings.icon.\(option.id)")
                     }
                 }
+                }
                 if icons.isApplying {
                     ProgressView("Changing app icon…")
                         .appFont(.footnote)
                         .tint(AppTheme.accent)
+                        .frame(maxWidth: .infinity)
                         .accessibilityIdentifier("settings.icon.pending")
                 }
                 if let error = icons.errorMessage {
@@ -77,13 +88,14 @@ struct AppIconPickerView: View {
                             .accessibilityIdentifier("settings.icon.retry")
                         }
                     }
+                    .frame(maxWidth: .infinity)
                 }
             }
             .padding(20)
             .disabled(icons.isApplying || !icons.supportsAlternateIcons)
         }
         .background(AppTheme.background)
-        .navigationTitle("App icon")
+        .navigationTitle("App Icon")
         .navigationBarTitleDisplayMode(.inline)
     }
 }

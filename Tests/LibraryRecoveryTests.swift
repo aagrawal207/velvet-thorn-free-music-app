@@ -222,6 +222,8 @@ final class LibraryRecoveryTests: XCTestCase {
             let url = directory.appendingPathComponent(LibraryPersistence.fileName)
             var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
             json["version"] = 1
+            json.removeValue(forKey: "lifetimeListening")
+            json.removeValue(forKey: "superLikedIDs")
             json.removeValue(forKey: "syncState")
             json.removeValue(forKey: "listeningHistoryEpoch")
             json["events"] = []

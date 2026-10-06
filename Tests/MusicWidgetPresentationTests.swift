@@ -119,7 +119,7 @@ final class MusicWidgetPresentationTests: XCTestCase {
         let weekly = savedMix(.discoverWeekly, tracks: [libraryTestTrack("weekly-song")], period: "2026-W39")
         let snapshot = WidgetLibrarySnapshot(mixes: [weekly])
         let daily = MusicWidgetPresentation(snapshot: snapshot, kind: .mixes)
-        XCTAssertEqual(daily.heading, "Daily Mix")
+        XCTAssertEqual(daily.heading, "Daily Mix 1")
         XCTAssertEqual(daily.emptyState, .noMix)
         XCTAssertTrue(daily.tracks.isEmpty)
         XCTAssertNil(daily.playMixRoute)

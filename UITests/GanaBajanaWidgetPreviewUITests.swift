@@ -22,12 +22,12 @@ final class GanaBajanaWidgetPreviewUITests: XCTestCase {
     func testSmallDailyMixPreviewBrowsesTheSavedFiveSongCollection() throws {
         let widget = WidgetUITestSupport(testCase: self)
         try widget.launch(family: "small", kind: "mixes", arguments: ["--light"])
-        let link = try widget.expectLink("widgetPreview.smallLink", label: "Daily Mix. 5 songs. Open mix in Breezy.")
+        let link = try widget.expectLink("widgetPreview.smallLink", label: "Daily Mix 1. 5 songs. Open mix in Velvet Thorn.")
         XCTAssertFalse(widget.link("widget.mix.play").exists, "The small mix surface browses rather than starting playback")
         try widget.capturePreview("small-daily-mix-light", light: true)
         try widget.ui.tap(link)
         try widget.expectPreviewDismissed()
-        try widget.expectSavedMix(title: "Your Daily Mix")
+        try widget.expectSavedMix(title: "Daily Mix 1")
         widget.expectNoPlayback()
         widget.ui.capture("widget-preview-small-daily-mix-saved-collection")
     }
@@ -35,7 +35,7 @@ final class GanaBajanaWidgetPreviewUITests: XCTestCase {
     func testMediumDailyMixPreviewPlaysTheSavedCachedOrder() throws {
         let widget = WidgetUITestSupport(testCase: self)
         try widget.launch(family: "medium", kind: "mixes", arguments: ["--light"] + WidgetUIFixture.cacheArguments)
-        try widget.expectMixPreview(title: "Daily Mix")
+        try widget.expectMixPreview(title: "Daily Mix 1")
         try widget.capturePreview("medium-daily-mix-light", light: true)
         let started = ProcessInfo.processInfo.systemUptime
         try widget.ui.tap(widget.link("widget.mix.play"))
@@ -112,7 +112,7 @@ final class GanaBajanaWidgetPreviewUITests: XCTestCase {
         let widget = WidgetUITestSupport(testCase: self)
         try widget.launch(family: "medium", kind: "likedSongs", arguments: ["--widget-empty", "--light"])
         let link = try widget.expectLink("widget.empty.likedSongs",
-                                         label: "Liked songs. No liked songs yet. Like a song in Breezy to find it here.")
+                                         label: "Liked songs. No liked songs yet. Like a song in Velvet Thorn to find it here.")
         try widget.assertNoPreviewMetadata()
         try widget.capturePreview("medium-empty-liked-light", light: true)
         try widget.ui.tap(link)
@@ -120,7 +120,7 @@ final class GanaBajanaWidgetPreviewUITests: XCTestCase {
         let list = try widget.expectSavedList("likes", count: 0)
         XCTAssertFalse(list.buttons["library.likes.play"].isEnabled)
         XCTAssertFalse(list.buttons["library.likes.shuffle"].isEnabled)
-        XCTAssertTrue(list.staticTexts["Save a song you love"].exists)
+        XCTAssertTrue(list.staticTexts["Save a Song You Love"].exists)
         let findMusic = list.buttons["library.likes.findMusic"]
         try widget.reveal(findMusic, in: list)
         try widget.ui.tap(findMusic)
@@ -154,7 +154,7 @@ final class GanaBajanaWidgetPreviewUITests: XCTestCase {
         let widget = WidgetUITestSupport(testCase: self)
         try widget.launch(family: "large", kind: "likedSongs", arguments: ["--widget-unavailable", "--light"])
         let link = try widget.expectLink("widget.empty.likedSongs",
-                                         label: "Liked songs. Can't load music. Open Breezy to refresh your saved music.")
+                                         label: "Liked songs. Can't load music. Open Velvet Thorn to refresh your saved music.")
         try widget.assertNoPreviewMetadata()
         try widget.capturePreview("large-unavailable-liked-light", light: true)
         try widget.ui.tap(link)

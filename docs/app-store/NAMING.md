@@ -1,6 +1,6 @@
 # App naming record
 
-**Selected by the owner:** `Breezy - Stream Music & Chill`, App Store Connect app `6815025307`. The Home Screen displays `Breezy`. The alternatives below are historical research. **Leafnote is the selected default icon**, not the app name.
+**Renamed by the owner on 2 October 2026:** the app is **Velvet Thorn** (Home Screen and in-app copy, local source). The App Store Connect record `6815025307` and its IAP localizations still use `Breezy - Stream Music & Chill` until a rename is authorized; App Store name availability for Velvet Thorn has not been checked in App Store Connect. Earlier selection: `Breezy - Stream Music & Chill`, with `Breezy` on the Home Screen. The alternatives below are historical research. **Leafnote is the selected default icon**, not the app name.
 
 ## Shortlist
 

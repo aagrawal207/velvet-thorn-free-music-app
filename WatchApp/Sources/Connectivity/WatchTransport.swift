@@ -100,8 +100,10 @@ enum WatchActionPolicy {
         case .play, .pause:
             return displayed.nowPlaying?.isPlaying == current.nowPlaying?.isPlaying
                 && displayed.nowPlaying?.isLoading == current.nowPlaying?.isLoading
-        case .setFavorite:
+        case .setFavorite, .setSuperLiked:
+            // The heart is one three-state control; a tap or hold made against a stale tier is rejected, not reinterpreted.
             return displayed.nowPlaying?.isFavorite == current.nowPlaying?.isFavorite
+                && displayed.nowPlaying?.isSuperLiked == current.nowPlaying?.isSuperLiked
         case .setShuffle:
             return displayed.nowPlaying?.shuffleEnabled == current.nowPlaying?.shuffleEnabled
         case .setRepeatMode:

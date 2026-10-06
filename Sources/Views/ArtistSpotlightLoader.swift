@@ -105,7 +105,7 @@ final class ArtistSpotlightLoader {
     }
 
     var hasUsefulLanguageFacets: Bool { availableLanguages.count >= 2 }
-    var languageControlTitle: String { hasUsefulLanguageFacets ? "Browse by language" : "Languages" }
+    var languageControlTitle: String { hasUsefulLanguageFacets ? "Browse by Language" : "Languages" }
 
     var filters: [ArtistSpotlightFilter] {
         var included = Set(availableLanguages)

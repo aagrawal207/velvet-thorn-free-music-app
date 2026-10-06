@@ -11,18 +11,13 @@ struct AccentSettingsView: View {
                     colorRow(accent)
                 }
             } header: {
-                Text("Buttons and highlights")
-                    .appFont(.caption)
+                SettingsSectionHeader(title: "Buttons and Highlights", id: "settings.accent.section")
             }
-            .listRowBackground(AppTheme.surface)
+            .settingsSectionRows()
         }
-        .appFont(.body)
-        .environment(\.defaultMinListRowHeight, 52)
-        .foregroundStyle(AppTheme.primaryText)
-        .scrollContentBackground(.hidden)
-        .background(AppTheme.background)
+        .settingsFormChrome()
         .safeAreaInset(edge: .bottom, spacing: 0) { RootMessageBanner() }
-        .navigationTitle("Accent color")
+        .navigationTitle("Accent Color")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("settings.accent.list")
     }
@@ -32,25 +27,29 @@ struct AccentSettingsView: View {
         return Button {
             model.updatePreferences { $0.accent = accent }
         } label: {
-            HStack(spacing: 12) {
-                Circle()
-                    .fill(accent.color)
-                    .frame(width: 28, height: 28)
-                    .accessibilityHidden(true)
-                Text(accent.title)
-                    .appFont(.body, weight: selected ? .semibold : .regular)
-                if accent == .coral {
-                    Text("Default")
-                        .appFont(.subheadline)
-                        .foregroundStyle(AppTheme.secondaryText)
+            SettingsRowContent {
+                Label {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(accent.title)
+                            .appFont(.body, weight: selected ? .semibold : .regular)
+                        if accent == .coral {
+                            Text("Default")
+                                .appFont(.subheadline)
+                                .foregroundStyle(AppTheme.secondaryText)
+                        }
+                    }
+                } icon: {
+                    Circle()
+                        .fill(accent.color)
+                        .frame(width: SettingsRowMetrics.iconSize, height: SettingsRowMetrics.iconSize)
                 }
-                Spacer(minLength: 8)
+                .labelStyle(SettingsRowLabelStyle())
+            } trailing: {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .appFont(.title2, weight: .semibold)
                     .foregroundStyle(selected ? AppTheme.accent : AppTheme.secondaryText)
                     .accessibilityHidden(true)
             }
-            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

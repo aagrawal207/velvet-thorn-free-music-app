@@ -65,6 +65,27 @@ final class WatchPhoneSessionTests: XCTestCase {
         session.stop()
     }
 
+    func testSuperLikeRequestReachesPlaybackOnceAndTheReplyCarriesTheTier() throws {
+        let transport = WatchTestTransport()
+        let playback = WatchPhonePlaybackSpy()
+        playback.snapshot = WatchTestSupport.snapshot(playing: false, favorite: true, superLiked: true)
+        let session = makeSession(transport, playback)
+        session.start()
+        XCTAssertEqual(try CompanionWire.decode(CompanionSnapshot.self, from: transport.contexts[0]).nowPlaying?.isSuperLiked, true)
+        let lease = CompanionExecutionLease(id: UUID(), sessionID: playback.snapshot.sessionID)
+        let request = CompanionRequest(action: .setSuperLiked(true), expectedTrackID: "watch-test-track", executionLease: lease)
+        let replies = WatchReplyRecorder()
+        transport.onEvent?(.request(try CompanionWire.encode(request), WatchReply(receivedAt: 100, handler: replies.record)))
+        XCTAssertEqual(playback.requests, [request])
+        XCTAssertEqual(playback.requests.first?.version, 2)
+        let response = try CompanionWire.decode(CompanionResponse.self, from: try XCTUnwrap(replies.values.first))
+        XCTAssertEqual(response.id, request.id)
+        XCTAssertTrue(response.accepted)
+        XCTAssertEqual(response.snapshot.nowPlaying?.isFavorite, true)
+        XCTAssertEqual(response.snapshot.nowPlaying?.isSuperLiked, true)
+        session.stop()
+    }
+
     func testExpiredAndAlreadyRepliedRequestsCannotExecute() throws {
         let transport = WatchTestTransport()
         let playback = WatchPhonePlaybackSpy()
@@ -104,7 +125,8 @@ final class WatchPhoneSessionTests: XCTestCase {
         let session = makeSession(transport, playback)
         session.start()
         let inputs = [Data(repeating: 32, count: CompanionWire.maximumMessageBytes + 1), Data("{}".utf8),
-                      try CompanionWire.encode(CompanionRequest(version: 2, action: .play))]
+                      try CompanionWire.encode(CompanionRequest(version: 1, action: .play)),
+                      try CompanionWire.encode(CompanionRequest(version: 3, action: .setSuperLiked(true)))]
         for data in inputs {
             let replies = WatchReplyRecorder()
             transport.onEvent?(.request(data, WatchReply(receivedAt: 100, handler: replies.record)))

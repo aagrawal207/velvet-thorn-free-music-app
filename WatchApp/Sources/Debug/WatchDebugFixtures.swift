@@ -27,6 +27,7 @@ private final class WatchFixtureTransport: WatchTransport {
     private var sequence: UInt64 = 1
     private var isPlaying: Bool
     private var isFavorite = false
+    private var isSuperLiked = false
     private var isShuffled = false
     private var repeatMode = CompanionRepeatMode.off
     private var songIndex = 0
@@ -44,7 +45,7 @@ private final class WatchFixtureTransport: WatchTransport {
         isPlaying = mode != .paused && mode != .empty && mode != .libraryEmpty && mode != .error && mode != .loading
         hasSelection = mode != .empty && mode != .libraryEmpty
         isLoading = mode == .loading
-        playbackError = mode == .error ? "Playback couldn’t continue. Open Breezy on iPhone to try again." : nil
+        playbackError = mode == .error ? "Playback couldn’t continue. Open Velvet Thorn on iPhone to try again." : nil
     }
 
     func activate() {
@@ -95,7 +96,8 @@ private final class WatchFixtureTransport: WatchTransport {
         case .next: songIndex = (songIndex + 1) % 3; position = 0
         case .previous: songIndex = (songIndex + 2) % 3; position = 0
         case .seek(let value): position = min(value, 214)
-        case .setFavorite(let value): isFavorite = value
+        case .setFavorite(let value): isFavorite = value; if !value { isSuperLiked = false }
+        case .setSuperLiked(let value): isSuperLiked = value; if value { isFavorite = true }
         case .setShuffle(let value): isShuffled = value
         case .setRepeatMode(let value): repeatMode = value
         case .playItem(_, let itemID, _):
@@ -131,10 +133,11 @@ private final class WatchFixtureTransport: WatchTransport {
             nowPlaying: hasSelection ? CompanionNowPlaying(
                 trackID: "fixture-song-\(songIndex)", title: title(songIndex), artist: artist(songIndex),
                 position: position, duration: 214, isPlaying: isPlaying, isLoading: isLoading,
-                isFavorite: isFavorite, shuffleEnabled: isShuffled, repeatMode: repeatMode, errorMessage: playbackError
+                isFavorite: isFavorite, isSuperLiked: isSuperLiked, shuffleEnabled: isShuffled, repeatMode: repeatMode,
+                errorMessage: playbackError
             ) : nil,
             libraryError: mode == .libraryError || mode == .libraryEmpty
-                ? "Your saved library needs attention. Open Breezy on iPhone to check or recover it." : nil
+                ? "Your saved library needs attention. Open Velvet Thorn on iPhone to check or recover it." : nil
         )
     }
 

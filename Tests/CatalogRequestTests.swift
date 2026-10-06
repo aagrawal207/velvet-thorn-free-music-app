@@ -198,6 +198,51 @@ final class CatalogRequestTests: XCTestCase {
         }
     }
 
+    func testCommunityPlaylistKeepsVideoEntriesInOrderAndUpgradesOnlyConfirmedCreditsLinks() async throws {
+        let browse = try CatalogFixtures.data(CatalogFixtures.browse(CatalogPlaylistFixtures.mixedRows()))
+        for audio in [true, false] {
+            let metadata = try CatalogFixtures.data(["queueDatas": [["content": CatalogFixtures.radioTrack(
+                id: "NJAv_7lHUIU", title: "Kesariya", artist: "Arijit Singh", type: audio ? "MUSIC_VIDEO_TYPE_ATV" : "MUSIC_VIDEO_TYPE_OMV")]]])
+            let mock = CatalogMockSession { request in
+                if request.httpMethod == "GET" { return CatalogStub(data: CatalogFixtures.bootstrap) }
+                return CatalogStub(data: request.url?.path.hasSuffix("/music/get_queue") == true ? metadata : browse)
+            }
+            defer { mock.close() }
+            let page = try await YouTubeMusicService(session: mock.session).browse(id: CatalogPlaylistFixtures.playlistID)
+            XCTAssertEqual(page.tracks.map(\.id),
+                           [CatalogFixtures.hindiID, "ogBQ3VymYbk", CatalogPlaylistFixtures.uploadID, audio ? "NJAv_7lHUIU" : CatalogPlaylistFixtures.clipID],
+                           "audio=\(audio): the owner's order survives; a confirmed album recording replaces its clip in place")
+            XCTAssertEqual(page.tracks.map(\.isAudioRecording), [true, false, false, audio ? true : false], "audio=\(audio)")
+            XCTAssertEqual(page.tracks.map(\.title), ["Tum Hi Ho", "Kabhi Kabhi", "Nonstop party dj mix", "Kesariya"], "audio=\(audio)")
+            XCTAssertEqual(page.tracks.map(\.duration), [262, 231, 3_336, audio ? 202 : 268], "audio=\(audio): metadata follows the listed recording")
+            XCTAssertNil(page.continuation)
+            let queueRequests = mock.state.requests.filter { $0.url?.path.hasSuffix("/music/get_queue") == true }
+            XCTAssertEqual(queueRequests.count, 1, "audio=\(audio): only the credits link needs confirmation")
+            let requested = try CatalogJSON.decode(XCTUnwrap(queueRequests.first?.httpBody))["videoIds"].array.compactMap(\.string)
+            XCTAssertEqual(requested, ["NJAv_7lHUIU"], "Video entries are listed as themselves without a get_queue round trip")
+        }
+    }
+
+    func testUploadOnlyPlaylistNeedsNoConfirmationRequests() async throws {
+        let rows = (0..<3).map { index in
+            CatalogPlaylistFixtures.row(id: "upload0000\(index)", title: "Mix \(index + 1)", type: "MUSIC_VIDEO_TYPE_UGC",
+                                        byline: CatalogPlaylistFixtures.channelByline(), duration: "1:0\(index):00")
+        }
+        let browse = try CatalogFixtures.data(CatalogFixtures.browse(rows))
+        let mock = CatalogMockSession { request in
+            CatalogStub(data: request.httpMethod == "GET" ? CatalogFixtures.bootstrap : browse)
+        }
+        defer { mock.close() }
+        let page = try await YouTubeMusicService(session: mock.session).browse(id: CatalogPlaylistFixtures.playlistID)
+        XCTAssertEqual(page.tracks.map(\.id), ["upload00000", "upload00001", "upload00002"])
+        XCTAssertEqual(page.tracks.map(\.isAudioRecording), [false, false, false])
+        XCTAssertEqual(page.tracks.map(\.duration), [3_600, 3_660, 3_720])
+        XCTAssertTrue(mock.state.requests.allSatisfy { $0.url?.path.hasSuffix("/music/get_queue") == false },
+                      "Nothing to confirm, nothing to enrich: no get_queue traffic")
+        let album = try await YouTubeMusicService(session: mock.session).browse(id: CatalogFixtures.albumID)
+        XCTAssertTrue(album.tracks.isEmpty, "The same rows on an album page stay excluded")
+    }
+
     func testRateLimitsHonorRetryAfterAndFailedResponsesAreNotCached() async throws {
         let mock = CatalogMockSession { request in
             request.httpMethod == "GET" ? CatalogStub(data: CatalogFixtures.bootstrap)

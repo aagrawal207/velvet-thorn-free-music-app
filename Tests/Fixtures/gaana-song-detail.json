@@ -1,0 +1,111 @@
+{
+ "count": 1,
+ "tracks": [
+  {
+   "track_id": "944286",
+   "seokey": "tumhiho",
+   "albumseokey": "aashiqui-2",
+   "track_title": "Tum Hi Ho",
+   "album_id": "92317",
+   "album_title": "Aashiqui 2",
+   "language": "Hindi",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_s_1712905431.jpg",
+   "artwork_web": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+   "artwork_large": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_l_1712905431.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+   "duration": "261",
+   "isrc": "INS181303031",
+   "popularity": "180685771~180685771",
+   "play_ct": "180M+",
+   "parental_warning": 0,
+   "is_premium": 1,
+   "premium_content": "0",
+   "rest_lev": "0",
+   "download_enabled": 0,
+   "urls": {
+    "medium": {
+     "message": "3vTIcXjKvEoeTFTia0ileIgURujP79UDs/XZFXVAxIsbc+wEj1a59SUeIDM657k7bu9QUo9WLjJGNIWa8FfewsZdhyl649wQQ3OL9+PqO3PXQb0V3fcIlmpp/ld3rilKbNvmGyzg+npbrWnGY5lwX4qGBrYJ0Nkq4ongCH+PZEspaAspd7qMEKNKzZSEXM02/ClcxAbfDvhl7SPV7ZHrOuygGoOBHMbF1TClJcFQG1YBD5AM4MBLkxwwY9DrZu9QV5L4OONlrrxwVuPB2fCbJI8remhdZmA8EP3dga39gfznPfUdBfczgxJSWJwI4I=",
+     "bitRate": "64",
+     "expiryTime": 1790431083
+    },
+    "high": {
+     "message": "5DnCfo1HAJqk3iNJLe3SIEw0xyA2+2nJ/kdCen5oMgGdLSbFi6oCrQ+lQ1gWbUUmX8Mu9jRPBfgZQ8mQWx0DCEHcHWvC4yJvm+M0MGVgDJr0p5e4YZ5DuPmWzGsZ2c210PHq08BPaZSmubzXyZhKgdVt8Fnp8AgcbTsDR+DhpsuBp302ZZDyWeUhG21tukvjy+ZKvOl5xewIcZnkylS2YUkVO53OtrQLRznnxcyH/5L8Gc9bH0taAAMLBlBXWEDL1pvNFEAYNzWnQRP+XFmw2OyCjYFIcQNxIfv/stdzDzUU5hOUoAqUdjIbWdcDaF/4=",
+     "bitRate": "128",
+     "expiryTime": 1790431083
+    },
+    "auto": {
+     "message": "5WIVLLPvWbt2xrcxT07ht4P9YQ3AgYSXBcBKg9a/v37BvEQwYjmF9gH8skJXvJ6hXBE+MwZMdTqkyYtF2xvcNANcO5vaZ+K9xjJDc+FSn7hzu8xULVJlyA1HNQG67zocdCu7EHFFcd1GdBkgsBpmAgb+anNBWX1zWOyJ/aKQqcaIrc3l2ctIDkp5N+XRu95v197fMk2kGduFuhbkEcHvo6iXnvIT7u2HNmn2ITDo3jvea3JEktWVwVzIlgsb8ExqmcqLHD9tr2eZZTmWVtomZGHveFaTaeCOZDC5UhaBBMw==",
+     "bitRate": "",
+     "expiryTime": 1790431083
+    }
+   },
+   "preview_url": {
+    "message": "51HSGSgHdYJLr2CRG0vhn93sx0DxVKnutRopTZmbozOBFYbK/gFsWMgi7fOzKZC/7RLkoiuNgjjRSFo1FKEtz/dppmDKjAt9D/RgIMHnz4lR3u7UZmrFKy6BrvRtbWwOmgu+XiZez+5iMrPcBfzzrWbQAtL1d5e1EgQQWpWckWA==",
+    "expiryTime": 1790431083
+   },
+   "release_date": "2013-04-06",
+   "loudness": {
+    "integrated": "-8.0 LUFS",
+    "truePeak": "+1.3 dBTP",
+    "lra": "5.8 LU",
+    "threshold": "-18 LUFS"
+   },
+   "stream_type": "rtmp",
+   "track_format": {
+    "mp3": {
+     "normal": "0",
+     "medium": "0",
+     "high": "0",
+     "extreme": "0",
+     "auto": "0"
+    },
+    "mp4_aac": {
+     "normal": "-5",
+     "medium": "1",
+     "high": "1",
+     "extreme": "1",
+     "auto": "1"
+    }
+   },
+   "total_favourite_count": 1997969,
+   "is_dolby": 0,
+   "artist": [
+    {
+     "artist_id": "27",
+     "seokey": "mithoon",
+     "name": "Mithoon"
+    },
+    {
+     "artist_id": "52767",
+     "seokey": "arijit-singh",
+     "name": "Arijit Singh"
+    }
+   ],
+   "composer": [
+    {
+     "composer_id": "27",
+     "seokey": "mithoon",
+     "name": "Mithoon"
+    }
+   ],
+   "artist_detail": [
+    {
+     "artist_id": "27",
+     "seokey": "mithoon",
+     "name": "Mithoon",
+     "role": "Singer|Composer|Lyricist"
+    },
+    {
+     "artist_id": "52767",
+     "seokey": "arijit-singh",
+     "name": "Arijit Singh",
+     "role": "Singer"
+    }
+   ]
+  }
+ ],
+ "user-token-status": 0,
+ "user_token_status": 0,
+ "status": 1,
+ "status_code": 0
+}

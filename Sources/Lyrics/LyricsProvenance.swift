@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 enum LyricsSource: String, Sendable {
     case lrcLib = "LRCLIB"
@@ -23,6 +24,8 @@ extension LyricsDocument {
     }
 
     var sourceURL: URL? {
+        if let attributionURL, attributionURL.scheme == "https", attributionURL.host != nil,
+           attributionURL.user == nil, attributionURL.password == nil { return attributionURL }
         guard let providerSource else { return nil }
         if providerSource == .lrcLib {
             guard let sourceID, sourceID > 0 else { return nil }
@@ -39,8 +42,40 @@ struct LyricsRequestKey: Codable, Hashable, Sendable {
     let recording: LyricsMatcher.RecordingKey
 
     init(_ track: Track) {
+        self = LyricsRequestKeyMemo.key(for: track)
+    }
+
+    fileprivate init(normalizing track: Track) {
         id = track.id
         recording = LyricsMatcher.RecordingKey(track)
+    }
+}
+
+/// History projections derive a key for every listening session on the main actor, and normalization (regex title
+/// cleanup plus Unicode folding) costs far more than hashing the few fields it reads.
+private enum LyricsRequestKeyMemo {
+    private struct Input: Hashable {
+        let id: String
+        let title: String
+        let artists: [String]
+        let album: String?
+        let duration: TimeInterval?
+    }
+
+    // Clearing when full keeps the bound simple; a library has far fewer distinct recordings than this.
+    private static let limit = 8_192
+    private static let storage = Mutex<[Input: LyricsRequestKey]>([:])
+
+    static func key(for track: Track) -> LyricsRequestKey {
+        let input = Input(id: track.id, title: track.title, artists: track.artists, album: track.albumTitle,
+                          duration: track.duration)
+        if let cached = storage.withLock({ $0[input] }) { return cached }
+        let key = LyricsRequestKey(normalizing: track)
+        storage.withLock { entries in
+            if entries.count >= limit { entries.removeAll(keepingCapacity: true) }
+            entries[input] = key
+        }
+        return key
     }
 }
 

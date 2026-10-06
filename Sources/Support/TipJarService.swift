@@ -56,7 +56,7 @@ final class TipJarService {
     private static let log = Logger(subsystem: "com.agraabhi.ganabajana", category: "TipJar")
     private static let verificationMessage = "The App Store purchase could not be verified. Check your purchase history before trying again."
     private static let confirmationMessage = "We couldn't confirm your tip. Check your App Store purchase history before trying again."
-    private static let persistenceMessage = "Apple verified this transaction, but Breezy couldn't save the tip record on this device. Don't tip again to retry. Reopen the app to try saving it again."
+    private static let persistenceMessage = "Apple verified this transaction, but Velvet Thorn couldn't save the tip record on this device. Don't tip again to retry. Reopen the app to try saving it again."
     @ObservationIgnored private var updates: Task<Void, Never>?
     @ObservationIgnored private var recovery: Task<Void, Never>?
     @ObservationIgnored private var finishes: [UInt64: Task<Void, Never>] = [:]

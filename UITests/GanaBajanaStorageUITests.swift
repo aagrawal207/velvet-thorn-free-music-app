@@ -45,6 +45,8 @@ final class GanaBajanaStorageUITests: XCTestCase {
         try ui.launch(additionalArguments: ["--light"])
         try ui.search("Kesariya")
         try ui.waitForSearchResults()
+        // Only an opened result counts as Recently opened; typing or submitting a query records nothing.
+        try ui.playSearchResult(id: AppUIFixture.kesariya, title: "Kesariya")
         try openStorage(ui)
         let count = ui.element("storage.searches.count")
         try ui.reveal(count, maxSwipes: 20)
@@ -77,7 +79,7 @@ final class GanaBajanaStorageUITests: XCTestCase {
         try ui.launch(additionalArguments: ["--library-recovery-fixture"])
         let reload = ui.app.buttons["message.libraryReload"]
         try ui.requireHittable(reload)
-        XCTAssertEqual(reload.label, "Reload saved library")
+        XCTAssertEqual(reload.label, "Reload Saved Library")
         assertMinimumControlSize(reload)
         let mini = ui.app.buttons["miniPlayer.open"]
         let selection = mini.label
@@ -131,7 +133,9 @@ final class GanaBajanaStorageUITests: XCTestCase {
         try ui.expectLabel(ui.app.buttons["player.playPause"], "Play")
         try ui.closePlayer()
         try ui.openSettings()
+        try ui.openSettingsPage(.playback)
         XCTAssertEqual(ui.app.sliders["settings.crossfade"].value as? String, "7 s")
+        try ui.openSettingsPage(.library)
         try ui.reveal(ui.app.buttons["settings.storage"])
         try ui.tap(ui.app.buttons["settings.storage"])
         try ui.reveal(ui.element("storage.library.likes"), maxSwipes: 20)
@@ -195,6 +199,7 @@ final class GanaBajanaStorageUITests: XCTestCase {
 
     private func openStorage(_ ui: AppUITestDriver) throws {
         try ui.openSettings()
+        try ui.openSettingsPage(.library)
         let storage = ui.app.buttons["settings.storage"]
         try ui.reveal(storage, maxSwipes: 12)
         try ui.tap(storage)

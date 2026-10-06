@@ -40,7 +40,20 @@ final class CompanionPlaybackController {
         observers.removeValue(forKey: id)
     }
 
-    func handle(_ request: CompanionRequest) -> CompanionResponse {
+    /// Which companion sent a request; only the like metrics distinguish them, the semantics are identical.
+    enum Origin: Sendable {
+        case watch, carPlay, nearbyDevice
+
+        var likeSurface: MusicAppModel.LikeSurface {
+            switch self {
+            case .watch: .watch
+            case .carPlay: .carPlay
+            case .nearbyDevice: .nearbyDevice
+            }
+        }
+    }
+
+    func handle(_ request: CompanionRequest, origin: Origin = .watch) -> CompanionResponse {
         defer { notifyObservers() }
         refreshSnapshot()
         do {
@@ -61,7 +74,7 @@ final class CompanionPlaybackController {
 
         let response: CompanionResponse
         do {
-            let page = try perform(request)
+            let page = try perform(request, origin: origin)
             refreshSnapshot()
             response = CompanionResponse(id: request.id, accepted: true, snapshot: snapshot, page: page)
         } catch {
@@ -74,7 +87,7 @@ final class CompanionPlaybackController {
         return issuingLease(for: response)
     }
 
-    private func perform(_ request: CompanionRequest) throws -> CompanionPage? {
+    private func perform(_ request: CompanionRequest, origin: Origin) throws -> CompanionPage? {
         switch request.action {
         case .snapshot: return nil
         case .browse(let location): return try makePage(location: location).page
@@ -84,7 +97,7 @@ final class CompanionPlaybackController {
         let player = model.player
         if let expected = request.expectedTrackID, expected != player.currentTrack?.id { throw Failure.staleTrack }
         switch request.action {
-        case .play, .pause, .next, .previous, .seek, .setFavorite:
+        case .play, .pause, .next, .previous, .seek, .setFavorite, .setSuperLiked:
             guard let track = player.currentTrack else { throw Failure.noTrack }
             guard CompanionWire.isValidIdentifier(track.id) else { throw CompanionWireError.invalidTrackID }
         default: break
@@ -119,8 +132,16 @@ final class CompanionPlaybackController {
             guard let track = player.currentTrack else { throw Failure.noTrack }
             let needsChange = model.library.isFavorite(track) != favorite
             try validateExecutionLease(request.executionLease)
-            if needsChange { model.library.toggleFavorite(track) }
+            // Unliking from a companion removes a super like with the like, matching the phone heart's tap.
+            if needsChange { model.toggleLike(track, surface: origin.likeSurface) }
             guard model.library.isFavorite(track) == favorite else { throw libraryFailure() }
+        case .setSuperLiked(let superLiked):
+            guard model.library.hasLoadedDocument, !model.library.requiresReload else { throw libraryFailure() }
+            guard let track = player.currentTrack else { throw Failure.noTrack }
+            let needsChange = model.library.isSuperLiked(track) != superLiked
+            try validateExecutionLease(request.executionLease)
+            if needsChange { model.toggleSuperLike(track, surface: origin.likeSurface) }
+            guard model.library.isSuperLiked(track) == superLiked else { throw libraryFailure() }
         case .setShuffle(let shuffled):
             let needsChange = player.shuffleEnabled != shuffled
             try validateExecutionLease(request.executionLease)
@@ -213,20 +234,21 @@ final class CompanionPlaybackController {
                 position: PlaybackTiming.position(player.position, duration: player.duration),
                 duration: PlaybackTiming.validDuration(player.duration) ?? 0,
                 isPlaying: player.isPlaying, isLoading: player.isLoading,
-                isFavorite: library.isFavorite(track), shuffleEnabled: player.shuffleEnabled,
+                isFavorite: library.isFavorite(track), isSuperLiked: library.isSuperLiked(track), shuffleEnabled: player.shuffleEnabled,
                 repeatMode: repeatMode(player.repeatMode), errorMessage: playbackError
             )
         }
         return ObservedState(nowPlaying: nowPlaying, queue: player.queue, favorites: library.favorites,
                              recentTracks: library.recentlyPlayed.map(\.track), playlists: library.playlists,
-                             libraryError: libraryError)
+                             libraryError: libraryError, accent: library.preferences.accent.companionAccent)
     }
 
     private func updateSnapshot(_ state: ObservedState) {
         guard observedState != state else { return }
         observedState = state
         snapshot = CompanionSnapshot(sessionID: snapshot.sessionID, sequence: snapshot.sequence + 1,
-                                     updatedAt: Date(), nowPlaying: state.nowPlaying, libraryError: state.libraryError)
+                                     updatedAt: Date(), nowPlaying: state.nowPlaying, libraryError: state.libraryError,
+                                     accent: state.accent)
         notificationPending = true
     }
 
@@ -335,8 +357,8 @@ final class CompanionPlaybackController {
         }
     }
 
-    private static let libraryError = "Your library change couldn’t be saved. Open Breezy on your iPhone to try again."
-    private static let playbackError = "Playback couldn’t continue. Open Breezy on your iPhone to try again."
+    private static let libraryError = "Your library change couldn’t be saved. Open Velvet Thorn on your iPhone to try again."
+    private static let playbackError = "Playback couldn’t continue. Open Velvet Thorn on your iPhone to try again."
     private static let rootItems = [
         CompanionItem(id: "favorites", title: "Favorites", subtitle: "", destination: "favorites"),
         CompanionItem(id: "recent", title: "Recently played", subtitle: "", destination: "recent"),
@@ -366,6 +388,7 @@ final class CompanionPlaybackController {
         let recentTracks: [Track]
         let playlists: [UserPlaylist]
         let libraryError: String?
+        let accent: CompanionAccent
     }
 
     private enum BrowseSource: Equatable {
@@ -384,13 +407,28 @@ final class CompanionPlaybackController {
             case .staleTrack: "The song has changed. Refresh before using this control."
             case .stalePage: "This list has changed. Refresh it before choosing a song."
             case .notPlayable: "This song is no longer in this list. Refresh and try again."
-            case .notApplied: "This song couldn’t be selected. Open Breezy on your iPhone to try again."
+            case .notApplied: "This song couldn’t be selected. Open Velvet Thorn on your iPhone to try again."
             case .reusedRequestID: "This request was already used for another action. Refresh and try again."
             case .busy: "Playback is updating. Try again."
             case .invalidExecutionLease: "This playback request expired. Refresh and try again."
             case .staleRepeatMode: "Repeat mode changed on your iPhone. Refresh and try again."
             case .library(let message): message
             }
+        }
+    }
+}
+
+extension AppAccent {
+    // Exhaustive so a new phone accent cannot ship without a deliberate watch projection.
+    var companionAccent: CompanionAccent {
+        switch self {
+        case .coral: .coral
+        case .mint: .mint
+        case .ocean: .ocean
+        case .violet: .violet
+        case .amber: .amber
+        case .rose: .rose
+        case .teal: .teal
         }
     }
 }

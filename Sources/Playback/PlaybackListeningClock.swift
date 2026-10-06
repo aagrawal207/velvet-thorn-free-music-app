@@ -1,5 +1,14 @@
 import Foundation
 
+struct PlaybackListeningCheckpoint: Sendable {
+    let events: [ListeningEvent]
+    let recent: RecentListen?
+    let snapshot: PlaybackSnapshot
+    let intentRevision: UInt64
+    let controlRevision: UInt64
+    let deliveryGeneration: UUID
+}
+
 struct PlaybackListeningClock {
     private var lastPosition: TimeInterval?
     private var lastUptime: TimeInterval?
@@ -70,6 +79,7 @@ struct PlaybackListeningBuffer {
     }
 
     mutating func acknowledge(_ checkpoint: ListeningEvent) {
+        // Delivery captures a value before awaiting persistence; newly appended seconds belong to the next delivery.
         guard let index = checkpoints.firstIndex(where: { $0.id == checkpoint.id }),
               checkpoints[index].track.id == checkpoint.track.id, checkpoints[index].startedAt == checkpoint.startedAt,
               checkpoint.listenedSeconds > 0, checkpoint.listenedSeconds <= checkpoints[index].listenedSeconds else { return }

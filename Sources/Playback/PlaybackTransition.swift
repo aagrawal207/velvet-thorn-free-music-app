@@ -3,18 +3,42 @@ import Foundation
 import OSLog
 
 enum PlaybackNormalization {
-    /// Attenuation only: AVPlayer.volume caps at 1, which is also how YouTube's own "stable volume" behaves.
+    /// Source loudness is an offset from the provider's reference, not measured output LUFS.
+    static func gainDb(loudnessDb: Double?, enabled: Bool) -> Double {
+        guard enabled, let loudnessDb, loudnessDb.isFinite, abs(loudnessDb) <= 60 else { return 0 }
+        return min(GainLimiter.maximumGainDb, -loudnessDb)
+    }
+
+    /// Requested total gain. The caller must split it between attenuation and the gain-up tap.
     static func gain(loudnessDb: Double?, enabled: Bool) -> Double {
-        guard enabled, let loudnessDb, loudnessDb.isFinite, loudnessDb > 0 else { return 1 }
-        return pow(10, -loudnessDb / 20)
+        pow(10, gainDb(loudnessDb: loudnessDb, enabled: enabled) / 20)
+    }
+
+    static func attenuationGain(loudnessDb: Double?, enabled: Bool) -> Double {
+        min(1, gain(loudnessDb: loudnessDb, enabled: enabled))
     }
 }
 
 enum PlaybackStreamLoading {
     static func makeItem(url: URL, duration: TimeInterval) -> AVPlayerItem {
-        let item = AVPlayerItem(url: url)
+        configure(AVPlayerItem(url: url), isFile: url.isFileURL, duration: duration)
+    }
+
+    /// A preloaded asset for this exact signed URL skips AVFoundation's opening metadata round trips; everything
+    /// else is the ordinary URL item. `usesPreload` feeds the `playback_start` metric.
+    @MainActor
+    static func makeItem(stream: ResolvedStream, trackID: String?, duration: TimeInterval,
+                         preloads: PlaybackPreloadStore = .shared) -> (item: AVPlayerItem, usesPreload: Bool) {
+        let url = stream.url
+        guard !url.isFileURL, let trackID, let asset = preloads.asset(trackID: trackID, url: url) else {
+            return (makeItem(url: url, duration: duration), false)
+        }
+        return (configure(AVPlayerItem(asset: asset), isFile: false, duration: duration), true)
+    }
+
+    private static func configure(_ item: AVPlayerItem, isFile: Bool, duration: TimeInterval) -> AVPlayerItem {
         // Local files start instantly whatever the buffer; remote items keep a deeper buffer against network hiccups.
-        item.preferredForwardBufferDuration = url.isFileURL ? 0 : 15
+        item.preferredForwardBufferDuration = isFile ? 0 : 15
         if duration > 0 { item.forwardPlaybackEndTime = CMTime(seconds: duration, preferredTimescale: 44_100) }
         return item
     }
@@ -45,7 +69,7 @@ struct PlaybackCrossfadeState: Equatable, Sendable {
     var incomingVolume: Float
 }
 
-/// Equal-power ramp between two playing players; each side is scaled by its own normalization gain.
+/// Equal-power ramp scaled by each player's attenuation only; positive normalization lives in the item's tap.
 @MainActor
 final class PlaybackCrossfade {
     let outgoing: AVPlayer
@@ -60,8 +84,8 @@ final class PlaybackCrossfade {
         self.outgoing = outgoing
         self.incoming = incoming
         self.duration = max(0.05, duration)
-        self.outgoingGain = outgoingGain
-        self.incomingGain = incomingGain
+        self.outgoingGain = outgoingGain.isFinite ? min(1, max(0, outgoingGain)) : 1
+        self.incomingGain = incomingGain.isFinite ? min(1, max(0, incomingGain)) : 1
     }
 
     var state: PlaybackCrossfadeState {
@@ -135,6 +159,22 @@ final class StandbyDeck {
     private let preroll: Preroll
     private let log = Logger(subsystem: "com.agraabhi.ganabajana", category: "Standby")
     var onChange: (@MainActor () -> Void)?
+    /// Separate from readiness notifications so DSP configuration cannot replace the owner's onChange callback.
+    var onConfigureAudio: (@MainActor (AVPlayerItem, Double) -> Void)? {
+        didSet { configureAudio() }
+    }
+    var normalizeVolume = true {
+        didSet { if normalizeVolume != oldValue { configureAudio() } }
+    }
+
+    var normalizationGain: Double {
+        PlaybackNormalization.gain(loudnessDb: stream?.loudnessDb, enabled: normalizeVolume)
+    }
+
+    private func configureAudio() {
+        guard let item, stream != nil else { return }
+        onConfigureAudio?(item, normalizationGain)
+    }
 
     init(resolver: any StreamResolving, preroll: Preroll? = nil) {
         self.resolver = resolver
@@ -288,8 +328,9 @@ final class StandbyDeck {
         guard let player, let stream, let track, item == nil, !didFail else { return }
         if let expiresAt, expiresAt.timeIntervalSinceNow <= 5 { didFail = true; return }
         itemDuration = PlaybackTiming.duration(stream: stream, track: track) ?? 0
-        let item = PlaybackStreamLoading.makeItem(url: stream.url, duration: itemDuration)
+        let item = PlaybackStreamLoading.makeItem(stream: stream, trackID: track.id, duration: itemDuration).item
         self.item = item
+        configureAudio()
         player.volume = 0
         player.replaceCurrentItem(with: item)
         let token = self.token
@@ -328,7 +369,7 @@ final class StandbyDeck {
     }
 
     private static func makePlayer() -> AVPlayer {
-        let player = AVPlayer()
+        let player = PlaybackAudioRoute.makePlayer()
         player.automaticallyWaitsToMinimizeStalling = true
         player.volume = 0
         return player

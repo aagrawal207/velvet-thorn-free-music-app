@@ -37,32 +37,35 @@ final class LRCURLSessionTransport: LRCHTTPTransport {
     deinit { session.invalidateAndCancel() }
 
     func send(_ request: URLRequest) async throws -> LRCHTTPResponse {
-        let (bytes, response) = try await session.bytes(for: request)
-        guard let response = response as? HTTPURLResponse else { throw MusicServiceError.invalidResponse }
+        let (body, response) = try await session.chunkedBody(for: request)
+        guard let response = response as? HTTPURLResponse else {
+            body.cancel()
+            throw MusicServiceError.invalidResponse
+        }
         guard response.expectedContentLength <= Self.maximumResponseBytes else {
-            bytes.task.cancel()
+            body.cancel()
             throw MusicServiceError.invalidResponse
         }
         guard response.statusCode == 200 else {
-            bytes.task.cancel()
+            body.cancel()
             return LRCHTTPResponse(statusCode: response.statusCode,
                                    retryAfter: response.value(forHTTPHeaderField: "Retry-After"))
         }
         return try await withTaskCancellationHandler {
             var data = Data()
             data.reserveCapacity(min(Self.maximumResponseBytes, max(0, Int(response.expectedContentLength))))
-            for try await byte in bytes {
-                guard data.count < Self.maximumResponseBytes else {
-                    bytes.task.cancel()
+            for try await chunk in body {
+                guard chunk.count <= Self.maximumResponseBytes - data.count else {
+                    body.cancel()
                     throw MusicServiceError.invalidResponse
                 }
-                data.append(byte)
+                data.append(chunk)
             }
             try Task.checkCancellation()
             return LRCHTTPResponse(data: data, statusCode: response.statusCode,
                                    retryAfter: response.value(forHTTPHeaderField: "Retry-After"))
         } onCancel: {
-            bytes.task.cancel()
+            body.cancel()
         }
     }
 }
@@ -186,6 +189,55 @@ actor LRCLIBClient {
             LyricsDiagnostics.logger.info("lookupSuccess=0 lookupFailure=\(cancelled ? 0 : 1) cancelled=\(cancelled ? 1 : 0) fallbackUsed=\(searchUsed ? 1 : 0) latencyMs=\(milliseconds)")
             throw error
         }
+    }
+
+    /// Search retains independently published scripts only with exact recording evidence.
+    func variants(_ track: Track) async throws -> [LyricsDocument] {
+        try Task.checkCancellation()
+        guard LyricsMatcher.validDuration(track.duration) != nil else { return [] }
+        let artists = LyricsMatcher.artistParts(track.artists)
+        guard !artists.isEmpty, !LyricsMatcher.normalized(track.title).isEmpty else { return [] }
+        let deadline = now().addingTimeInterval(min(6, configuration.lookupTimeout))
+        var records: [Int: LRCLIBRecord] = [:]
+        for query in searchQueries(for: track, artists: artists).prefix(min(2, max(0, configuration.maximumRequests))) {
+            let data = try await request(path: "search", items: query.items, deadline: deadline, notFoundIsEmpty: false)
+            let candidates: [LRCLIBRecord] = try decode(data ?? Data())
+            guard candidates.count <= 20 else { throw MusicServiceError.invalidResponse }
+            for record in candidates { records[record.id] = record }
+        }
+        try Task.checkCancellation()
+        return variantDocuments(in: Array(records.values), for: track)
+    }
+
+    func variantDocuments(in records: [LRCLIBRecord], for track: Track) -> [LyricsDocument] {
+        let matches = records.compactMap { LyricsMatcher.evaluate($0, for: track) }
+            .filter { $0.isExact && !$0.record.instrumental }
+        var representations: [(record: LRCLIBRecord, document: LyricsDocument)] = []
+        for match in matches {
+            guard let document = document(for: match, track: track) else { continue }
+            representations.append((match.record, document))
+            // A record's plain field can use a different script; its timing cannot be borrowed from the timed field.
+            if document.kind == .synced, let plain = document.plainText {
+                let plainScript = LyricsScript.detect(plain)
+                if plainScript != LyricsScript.detect(document.displayText), plainScript != .mixed, plainScript != .other {
+                    var record = match.record
+                    record.syncedLyrics = nil
+                    var alternative = document
+                    alternative.kind = .plain
+                    alternative.lines = []
+                    representations.append((record, alternative))
+                }
+            }
+        }
+        let groups = Dictionary(grouping: representations) { LyricsScript.detect($0.document.displayText) }
+        var result: [LyricsDocument] = []
+        for script in LyricsScript.allCases {
+            guard let group = groups[script],
+                  let match = LyricsMatcher.bestMatch(in: group.map { $0.record }, for: track),
+                  let selected = group.first(where: { $0.record.id == match.record.id }) else { continue }
+            result.append(selected.document)
+        }
+        return Array(result.prefix(8))
     }
 
     private func request(path: String, items: [URLQueryItem], deadline: Date,

@@ -100,7 +100,7 @@ extension MusicAppModel {
         }
         guard let track = tracks.first(where: { $0.id == id }) else {
             openWidgetCollection(source)
-            showToast("This song is no longer in that list. Choose another song in Breezy.")
+            showToast("This song is no longer in that list. Choose another song in Velvet Thorn.")
             return .stale
         }
         if isOffline, !cachedPlayableTrackIDs.contains(id) {

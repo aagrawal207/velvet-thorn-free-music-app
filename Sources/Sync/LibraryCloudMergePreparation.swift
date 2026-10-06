@@ -8,6 +8,8 @@ struct LibraryCloudMergePreparation: Sendable {
     let remoteChanged: Bool
     let historyBoundary: Bool
     let recommendationsChanged: Bool
+    let lifetimeChanged: Bool
+    let lifetimePublication: LifetimeListeningPublication?
 
     static func make(incoming: LibrarySyncState, document: LibraryDocument, baselineData: Data?,
                      generation: UUID, now: Date, writer: UUID) throws -> Self {
@@ -30,17 +32,21 @@ struct LibraryCloudMergePreparation: Sendable {
         var incomingRecommendations = joined
         previousRecommendations.clock = nil
         incomingRecommendations.clock = nil
-        let shuffleKey = LibrarySyncKey(.preference, "shuffleStyle")
-        previousRecommendations.registers.removeValue(forKey: shuffleKey)
-        incomingRecommendations.registers.removeValue(forKey: shuffleKey)
+        for key in ["shuffleStyle", "shuffleDefaultMigrated"].map({ LibrarySyncKey(.preference, $0) }) {
+            previousRecommendations.registers.removeValue(forKey: key)
+            incomingRecommendations.registers.removeValue(forKey: key)
+        }
         // A shuffle preference or clock-only merge cannot change discovery; mixed content edits still refresh it.
         let recommendationsChanged = historyBoundary || retainedChanged || previousRecommendations != incomingRecommendations
         let needsWrite = document.syncState == nil || remoteChanged || retainedChanged
+        let lifetimeChanged = document.lifetimeListening != candidate.lifetimeListening
+        let lifetimePublication = lifetimeChanged ? LifetimeListeningPublication(candidate.lifetimeListening, now: now) : nil
         if needsWrite {
             _ = try LibrarySyncCodec.encodeReplica(LibrarySyncReplica(replicaID: writer, state: joined))
         }
         return Self(candidate: candidate, encoded: needsWrite ? try LibraryPersistence.encode(candidate) : nil,
                     baselineData: baselineData, generation: generation, remoteChanged: remoteChanged,
-                    historyBoundary: historyBoundary, recommendationsChanged: recommendationsChanged)
+                    historyBoundary: historyBoundary, recommendationsChanged: recommendationsChanged,
+                    lifetimeChanged: lifetimeChanged, lifetimePublication: lifetimePublication)
     }
 }

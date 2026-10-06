@@ -107,6 +107,28 @@ final class GanaBajanaWatchUITests: XCTestCase {
         capture("Favorite removal confirmed without starting playback")
     }
 
+    func testFavoriteHoldPromotesToSuperLikeAndTapRemovesIt() throws {
+        try launch("paused")
+        try expectTrack("Evening breeze", artist: "Breezy Sessions")
+        try expectPlayback(playing: false)
+        try expectFavorite(false)
+        let heart = app.buttons["watch.favorite"]
+        try tap(heart)
+        try expectFavorite(true)
+        capture("Tap confirms a favorite on the paused song")
+
+        try hold(heart)
+        try expectFavorite(true, superLiked: true)
+        XCTAssertEqual(app.buttons["watch.playPause"].label, "Play on iPhone")
+        capture("Hold confirms the super like without starting playback")
+
+        try tap(heart)
+        try expectFavorite(false)
+        try expectTrack("Evening breeze", artist: "Breezy Sessions")
+        XCTAssertEqual(app.buttons["watch.playPause"].label, "Play on iPhone")
+        capture("Tap on a super liked song removes it from favorites")
+    }
+
     func testLibraryFoldersPlaylistSelectionAndQueuePlayback() throws {
         try launch("playing")
         try expectPlayback(playing: true)
@@ -427,12 +449,13 @@ final class GanaBajanaWatchUITests: XCTestCase {
         try reveal(status)
     }
 
-    private func expectFavorite(_ favorite: Bool, enabled: Bool = true) throws {
+    private func expectFavorite(_ favorite: Bool, superLiked: Bool = false, enabled: Bool = true) throws {
         let control = app.buttons["watch.favorite"]
         try reveal(control)
-        try wait("Favorite must have the acknowledged value \(favorite)") {
+        let value = superLiked ? "Super liked" : favorite ? "Favorite" : "Not a favorite"
+        try wait("Favorite must have the acknowledged value \(value)") {
             control.label == (favorite ? "Remove from favorites" : "Add to favorites")
-                && control.value as? String == (favorite ? "Favorite" : "Not a favorite")
+                && control.value as? String == value
                 && control.isEnabled == enabled && !self.element("watch.pending").exists
         }
     }
@@ -704,6 +727,13 @@ final class GanaBajanaWatchUITests: XCTestCase {
         try reveal(target, hittable: true)
         try wait("Expected an enabled action: \(target.identifier)") { target.isEnabled }
         target.tap()
+    }
+
+    /// Holds past the heart's 0.4-second threshold; the release after a recognized hold must not count as a tap.
+    private func hold(_ target: XCUIElement) throws {
+        try reveal(target, hittable: true)
+        try wait("Expected an enabled hold target: \(target.identifier)") { target.isEnabled }
+        target.press(forDuration: 0.8)
     }
 
     private func back() throws {

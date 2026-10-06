@@ -1,3 +1,5 @@
+// CarPlay templates exist only on iPhone; Mac Catalyst links the framework but cannot host its scenes.
+#if !targetEnvironment(macCatalyst)
 import CarPlay
 import Foundation
 import XCTest
@@ -165,3 +167,4 @@ class CarPlayTestCase: XCTestCase {
         try await AppModelFixtures.eventually { self.rows(list).count == count }
     }
 }
+#endif

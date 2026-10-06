@@ -83,7 +83,7 @@ struct ArtistSpotlightControls: View {
                 languageDisclosure
                 if loader.isBrowsingLanguages { languageBrowser }
             } else if !loader.isLoadingSongs {
-                EmptyStateView(symbol: "music.note.list", title: "No songs available yet",
+                EmptyStateView(symbol: "music.note.list", title: "No Songs Available Yet",
                                message: "The provider hasn't returned playable songs for this artist.")
             }
 
@@ -93,7 +93,7 @@ struct ArtistSpotlightControls: View {
                         .appFont(.caption)
                         .foregroundStyle(secondaryText)
                 }
-                Button("Try again", systemImage: "arrow.clockwise") { loader.requestReload() }
+                Button("Try Again", systemImage: "arrow.clockwise") { loader.requestReload() }
                     .appFont(.subheadline, weight: .semibold)
                     .frame(minHeight: 44)
                     .disabled(loader.isBusy)
@@ -162,7 +162,7 @@ struct ArtistSpotlightControls: View {
             }
             if loader.canCheckMoreLanguages {
                 Button { loader.checkMoreLanguages() } label: {
-                    Label("Check more song languages", systemImage: "text.magnifyingglass")
+                    Label("Check More Song Languages", systemImage: "text.magnifyingglass")
                         .appFont(.subheadline, weight: .semibold)
                         .frame(minHeight: 44)
                         .contentShape(Rectangle())
@@ -172,7 +172,7 @@ struct ArtistSpotlightControls: View {
             }
             if loader.hasFailedLanguageChecks {
                 Button { loader.checkMoreLanguages(retryFailures: true) } label: {
-                    Label("Retry language checks", systemImage: "arrow.clockwise")
+                    Label("Retry Language Checks", systemImage: "arrow.clockwise")
                         .appFont(.subheadline, weight: .semibold)
                         .frame(minHeight: 44)
                         .contentShape(Rectangle())

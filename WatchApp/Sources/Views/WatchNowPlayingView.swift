@@ -1,9 +1,15 @@
 import SwiftUI
+import WatchKit
 
 @MainActor
 struct WatchNowPlayingView: View {
     @Environment(WatchCompanionModel.self) private var model
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
+    @Environment(\.watchAccent) private var accent
+    /// A hold owns the rest of its press: the release that follows must not also run the favorite tap action.
+    @State private var favoriteHoldFired = false
+
+    private static let favoriteHoldDuration: TimeInterval = 0.4
 
     var body: some View {
         ScrollView {
@@ -69,7 +75,7 @@ struct WatchNowPlayingView: View {
         let position = model.position
         return VStack(spacing: 4) {
             ProgressView(value: track.duration > 0 ? min(position / track.duration, 1) : 0)
-                .tint(WatchTheme.accent)
+                .tint(accent)
                 .accessibilityHidden(true)
             HStack {
                 Text(WatchSnapshotState.timestamp(position))
@@ -93,7 +99,7 @@ struct WatchNowPlayingView: View {
                 Task { await model.command(action, displayed: displayed) }
             } label: {
                 ZStack {
-                    Circle().fill(WatchTheme.accent)
+                    Circle().fill(accent)
                     if (model.isCurrent && track.isLoading) || isPlayPausePending {
                         ProgressView().tint(.black)
                     } else {
@@ -150,19 +156,7 @@ struct WatchNowPlayingView: View {
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
-                Button {
-                    let action = CompanionAction.setFavorite(!track.isFavorite)
-                    Task { await model.command(action, displayed: displayed) }
-                } label: {
-                    Image(systemName: track.isFavorite ? "heart.fill" : "heart")
-                        .foregroundStyle(track.isFavorite ? WatchTheme.petal : .white)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .disabled(!model.canControl || model.libraryError != nil)
-                .accessibilityLabel(track.isFavorite ? "Remove from favorites" : "Add to favorites")
-                .accessibilityValue(track.isFavorite ? "Favorite" : "Not a favorite")
-                .accessibilityIdentifier("watch.favorite")
+                favoriteButton(track, displayed: displayed)
 
                 NavigationLink {
                     WatchPlaybackOptionsView()
@@ -175,6 +169,51 @@ struct WatchNowPlayingView: View {
                 .accessibilityIdentifier("watch.options")
             }
         }
+    }
+
+    /// One three-state heart: a tap likes or removes the song (a super liked song is removed fully), a hold toggles the
+    /// super like tier. The displayed track and snapshot are captured here, before any Task, like every other control.
+    private func favoriteButton(_ track: CompanionNowPlaying, displayed: CompanionSnapshot) -> some View {
+        Button {
+            guard !favoriteHoldFired else {
+                favoriteHoldFired = false
+                return
+            }
+            let action = CompanionAction.setFavorite(!track.isFavorite)
+            Task { await model.command(action, displayed: displayed) }
+        } label: {
+            Image(systemName: track.isSuperLiked ? "bolt.heart.fill" : track.isFavorite ? "heart.fill" : "heart")
+                .foregroundStyle(track.isFavorite ? WatchTheme.petal : .white)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        // Simultaneous so the Button keeps its tap. Every press start clears the hold flag; reaching the hold sets it.
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: Self.favoriteHoldDuration)
+                .onChanged { _ in favoriteHoldFired = false }
+                .onEnded { _ in
+                    favoriteHoldFired = true
+                    toggleSuperLike(track, displayed: displayed)
+                }
+        )
+        .disabled(!canEditFavorite)
+        .accessibilityLabel(track.isFavorite ? "Remove from favorites" : "Add to favorites")
+        .accessibilityValue(track.isSuperLiked ? "Super liked" : track.isFavorite ? "Favorite" : "Not a favorite")
+        .accessibilityAction(named: track.isSuperLiked ? "Change to favorite" : "Super like") {
+            toggleSuperLike(track, displayed: displayed)
+        }
+        .accessibilityIdentifier("watch.favorite")
+    }
+
+    private var canEditFavorite: Bool { model.canControl && model.libraryError == nil }
+
+    private func toggleSuperLike(_ track: CompanionNowPlaying, displayed: CompanionSnapshot) {
+        // `.disabled` is relied on for the Button, not for the simultaneous gesture; a rejected hold must stay silent.
+        guard canEditFavorite else { return }
+        let promoting = !track.isSuperLiked
+        let action = CompanionAction.setSuperLiked(promoting)
+        if promoting { WKInterfaceDevice.current().play(.success) }
+        Task { await model.command(action, displayed: displayed) }
     }
 
     private var lastSeen: some View {
@@ -192,7 +231,7 @@ struct WatchNowPlayingView: View {
         VStack(spacing: 8) {
             WatchRecordMark()
             Text("Find your next song").font(.headline)
-            Text("Choose from your library or open Breezy on iPhone.")
+            Text("Choose from your library or open Velvet Thorn on iPhone.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

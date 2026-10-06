@@ -4,6 +4,8 @@
 
 The build-4 publication remains frozen at revision `926426dd3e3ca87502433886335e75e0d5a729eb`. The build-3 publication remains at `099a6a8032fbe5d49343bde416c99d88f05947be`, updated `2026-09-23T01:04:26Z`. Historical files and receipts under their artifact directories were not overwritten. [Release status](RELEASE_STATUS.md) owns binary and screenshot delivery separately.
 
+The published Gist copies predate the R12/R13 local-only feature rounds (downloads and export, Song details, JioSaavn and Gaana, SponsorBlock, MusicBrainz genres, the account import) and are not being updated under the local-only decision ([ROADMAP.md](../ROADMAP.md)); root `PRIVACY.md` describes the current build and carries a maintainer note to that effect.
+
 ## Publication sources and targets
 
 | Purpose | Local source | Public target |

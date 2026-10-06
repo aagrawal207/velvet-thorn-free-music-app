@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import Synchronization
 
 actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding, AlbumDescriptionProviding {
     private static let logger = Logger(subsystem: "com.agraabhi.ganabajana", category: "Catalog")
@@ -9,10 +10,19 @@ actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding, AlbumDescript
     private let maximumBrowsePages = 8
     private static let artistEnrichmentTimeout: TimeInterval = 2
 
-    /// Outcome of the speculative artist lookup that runs beside a song search.
+    /// Outcome of the speculative artist lookup that runs beside a song search. The page fetch starts as soon as the
+    /// artist matches, but a search whose songs do not qualify the artist as featured cancels it instead of waiting.
     private struct ArtistMatch: Sendable {
         let artist: MusicCollection
-        let page: ArtistPage?
+        let page: Task<[Track]?, Never>
+        /// Set when the page task finishes, so a slow songs request cannot discard a page that already arrived.
+        let finished: FeaturedSongsBox
+    }
+
+    private final class FeaturedSongsBox: Sendable {
+        private let state = Mutex<[Track]??>(nil)
+        func finish(_ songs: [Track]?) { state.withLock { $0 = .some(songs) } }
+        var result: [Track]?? { state.withLock { $0 } }
     }
 
     init(session: URLSession = CatalogTransport.anonymousSession(), now: @escaping @Sendable () -> Date = { Date() },
@@ -69,6 +79,23 @@ actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding, AlbumDescript
         return ArtistPage(id: id, name: header.name ?? page.title ?? "", artworkURL: header.artworkURL,
                           topSongs: page.tracks, releases: page.collections.filter { $0.kind == .album },
                           relatedArtists: page.collections.filter { $0.kind == .artist }, monthlyAudience: audience)
+    }
+
+    /// The first page's songs of an artist page, with durations: the songs a featured search result leads with.
+    /// Later pages carry albums, singles and related artists, which a song search never shows.
+    func artistTopSongs(id: String) async throws -> [Track] {
+        try Task.checkCancellation()
+        let id = try Self.browseID(id)
+        guard id.hasPrefix("UC") || id.hasPrefix("MPAD") else {
+            throw MusicServiceError.unavailable("This YouTube Music page is not an artist.")
+        }
+        let (page, first) = try await browsePage(id: id, continuation: nil)
+        var tracks = page.tracks
+        if tracks.contains(where: { $0.duration == nil }) {
+            tracks = try await enrichMetadata(tracks, inheriting: CatalogParser.rowContext(first.json, id: id))
+        }
+        try Task.checkCancellation()
+        return tracks
     }
 
     func recommendations(seed: Track, language: MusicLanguage) async throws -> [Track] {
@@ -188,23 +215,39 @@ actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding, AlbumDescript
         }
         // Warm the client version so the concurrent requests below share one bootstrap.
         _ = try await configuration.version()
+        let enrichmentDeadline = ContinuousClock.now.advanced(by: .seconds(Self.artistEnrichmentTimeout))
         // Speculative and best-effort: only cancellation may surface from the artist lookup.
         async let speculative = artistMatch(query: query)
-        var (page, response) = try await songPage(query: query, cursor: nil)
-        if page.tracks.isEmpty, let corrected = page.correctedQuery {
-            let retry = try await songPage(query: corrected, cursor: nil)
-            if !retry.page.tracks.isEmpty {
-                (page, response) = retry
-                page.correctedQuery = corrected
+        let match: ArtistMatch?
+        var page: CatalogPage
+        var response: CatalogResponse
+        do {
+            (page, response) = try await songPage(query: query, cursor: nil)
+            if page.tracks.isEmpty, let corrected = page.correctedQuery {
+                let retry = try await songPage(query: corrected, cursor: nil)
+                if !retry.page.tracks.isEmpty {
+                    (page, response) = retry
+                    page.correctedQuery = corrected
+                }
             }
+            match = try await speculative
+        } catch {
+            (try? await speculative)?.page.cancel()
+            throw error
         }
         var featured: MusicCollection?
         var leading: [Track] = []
-        if let match = try await speculative,
-           page.tracks.filter({ SearchRelevance.tier(of: $0, query: query, artist: match.artist) == 0 }).count
-            >= SearchRelevance.minimumFeaturedTracks {
-            featured = match.artist
-            leading = match.page?.topSongs ?? []
+        if let match {
+            if page.tracks.filter({ SearchRelevance.tier(of: $0, query: query, artist: match.artist) == 0 }).count
+                >= SearchRelevance.minimumFeaturedTracks {
+                // A page still loading at the deadline drops the feature, exactly as a slow artist search does.
+                if let songs = await Self.featuredSongs(match, until: enrichmentDeadline) {
+                    featured = match.artist
+                    leading = songs
+                }
+            } else {
+                match.page.cancel()
+            }
         }
         let ranked = SearchRelevance.rank(page.tracks, query: page.correctedQuery ?? query, artist: featured)
         page.tracks = CatalogText.uniqueTracks(leading + ranked)
@@ -244,18 +287,46 @@ actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding, AlbumDescript
                 let artists = try CatalogParser.search(response.json, filter: .artists, query: query)
                 guard let match = SearchRelevance.matchedArtist(in: artists.collections, query: query,
                                                                 correctedQuery: artists.correctedQuery) else { return nil }
-                var page: ArtistPage?
-                do {
-                    page = try await self.artist(id: match.id)
-                } catch {
-                    if error is CancellationError || Task.isCancelled { throw CancellationError() }
-                    Self.logger.warning("Artist page for a song search failed; the artist is featured without top songs.")
+                let finished = FeaturedSongsBox()
+                let page = Task<[Track]?, Never> {
+                    do {
+                        let songs = try await self.artistTopSongs(id: match.id)
+                        finished.finish(songs)
+                        return songs
+                    } catch {
+                        if !(error is CancellationError || Task.isCancelled) {
+                            Self.logger.warning("Artist page for a song search failed; the artist is featured without top songs.")
+                            finished.finish(nil)
+                        }
+                        return nil
+                    }
                 }
-                return ArtistMatch(artist: match, page: page)
+                return ArtistMatch(artist: match, page: page, finished: finished)
             }
         } catch {
             if error is CancellationError || Task.isCancelled { throw CancellationError() }
             Self.logger.warning("Artist resolution for a song search failed; results stay in ranked provider order.")
+            return nil
+        }
+    }
+
+    /// The featured artist's top songs within the search's original enrichment budget: nil when the page is still
+    /// loading at the deadline, empty when it failed (the artist is then featured without songs).
+    private static func featuredSongs(_ match: ArtistMatch, until deadline: ContinuousClock.Instant) async -> [Track]? {
+        if let result = match.finished.result { return result ?? [] }
+        let page = match.page
+        let remaining = ContinuousClock.now.duration(to: deadline)
+        let seconds = Double(remaining.components.seconds) + Double(remaining.components.attoseconds) / 1e18
+        guard seconds > 0 else {
+            page.cancel()
+            return nil
+        }
+        do {
+            return try await withTaskCancellationHandler {
+                try await PlaybackDeadline.run(seconds: seconds) { await page.value ?? [] }
+            } onCancel: { page.cancel() }
+        } catch {
+            page.cancel()
             return nil
         }
     }
@@ -299,19 +370,28 @@ actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding, AlbumDescript
         let response = try await request("browse", payload: payload, ttl: 10 * 60, visitorData: cursor?.visitorData)
         let context = CatalogParser.rowContext(response.json, id: id, inheriting: inherited)
         var page = try CatalogParser.browse(response.json, id: id, inheriting: context)
-        let order = CatalogParser.audioCandidateIDs(response.json)
+        let rows = CatalogParser.browseRowCandidates(response.json, inheriting: context)
         let existing = Set(page.tracks.map(\.id))
-        let candidates = order.filter { !existing.contains($0) }
+        let candidates = rows.flatMap(\.self).filter { !existing.contains($0) }
         if !candidates.isEmpty {
             do {
                 let audio = try await audioMetadata(for: candidates, inheriting: context)
                 let byID = Self.mergedByID(page.tracks, audio)
-                page.tracks = CatalogText.uniqueTracks(order.compactMap { byID[$0] } + page.tracks)
+                // One recording per row, in the provider's order: a confirmed album recording outranks the row's video entry.
+                var represented = Set<String>()
+                let ordered = rows.compactMap { ids -> Track? in
+                    guard let track = ids.lazy.compactMap({ byID[$0] }).first else { return nil }
+                    represented.formUnion(ids)
+                    return track
+                }
+                page.tracks = CatalogText.uniqueTracks(ordered + page.tracks.filter { !represented.contains($0.id) })
             } catch {
                 if error is CancellationError || Task.isCancelled { throw CancellationError() }
-                Self.logger.warning("Album-audio counterpart validation failed; explicit video rows remain excluded.")
+                Self.logger.warning("Album-audio counterpart validation failed; unconfirmed credits links stay out.")
             }
         }
+        let videoEntries = page.tracks.filter { $0.isAudioRecording == false }.count
+        Self.logger.debug("browseTracks=\(page.tracks.count) browseVideoEntries=\(videoEntries) browseCandidatesChecked=\(candidates.count)")
         page.tracks = Self.preservingPlayCounts(page.tracks, from: response.json)
         return (try CatalogContinuation.attach(to: page, response: response, previous: cursor, scope: scope), response)
     }
@@ -403,7 +483,7 @@ actor YouTubeMusicService: MusicCatalogProviding, LyricsProviding, AlbumDescript
         try Task.checkCancellation()
         if sections.isEmpty {
             sections.append(DiscoverySection(id: "starter-\(language.rawValue)", title: "Start somewhere good",
-                                              subtitle: "Breezy editorial starters · Live discovery is unavailable",
+                                              subtitle: "Velvet Thorn editorial starters · Live discovery is unavailable",
                                              language: language, tracks: starters))
         }
         return sections

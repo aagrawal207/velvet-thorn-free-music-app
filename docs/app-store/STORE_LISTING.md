@@ -1,6 +1,8 @@
 # Breezy store listing
 
-**Metadata readback-verified for 1.0.0 (5) delivery on 24 September 2026 UTC.** The owner selected **Breezy - Stream Music & Chill**, app `6815025307`. The iOS draft remains the initial `1.0.0` version. The canonical metadata still matches the September 23 push, with an empty follow-up diff. [ASC_STATE.json](ASC_STATE.json) records binary upload and processing separately.
+**Next-build listing text applied and readback-verified on 27 September 2026.** The owner selected **Breezy - Stream Music & Chill**, app `6815025307`. The iOS draft remains the initial `1.0.0` version. Only en-US `description`, `promotionalText` and `keywords` changed. Canonical metadata validation passed and the follow-up dry run has no adds, updates or deletes. Prior values and receipts are in `artifacts/TestFlight-Prep/20260927/`.
+
+**The listing is ahead of uploaded build 5.** The newer downloads, EQ, additional catalogs, expanded history and share cards are in local `1.0.0 (6)` source. Copy uses the owner's requested visible name **Stats**; source still showed **Listening** during this check. A matching verified binary is required before using this copy for distribution. [APPSTORE_TESTFLIGHT.md](../APPSTORE_TESTFLIGHT.md) records the reopened preparation scope and local beta drafts. [ASC_STATE.json](ASC_STATE.json) retains historical build-5 delivery evidence.
 
 **Submission remains on hold.** YouTube/music-rights-holder authorization and a usable recipient application relinking path are not established. FFmpeg library source and rebuild materials are public and verified. [Release status](RELEASE_STATUS.md#submission-hold) and [FFmpeg distribution](../FFMPEG_DISTRIBUTION.md) own the remaining requirements. This copy describes the current implementation and needs reconciliation with the final licensed provider/content approach before use.
 
@@ -18,7 +20,7 @@
 | Platform | iOS, iPhone and iPad; minimum iOS 18. Mac availability through Designed for iPad on Apple silicon is an App Store Connect choice |
 | Home Screen name | Breezy |
 | Version | `1.0.0`, initial iOS release; remote version ID `2754a299-5b46-4e62-8f79-8bf80c6078d5` |
-| Target build | `5`; archive and App Store export are audited; delivery status belongs to [ASC_STATE.json](ASC_STATE.json) |
+| Copy target / attached build | Verified successor to `5`, based on current `1.0.0 (6)` source plus the Stats label; only `5` is attached. Delivery is not aligned with this draft yet |
 | Default icon | Leafnote; 7 unique visible choices, including Thorn and Sonnet |
 | Copyright | `2026 Abhishek` |
 | Support URL | [Existing Support anchor](https://gist.github.com/aagrawal207/95acc71ba167fb754c435de17d256e59#file-support-md) |
@@ -29,7 +31,7 @@
 | Release date and mode | Existing draft uses `AFTER_APPROVAL`; no review submission or release date set |
 | Age rating and App Privacy answers | Pending assessment of the final content/provider model |
 
-`GanaBajana` remains the internal module/project/folder. The selected public name preserves the bundle, library path and product IDs. Current receipts are under `artifacts/AppStore-1.0.0-5/`; frozen build-3/build-4 receipts remain in their original directories. [Release status](RELEASE_STATUS.md) records upload, processing and submission.
+`GanaBajana` remains the internal module/project/folder. The selected public name preserves the bundle, library path and product IDs. Build-5 delivery receipts are under `artifacts/AppStore-1.0.0-5/`; frozen build-3/build-4 receipts remain in their original directories. [Release status](RELEASE_STATUS.md) records upload, processing and submission.
 
 ## Canonical metadata files
 
@@ -45,22 +47,22 @@ Unset optional fields are omitted rather than written as empty strings. `marketi
 Validated against Apple's 170-character limit.
 
 ```text
-Keep favorites and mixes on your Home Screen. Explore radio shaped by your listening, search saved music and return to fully cached songs offline.
+Stream music, make playlists and explore personal mixes. Follow synced lyrics where available, keep supported songs offline and share your Stats.
 ```
 
 ## Description
 
-The exact App Store Connect description is the `description` field in [version/1.0.0/en-US.json](asc-metadata/version/1.0.0/en-US.json), validated against the 4,000-character limit. It covers listening-led radio/discovery, three widget types, saved Search and Queue actions, Fewer repeats and compatible complete-cache playback. It retains the iCloud/device-local boundary, unofficial-provider disclosure and optional-tip explanation.
+The exact App Store Connect description is the `description` field in [version/1.0.0/en-US.json](asc-metadata/version/1.0.0/en-US.json), validated against the 4,000-character limit. It covers streaming, playlists and personal mixes, synced lyrics where available, supported downloads/offline copies, EQ, Stats/share cards and the additional JioSaavn/Gaana catalogs. It qualifies Gaana HLS download/EQ limits and retains the iCloud/device-local boundary, unofficial-provider disclosure and optional-tip explanation. Free broadcast radio, including NPR, is not implemented and is not advertised.
 
 ## Keywords
 
 Validated against the 100-character limit. Terms already in the name or subtitle are not repeated.
 
 ```text
-playlists,hindi,english,bollywood,artists,albums,recap,crossfade,sleep timer,lofi,widgets,offline
+playlists,hindi,english,bollywood,artists,albums,stats,equalizer,downloads,offline,widgets,crossfade
 ```
 
-## Initial release note
+## Historical build-5 launch note
 
 Local launch copy only. The canonical version JSON deliberately omits `whatsNew` for Apple's first-release workflow.
 
@@ -89,7 +91,10 @@ The copies retain the public email, absolute Support/Privacy cross-links and cop
 | --- | --- |
 | Radio and discovery | Languages follow qualified listening and explicit adjustments; setup has no required language picker. All 34 stations retain zero to four optional artist hints. Era and language evidence guide discovery rather than certify each song. [LISTENING_DISCOVERY.md](../LISTENING_DISCOVERY.md) |
 | Recording metadata | Explicit audio-language tags can skip recognition; missing duration is confined to temporary lookup copies. Availability is recording-specific and title language is not audio evidence. [YOUTUBE_DATA_API.md](../YOUTUBE_DATA_API.md) |
-| Widgets and offline playback | Three widget types use saved metadata and native actions. Offline playback requires complete, compatible retained audio; likes and playlists do not download music. [WIDGETS.md](../WIDGETS.md), [LISTENING_DISCOVERY.md](../LISTENING_DISCOVERY.md) |
+| Widgets and offline playback | Three widget types use saved metadata and native actions. Offline playback needs a complete playable local copy. Downloads are separate from purgeable cache; liking alone downloads only when the optional setting is enabled. [WIDGETS.md](../WIDGETS.md), [DOWNLOADS.md](../DOWNLOADS.md) |
+| Additional catalogs and stream limits | `CompositeCatalog` routes JioSaavn/Gaana IDs and fans Search out to enabled sources; `CompositeStreamResolver.download` refuses HLS. Gaana may use a matched fallback file. These implementations are newer than build 5. [JIOSAAVN.md](../JIOSAAVN.md), [GAANA.md](../GAANA.md) |
+| EQ | `EqualizerView` offers presets and bands; supported audio uses the playback tap, while Gaana HLS bypasses it. Current source feature, not build-5 evidence. [EQUALIZER.md](../EQUALIZER.md) |
+| Stats and share cards | `RecapView`, `RecapShareCard` and `SongShareCard` implement history windows and sharing. All Time covers surviving saved sessions, not deleted history. Visible Stats naming is the owner's direction and remains a matching-binary requirement. [LIBRARY_AND_RECAP.md](../LIBRARY_AND_RECAP.md) |
 | Original appearance assets | Seven visible icons: Leafnote, Drift, Moonleaf, Ripple, Tide, Thorn and Sonnet. The retained primary compatibility alias is not an eighth choice. Seven accent colors. Original icon artwork does not grant rights to provider music, lyrics or artwork. [AppIcons.swift](../../Sources/UI/AppIcons.swift), [AppAccent.swift](../../Sources/Core/AppAccent.swift) |
 | Player and Settings | Crossfade is 0 seconds and Automix is off by default; saved choices survive. Support keeps the combined Album and artists chooser, native AirPlay button and all six Settings sections. [LibraryModels.swift](../../Sources/Core/LibraryModels.swift), [SettingsView.swift](../../Sources/Views/SettingsView.swift), [NowPlayingView.swift](../../Sources/Views/NowPlayingView.swift) |
 | Collection artwork and counts | Artist headers use 90% of the responsive cover size. Song play totals remain separate from upload views and are provider snapshots. A screenshot or sample recording does not establish universal counts, lyrics, audio quality or offline availability. [CollectionDetailView.swift](../../Sources/Views/CollectionDetailView.swift), [PlayerController.swift](../../Sources/Playback/PlayerController.swift) |
@@ -107,7 +112,7 @@ Character counts above include spaces and decoded paragraph breaks. All localize
 asc metadata validate --dir docs/app-store/asc-metadata
 ```
 
-Passed again on 24 September 2026 UTC: **2 files scanned, 0 errors, 0 warnings, `valid: true`, `issues: []`**. The September 23 push changed description, keywords and promotional text; the current read-only follow-up plan has no adds, updates or deletes. `artifacts/AppStore-1.0.0-5/final-record-audit.json` records the final validation and live readback.
+Passed on 27 September 2026: **2 files scanned, 0 errors, 0 warnings, `valid: true`, `issues: []`**. The authorized push changed description, keywords and promotional text in one version-localization update. Direct readback matches the canonical text, and the follow-up plan has no adds, updates or deletes. Name, subtitle and privacy/support URLs were read back unchanged. `artifacts/TestFlight-Prep/20260927/metadata-receipt.json` records this check; the build-5 final-record audit remains historical evidence. No runtime test was run for these text-only edits.
 
 ## Supporting assets
 

@@ -192,7 +192,7 @@ final class WatchRequestClientTests: XCTestCase {
         let client = WatchRequestClient(transport: transport)
         client.start()
         do {
-            _ = try await client.request(CompanionRequest(version: 2, action: .play))
+            _ = try await client.request(CompanionRequest(version: 1, action: .play))
             XCTFail("Expected version validation")
         } catch { XCTAssertEqual(error as? CompanionWireError, .unsupportedVersion) }
         XCTAssertTrue(transport.messages.isEmpty)

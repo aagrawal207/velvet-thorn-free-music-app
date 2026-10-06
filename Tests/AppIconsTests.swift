@@ -4,14 +4,35 @@ import XCTest
 
 @MainActor
 final class AppIconsTests: XCTestCase {
-    func testPickerOffersSevenChoicesWithLeafnoteAsThePrimary() {
-        XCTAssertEqual(AppIcons.all.map(\.id), ["Beat", "Notes", "Boombox", "Speaker", "Waves", "Thorn", "Sonnet"])
-        XCTAssertEqual(AppIcons.all.map(\.title), ["Leafnote", "Drift", "Moonleaf", "Ripple", "Tide", "Thorn", "Sonnet"])
+    func testPickerOffersTwentyChoicesInThreeFamiliesWithLeafnoteAsThePrimary() {
+        XCTAssertEqual(AppIcons.all.map(\.id), ["Beat", "LeafPaper", "LeafSky", "LeafBlossom", "LeafMidnight", "LeafViolet",
+                                                 "LeafSunset", "LeafMono", "Thorn", "Sonnet", "ThornEdge", "ThornFrost", "ThornNoir",
+                                                 "ThornVenom", "ThornDusk", "ThornBlush", "Notes", "Boombox", "Speaker", "Waves"])
+        XCTAssertEqual(AppIcons.all.map(\.title), ["Leafnote", "Paper", "Sky", "Blossom", "Midnight", "Violet", "Sunset", "Mono",
+                                                    "Thorn", "Sonnet", "Edge", "Frost", "Noir", "Venom", "Dusk", "Blush",
+                                                    "Drift", "Moonleaf", "Ripple", "Tide"])
+        XCTAssertEqual(Set(AppIcons.all.map(\.id)).count, AppIcons.all.count)
         XCTAssertEqual(AppIcons.all.filter(\.isPrimary), [AppIcons.primary])
         XCTAssertEqual(AppIcons.primary.id, "Beat")
         XCTAssertNil(AppIcons.primary.alternateIconName)
-        XCTAssertEqual(AppIcons.all.dropFirst().map(\.alternateIconName),
-                       ["AppIcon-Notes", "AppIcon-Boombox", "AppIcon-Speaker", "AppIcon-Waves", "AppIcon-Thorn", "AppIcon-Sonnet"])
+        XCTAssertEqual(AppIcons.all.dropFirst().compactMap(\.alternateIconName), AppIcons.all.dropFirst().map { "AppIcon-\($0.id)" })
+        // Families are contiguous so the picker's sections keep the catalog order.
+        XCTAssertEqual(AppIcons.all.map(\.family).reduce(into: [AppIconOption.Family]()) { if $0.last != $1 { $0.append($1) } },
+                       AppIconOption.Family.allCases)
+        XCTAssertEqual(AppIcons.all.filter { $0.family == .leafnote }.count, 8)
+        XCTAssertEqual(AppIcons.all.filter { $0.family == .thorn }.count, 8)
+    }
+
+    func testEveryChoiceIsAnAlternateTheBundleDeclares() throws {
+        #if targetEnvironment(macCatalyst)
+        throw XCTSkip("A Mac app has one icon; the picker is hidden because alternate icons are iOS-only")
+        #endif
+        let declared = try XCTUnwrap(Bundle.main.object(forInfoDictionaryKey: "CFBundleIcons") as? [String: Any])
+        let alternates = try XCTUnwrap(declared["CFBundleAlternateIcons"] as? [String: Any])
+        for option in AppIcons.all.dropFirst() {
+            XCTAssertNotNil(alternates[try XCTUnwrap(option.alternateIconName)], option.id)
+        }
+        XCTAssertNotNil(alternates["AppIcon-Beat"], "The primary's compatibility alias stays installed")
     }
 
     func testEveryChoiceHasABundledPreviewImage() {

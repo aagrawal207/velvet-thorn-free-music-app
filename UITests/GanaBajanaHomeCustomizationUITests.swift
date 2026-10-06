@@ -54,7 +54,7 @@ final class GanaBajanaHomeCustomizationUITests: XCTestCase {
         let ui = makeDriver()
         try ui.launch()
         try openCustomization(ui)
-        for section in ["recentlyPlayed", "madeForYou", "newReleases", "becauseYouLike", "charts", "discovery"] {
+        for section in ["recentlyPlayed", "madeForYou", "newReleases", "becauseYouLike", "charts", "discovery", "superLiked"] {
             try ui.setSwitch("home.customization.show.\(section)", to: false)
         }
         try returnHome(ui)
@@ -99,11 +99,12 @@ final class GanaBajanaHomeCustomizationUITests: XCTestCase {
         let card = ui.element("library.playlists.empty")
         let create = card.buttons["library.playlists.createFirst"]
         try ui.reveal(create)
-        XCTAssertTrue(card.staticTexts["A place for your next mix"].exists)
+        XCTAssertTrue(card.staticTexts["A Place for Your Next Mix"].exists)
         XCTAssertEqual(ui.app.buttons.matching(identifier: "library.playlists.createFirst").count, 1)
         XCTAssertLessThanOrEqual(card.frame.height, 200, "The empty playlist prompt should remain a compact card at the default text size")
         XCTAssertGreaterThanOrEqual(create.frame.height, 44)
-        XCTAssertLessThanOrEqual(create.frame.maxY, ui.app.buttons["miniPlayer.open"].frame.minY)
+        XCTAssertLessThanOrEqual(create.frame.maxY, ui.app.otherElements["miniPlayer.container"].frame.minY,
+                                 "The Create action must sit wholly above the mini-player's glass")
         XCTAssertTrue(ui.app.buttons["miniPlayer.open"].label.contains("Tum Hi Ho"))
         ui.capture("library-compact-empty-playlist-card-above-mini-player")
 

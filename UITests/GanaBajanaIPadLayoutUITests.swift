@@ -26,9 +26,13 @@ final class GanaBajanaIPadLayoutUITests: XCTestCase {
         capture("ipad-home-portrait")
         try tapDirect(app.buttons["tab.search"].firstMatch)
         XCTAssertTrue(app.textFields["search.field"].waitForExistence(timeout: 10))
-        capture("ipad-search-radio-grid-portrait")
-        app.swipeUp()
-        capture("ipad-search-radio-grid-scrolled")
+        capture("ipad-search-root-portrait")
+        try tapDirect(app.buttons["search.radio.open"])
+        assertRadioBrowser()
+        capture("ipad-radio-song-artist-search-portrait")
+        try tapDirect(app.navigationBars["Radio"].buttons["Back"])
+        XCTAssertTrue(app.textFields["search.field"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
         try tapDirect(app.buttons["tab.library"].firstMatch)
         capture("ipad-library-portrait")
         try tapDirect(app.buttons["tab.recap"].firstMatch)
@@ -47,12 +51,23 @@ final class GanaBajanaIPadLayoutUITests: XCTestCase {
         try tapDirect(mini)
         XCTAssertTrue(app.buttons["player.close"].waitForExistence(timeout: 10))
         assertPlayerActions()
+        let artwork = app.descendants(matching: .any).matching(identifier: "player.artwork").firstMatch
+        XCTAssertTrue(artwork.waitForExistence(timeout: 5))
+        XCTAssertEqual(artwork.frame.width, 600, accuracy: 1, "Regular width portrait sits on the 600-point artwork cap")
+        XCTAssertEqual(artwork.frame.height, artwork.frame.width, accuracy: 1)
         capture("ipad-player-portrait")
         try tapDirect(app.buttons["player.queue"])
         XCTAssertTrue(app.buttons["player.shuffle"].waitForExistence(timeout: 10))
         capture("ipad-queue-sheet-portrait")
         try tapDirect(app.buttons["queue.done"])
-        try tapDirect(app.buttons["player.browse"])
+        // The chooser opens from the artist line once a song has several credits; the duet is queued by autoplay.
+        let duet = app.staticTexts["player.track.\(AppUIFixture.agarTumSaathHo)"]
+        for _ in 0..<5 where !duet.exists {
+            try tapDirect(app.buttons["player.next"])
+            _ = duet.waitForExistence(timeout: 2)
+        }
+        XCTAssertTrue(duet.waitForExistence(timeout: 5))
+        try tapDirect(app.buttons["player.artistName"])
         XCTAssertTrue(app.buttons["player.artist.0"].waitForExistence(timeout: 5))
         let chooser = app.otherElements["player.browse.sheet"]
         XCTAssertTrue(chooser.exists)
@@ -73,10 +88,30 @@ final class GanaBajanaIPadLayoutUITests: XCTestCase {
         try tapDirect(app.buttons["tab.search"].firstMatch)
         sleep(1)
         capture("ipad-search-landscape")
+        try tapDirect(app.buttons["search.radio.open"])
+        assertRadioBrowser()
+        capture("ipad-radio-song-artist-search-landscape")
+    }
+
+    private func assertRadioBrowser(file: StaticString = #filePath, line: UInt = #line) {
+        let field = app.searchFields["Songs or artists"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), file: file, line: line)
+        XCTAssertTrue(field.isHittable, file: file, line: line)
+        XCTAssertTrue(app.navigationBars["Radio"].exists, file: file, line: line)
+        XCTAssertFalse(app.textFields["search.field"].exists, file: file, line: line)
+        XCTAssertFalse(app.keyboards.firstMatch.exists, file: file, line: line)
+        XCTAssertFalse(app.buttons["player.close"].exists, file: file, line: line)
+        let type = app.buttons["radio.search.type"]
+        XCTAssertTrue(type.isHittable, file: file, line: line)
+        XCTAssertEqual(type.value as? String, "Songs", file: file, line: line)
+        XCTAssertGreaterThanOrEqual(type.frame.height + 1e-6, 44, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(type.frame.width + 1e-6, 44, file: file, line: line)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(type.frame), file: file, line: line)
     }
 
     private func assertPlayerActions(file: StaticString = #filePath, line: UInt = #line) {
-        let ids = ["player.airplay", "player.lyrics", "player.browse", "player.queue"]
+        // Four controls: native AirPlay then Download at the leading edge, Lyrics and Queue together at the trailing edge.
+        let ids = ["player.airplay", "player.download", "player.lyrics", "player.queue"]
         let controls = ids.map { app.buttons[$0] }
         for control in controls {
             XCTAssertTrue(control.isHittable, file: file, line: line)
@@ -87,7 +122,13 @@ final class GanaBajanaIPadLayoutUITests: XCTestCase {
         for (left, right) in zip(controls, controls.dropFirst()) {
             XCTAssertLessThan(left.frame.midX, right.frame.midX, file: file, line: line)
         }
+        XCTAssertFalse(app.buttons["player.browse"].exists, file: file, line: line)
+        XCTAssertEqual(controls[0].frame.minX, app.staticTexts["player.elapsed"].frame.minX, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(controls[1].frame.minX, controls[0].frame.maxX + 8, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(controls[3].frame.maxX, app.buttons["player.trailingTime"].frame.maxX, accuracy: 1, file: file, line: line)
+        XCTAssertEqual(controls[2].frame.maxX + 8, controls[3].frame.minX, accuracy: 1, file: file, line: line)
         XCTAssertEqual(app.buttons.matching(identifier: "player.airplay").count, 1, file: file, line: line)
+        XCTAssertEqual(app.buttons.matching(identifier: "player.download").count, 1, file: file, line: line)
     }
 
     func testIPadAlbumArtworkDurationsAndFooter() throws {

@@ -17,7 +17,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
             XCTAssertTrue(a.library.recordListening(track: song, sessionID: UUID(),
                                                     startedAt: LibrarySyncTestData.now, seconds: 60))
             try b.library.mergeCloudState(a.state())
-            b.library.preferences.shuffleStyle = .fewerRepeats
+            b.library.preferences.shuffleStyle = .random
             switch additionalChange {
             case "favorite": b.library.toggleFavorite(libraryTestTrack("new-favorite"))
             case "history": b.library.clearHistory()
@@ -28,8 +28,8 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
             XCTAssertEqual(preparation.recommendationsChanged, additionalChange != "none", additionalChange)
             var notifications: [Bool] = []
             a.library.onCloudSyncApplied = { [weak a] previous, changed in
-                XCTAssertEqual(previous.shuffleStyle, .random)
-                XCTAssertEqual(try? a?.saved().preferences.shuffleStyle, .fewerRepeats)
+                XCTAssertEqual(previous.shuffleStyle, .fewerRepeats)
+                XCTAssertEqual(try? a?.saved().preferences.shuffleStyle, .random)
                 notifications.append(changed)
             }
             XCTAssertTrue(try a.library.applyCloudMerge(preparation))
@@ -37,8 +37,8 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
         }
     }
 
-    func testV1AndV2SparseReplicasDefaultMissingChoicesWithoutRestampingRevisionsOrBoundaries() throws {
-        for version in [1, 2] {
+    func testV1V2AndCurrentSparseReplicasDefaultMissingChoicesWithoutRestampingRevisionsOrBoundaries() throws {
+        for version in [1, 2, LibrarySyncReplica.currentVersion] {
             var state = LibrarySyncState()
             state.historyReset = LibrarySyncTestData.revision(1)
             state.historyRetirement = LibrarySyncTestData.revision(2)
@@ -47,7 +47,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
             state.clock = LibrarySyncTestData.revision(8)
             state.put(LibrarySyncKey(.preference, "autoplay"), value: Data("false".utf8), revision: LibrarySyncTestData.revision(5))
             state.put(LibrarySyncKey(.search, "kept query"), value: try LibrarySyncCodec.encode("Kept query"), revision: LibrarySyncTestData.revision(6))
-            if version == 2 {
+            if version >= 2 {
                 let selection = SearchSelection.track(libraryTestTrack("Kept"))
                 state.searchSelectionFloor = LibrarySyncSearchBoundary(revision: LibrarySyncTestData.revision(5), key: "track:Expired")
                 state.put(LibrarySyncKey(.searchSelection, selection.id), value: try LibrarySyncCodec.encode(selection), revision: LibrarySyncTestData.revision(7))
@@ -64,11 +64,11 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
             XCTAssertNil(decoded.state.registers[shuffleKey])
             XCTAssertNil(decoded.state.registers[familiarityKey])
             let rendered = try LibrarySyncTestData.rendered(decoded.state)
-            XCTAssertEqual(rendered.preferences.shuffleStyle, .random)
+            XCTAssertEqual(rendered.preferences.shuffleStyle, .fewerRepeats)
             XCTAssertEqual(rendered.preferences.discoveryFamiliarity, .balanced)
             XCTAssertFalse(rendered.preferences.autoplay)
             XCTAssertEqual(rendered.recentSearches, ["Kept query"])
-            XCTAssertEqual(rendered.recentSearchSelections.map(\.id), version == 2 ? ["track:Kept"] : [])
+            XCTAssertEqual(rendered.recentSearchSelections.map(\.id), version >= 2 ? ["track:Kept"] : [])
             if version == LibrarySyncReplica.currentVersion {
                 XCTAssertEqual(try LibrarySyncCodec.encodeReplica(decoded), bytes)
             }
@@ -101,7 +101,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
         b.library.updatePlayback(PlaybackSnapshot(queue: [libraryTestTrack("b-queue")], position: 31))
         let aPlayback = try LibrarySyncCodec.encode(a.library.playback)
         let bPlayback = try LibrarySyncCodec.encode(b.library.playback)
-        a.library.preferences.shuffleStyle = .fewerRepeats
+        a.library.preferences.shuffleStyle = .random
         b.library.preferences.discoveryFamiliarity = .newMusic
         let left = try a.state()
         let right = try b.state()
@@ -111,7 +111,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
         XCTAssertNil(right.registers[shuffleKey])
         try a.library.mergeCloudState(right)
         try b.library.mergeCloudState(left)
-        preferences.shuffleStyle = .fewerRepeats
+        preferences.shuffleStyle = .random
         preferences.discoveryFamiliarity = .newMusic
         for device in [a, b] {
             XCTAssertEqual(device.library.preferences, preferences)
@@ -143,12 +143,12 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
         defer { harness.remove() }
         let a = harness.device()
         let b = harness.device(LibrarySyncTestData.b)
-        a.library.preferences.shuffleStyle = .fewerRepeats
+        a.library.preferences.shuffleStyle = .random
         a.library.preferences.discoveryFamiliarity = .familiar
         let stale = try a.state()
         try b.library.mergeCloudState(stale)
         harness.clock.advance(by: -3600)
-        a.library.preferences.shuffleStyle = .random
+        a.library.preferences.shuffleStyle = .fewerRepeats
         b.library.preferences.discoveryFamiliarity = .balanced
         let left = try a.state()
         let right = try b.state()
@@ -158,10 +158,10 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
             XCTAssertFalse(try device.library.mergeCloudState(stale))
             let reopened = LibraryStore(directory: device.directory, now: { LibrarySyncTestData.now })
             XCTAssertNil(reopened.errorMessage)
-            XCTAssertEqual(reopened.preferences.shuffleStyle, .random)
+            XCTAssertEqual(reopened.preferences.shuffleStyle, .fewerRepeats)
             XCTAssertEqual(reopened.preferences.discoveryFamiliarity, .balanced)
             let state = try device.state()
-            XCTAssertEqual(state.registers[shuffleKey]?.value, Data("\"random\"".utf8))
+            XCTAssertEqual(state.registers[shuffleKey]?.value, Data("\"fewerRepeats\"".utf8))
             XCTAssertEqual(state.registers[familiarityKey]?.value, Data("\"balanced\"".utf8))
             XCTAssertGreaterThan(try XCTUnwrap(state.registers[shuffleKey]?.revision), try XCTUnwrap(stale.registers[shuffleKey]?.revision))
             XCTAssertGreaterThan(try XCTUnwrap(state.registers[familiarityKey]?.revision), try XCTUnwrap(stale.registers[familiarityKey]?.revision))
@@ -173,6 +173,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
         let harness = LibrarySyncTestHarness()
         defer { harness.remove() }
         let a = harness.device()
+        a.library.preferences.shuffleStyle = .random
         a.library.preferences.shuffleStyle = .fewerRepeats
         a.library.preferences.discoveryFamiliarity = .newMusic
         let stale = try a.state()
@@ -202,7 +203,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
             var applied: [UserPreferences] = []
             a.library.onSyncChange = { localChanges += 1 }
             a.library.onCloudSyncApplied = { previous, _ in applied.append(previous) }
-            if field == "shuffleStyle" { a.library.preferences.shuffleStyle = .fewerRepeats }
+            if field == "shuffleStyle" { a.library.preferences.shuffleStyle = .random }
             else { a.library.preferences.discoveryFamiliarity = .newMusic }
             var expected = a.library.preferences
             let saved = try Data(contentsOf: a.fileURL)
@@ -231,7 +232,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
         let a = harness.device()
         let b = harness.device(LibrarySyncTestData.b)
         a.library.toggleFavorite(libraryTestTrack("local"))
-        a.library.preferences.shuffleStyle = .fewerRepeats
+        a.library.preferences.shuffleStyle = .random
         a.library.updatePlayback(PlaybackSnapshot(queue: [libraryTestTrack("playing")], position: 52, repeatMode: .one))
         b.library.preferences.discoveryFamiliarity = .newMusic
         let incoming = try b.state()
@@ -251,7 +252,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
         a.library.onHistoryCleared = { XCTFail("Preference-only sync cannot clear listening history") }
         a.library.onCloudSyncApplied = { [weak a] previous, _ in
             applied.append(previous)
-            XCTAssertEqual(try? a?.saved().preferences.shuffleStyle, .fewerRepeats)
+            XCTAssertEqual(try? a?.saved().preferences.shuffleStyle, .random)
             XCTAssertEqual(try? a?.saved().preferences.discoveryFamiliarity, .newMusic)
         }
         try FileManager.default.moveItem(at: a.fileURL, to: backup)
@@ -302,7 +303,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
             ("discoveryFamiliarity", Data("null".utf8)),
             ("futurePreference", Data("true".utf8)),
             ("futurePreference", nil),
-            ("shuffleStyle", Data("\"fewerRepeats\"".utf8)),
+            ("shuffleStyle", Data("\"random\"".utf8)),
             ("discoveryFamiliarity", Data("\"newMusic\"".utf8))
         ]
         for (field, value) in invalids {
@@ -321,7 +322,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
                 let library = LibraryStore(directory: directory, now: { now })
                 XCTAssertTrue(library.requiresReload)
                 XCTAssertFalse(library.hasLoadedDocument)
-                library.preferences.shuffleStyle = .fewerRepeats
+                library.preferences.shuffleStyle = .random
                 library.preferences.discoveryFamiliarity = .newMusic
                 XCTAssertThrowsError(try library.mergeCloudState(LibrarySyncState()))
                 XCTAssertEqual(try Data(contentsOf: url), bytes)
@@ -358,7 +359,7 @@ final class LibrarySyncPlaybackDiscoveryPreferencesTests: XCTestCase {
             defer { harness.remove() }
             let a = harness.device()
             let c = harness.device(LibrarySyncTestData.c)
-            a.library.preferences.shuffleStyle = .fewerRepeats
+            a.library.preferences.shuffleStyle = .random
             a.library.preferences.discoveryFamiliarity = .newMusic
             a.library.toggleFavorite(libraryTestTrack("local"))
             c.library.preferences.appearance = .light

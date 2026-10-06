@@ -15,6 +15,7 @@ final class GanaBajanaNavigationIntentUITests: XCTestCase {
         try ui.closePlayer()
         try ui.selectTab("home")
         try ui.openSettings()
+        try ui.openSettingsPage(.discovery)
         for _ in 0..<2 {
             let customize = ui.app.buttons["settings.customizeHome"]
             try ui.reveal(customize, maxSwipes: 24)
@@ -33,15 +34,16 @@ final class GanaBajanaNavigationIntentUITests: XCTestCase {
         try ui.selectTab("search")
         try ui.clearSearch()
         try ui.dismissSearchKeyboard()
+        // The playlist shortcut is Search's remaining local library link; liked songs open from the Library tab.
+        let playlistShortcut = ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.library.playlist.")).firstMatch
         for _ in 0..<2 {
-            let likes = ui.app.buttons["search.library.likes"]
-            try ui.reveal(likes, direction: .down)
-            try ui.tap(likes)
+            try ui.reveal(playlistShortcut, direction: .down)
+            try ui.tap(playlistShortcut)
             try ui.reveal(ui.app.buttons["track.play.\(AppUIFixture.tumHiHo)"])
             try ui.assertMiniPlayerAboveTabs()
             XCTAssertEqual(ui.element("miniPlayer.container").frame.height, 64, accuracy: 1)
-            try ui.tap(ui.app.navigationBars["Liked songs"].buttons.firstMatch)
-            try ui.requireHittable(likes)
+            try ui.tap(ui.app.navigationBars[AppUIFixture.seededPlaylist].buttons.firstMatch)
+            try ui.requireHittable(playlistShortcut)
             XCTAssertFalse(ui.app.buttons["search.filter.songs"].exists)
         }
 
@@ -51,7 +53,7 @@ final class GanaBajanaNavigationIntentUITests: XCTestCase {
             try ui.tap(ui.app.buttons["library.likes"])
             try ui.reveal(ui.app.buttons["track.play.\(AppUIFixture.tumHiHo)"])
             try ui.assertMiniPlayerAboveTabs()
-            try ui.tap(ui.app.navigationBars["Liked songs"].buttons["Back"])
+            try ui.tap(ui.app.navigationBars["Liked Songs"].buttons["Back"])
             try ui.requireHittable(ui.app.buttons["library.createPlaylist"])
         }
         ui.capture("native-local-links-back-and-reopen")
@@ -66,7 +68,7 @@ final class GanaBajanaNavigationIntentUITests: XCTestCase {
             try ui.reveal(ui.app.buttons["artist.spotlight.open"])
             try ui.tap(ui.app.buttons["artist.spotlight.open"])
             try ui.reveal(ui.app.staticTexts["artist.spotlight.countProvenance"])
-            try ui.tap(ui.app.tabBars.buttons["Search"])
+            try ui.selectTab("search")
             try ui.wait("Reselect must pop both artist destinations and focus the existing Search draft") {
                 ui.app.textFields["search.field"].exists && ui.app.keyboards.firstMatch.exists
                     && !ui.app.staticTexts["artist.spotlight.countProvenance"].exists
@@ -82,24 +84,25 @@ final class GanaBajanaNavigationIntentUITests: XCTestCase {
         let ui = makeDriver()
         try ui.launch(additionalArguments: ["--artist-navigation-fixture"])
         try ui.selectTab("search")
-        try ui.requireHittable(ui.app.buttons["search.library.likes"])
+        try ui.requireHittable(ui.app.buttons["search.radio.open"])
         XCTAssertFalse(ui.app.buttons["search.filter.songs"].exists)
         XCTAssertFalse(ui.app.keyboards.firstMatch.exists)
         try ui.openPlayer()
-        let artist = ui.app.buttons["player.artistName"]
-        try ui.expectLabel(artist, "Go to artist, Norah Jones")
-        try ui.tap(artist)
+        try chooseNameOnlyArtist(ui)
         try ui.wait("Search discovery must reappear while the name-only artist lookup is still loading") {
-            ui.app.textFields["search.field"].exists && ui.app.buttons["search.library.likes"].exists
+            ui.app.textFields["search.field"].exists && ui.app.buttons["search.radio.open"].exists
                 && !ui.app.buttons["player.close"].exists
         }
         try ui.expectArtistPage(named: "Norah Jones")
+        try ui.reveal(ui.app.buttons["track.play.fixture.setup.norah.2002"])
+        XCTAssertEqual(ui.app.staticTexts["collection.title"].label, "Norah Jones")
+        XCTAssertFalse(ui.element("player.browse.sheet").exists)
         XCTAssertFalse(ui.app.keyboards.firstMatch.exists)
         XCTAssertFalse(ui.app.buttons["player.close"].exists)
         ui.capture("name-only-artist-survives-search-reappearance")
     }
 
-    func testSearchReselectionPopsRadioBrowseAndFocusesTheBlankLibraryLedRoot() throws {
+    func testSearchReselectionPopsRadioBrowseAndFocusesTheBlankRadioLedRoot() throws {
         let ui = makeDriver()
         try ui.launch()
         try ui.selectTab("search")
@@ -108,8 +111,11 @@ final class GanaBajanaNavigationIntentUITests: XCTestCase {
             try ui.reveal(radio)
             try ui.tap(radio)
             try ui.wait("Radio must be a pushed Search destination") { ui.app.navigationBars["Radio"].exists }
-            try ui.reveal(ui.app.buttons["search.station.focus"])
-            try ui.tap(ui.app.tabBars.buttons["Search"])
+            try ui.requireHittable(ui.app.searchFields["Songs or artists"])
+            try ui.requireHittable(ui.app.buttons["radio.search.type"])
+            try ui.expectValue(ui.app.buttons["radio.search.type"], "Songs")
+            XCTAssertFalse(ui.app.buttons["player.close"].exists)
+            try ui.selectTab("search")
             try ui.wait("Reselection must retire the local radio path and keep the new focus request") {
                 ui.app.textFields["search.field"].exists && ui.app.keyboards.firstMatch.exists
                     && !ui.app.navigationBars["Radio"].exists
@@ -117,9 +123,10 @@ final class GanaBajanaNavigationIntentUITests: XCTestCase {
             let field = ui.app.textFields["search.field"]
             XCTAssertTrue((field.value as? String ?? "").isEmpty || field.value as? String == field.placeholderValue)
             try ui.requireHittable(field)
-            try ui.requireHittable(ui.app.buttons["search.library.likes"])
+            try ui.requireHittable(ui.app.buttons["search.radio.open"])
             XCTAssertFalse(ui.app.buttons["search.filter.songs"].exists)
-            XCTAssertFalse(ui.app.buttons["search.station.focus"].exists)
+            XCTAssertFalse(ui.app.searchFields["Songs or artists"].exists)
+            XCTAssertFalse(ui.element("search.radio.content").exists)
             try ui.dismissSearchKeyboard()
         }
         ui.capture("radio-search-reselection-keeps-blank-root-focus")
@@ -147,9 +154,7 @@ final class GanaBajanaNavigationIntentUITests: XCTestCase {
         XCTAssertFalse(ui.app.buttons["search.recent.arijit"].exists)
 
         try ui.openPlayer()
-        let artist = ui.app.buttons["player.artistName"]
-        try ui.expectLabel(artist, "Go to artist, Norah Jones")
-        try ui.tap(artist)
+        try chooseNameOnlyArtist(ui)
         try ui.wait("The recent result must remain actionable while the name-only artist lookup is pending") {
             recent.exists && recent.isHittable && !ui.app.buttons["player.close"].exists
         }
@@ -174,6 +179,23 @@ final class GanaBajanaNavigationIntentUITests: XCTestCase {
         XCTAssertTrue((field.value as? String ?? "").isEmpty || field.value as? String == field.placeholderValue)
         XCTAssertFalse(ui.app.buttons["search.filter.songs"].exists)
         ui.capture("typed-recent-album-wins-over-stale-artist")
+    }
+
+    private func chooseNameOnlyArtist(_ ui: AppUITestDriver) throws {
+        let artist = ui.app.buttons["player.artistName"]
+        try ui.expectLabel(artist, "Album and artists, Norah Jones")
+        try ui.tap(artist)
+        try ui.wait("A recording with an album must offer the combined chooser") {
+            ui.app.navigationBars["Album and Artists"].exists && ui.element("player.browse.sheet").exists
+        }
+        let album = ui.app.buttons["player.browse.album"]
+        try ui.requireHittable(album)
+        try ui.expectLabel(album, "Go to Album")
+        try ui.expectValue(album, "Come Away With Me")
+        let credit = ui.app.buttons["player.artist.0"]
+        try ui.requireHittable(credit)
+        try ui.expectLabel(credit, "Norah Jones")
+        try ui.tap(credit)
     }
 
     private func makeDriver() -> AppUITestDriver {

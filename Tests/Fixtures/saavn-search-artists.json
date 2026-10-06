@@ -1,0 +1,30 @@
+{
+ "total": 433,
+ "start": 1,
+ "results": [
+  {
+   "name": "Arijit Singh",
+   "id": "459320",
+   "image": "https://c.saavncdn.com/artists/Arijit_Singh_004_20241118063717_50x50.jpg",
+   "role": "Artist",
+   "perma_url": "https://www.jiosaavn.com/artist/arijit-singh-songs/LlRWpHzy3Hk_",
+   "type": "artist"
+  },
+  {
+   "name": "Pritam & Arijit Singh",
+   "id": "702776",
+   "image": "https://www.jiosaavn.com/_i/3.0/artist-default-film.png",
+   "role": "Artist",
+   "perma_url": "https://www.jiosaavn.com/artist/pritam-arijit-singh-songs/yE1eQoLw,8Q_",
+   "type": "artist"
+  },
+  {
+   "name": "Sachin-Jigar|Arijit Singh",
+   "id": "16551820",
+   "image": "https://www.jiosaavn.com/_i/3.0/artist-default-music.png",
+   "role": "Artist",
+   "perma_url": "https://www.jiosaavn.com/artist/sachin-jigar%7carijit-singh-songs/S87pvBT6eb4_",
+   "type": "artist"
+  }
+ ]
+}

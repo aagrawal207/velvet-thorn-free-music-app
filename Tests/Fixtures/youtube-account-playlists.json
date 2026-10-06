@@ -1,0 +1,58 @@
+{
+  "responseContext": {"visitorData": "CgtmaXh0dXJlLXZpc2l0b3I%3D"},
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [{"tabRenderer": {"selected": true, "content": {"sectionListRenderer": {"contents": [{
+        "gridRenderer": {
+          "items": [
+            {"musicTwoRowItemRenderer": {
+              "title": {"runs": [{"text": "New playlist"}]},
+              "navigationEndpoint": {"createPlaylistEndpoint": {"createPlaylistDialog": {}}},
+              "thumbnailRenderer": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://www.gstatic.com/youtube/media/ytm/images/pbg/create-playlist-@576.png", "width": 576, "height": 576}
+              ]}}}
+            }},
+            {"musicTwoRowItemRenderer": {
+              "title": {"runs": [{"text": "Liked Music", "navigationEndpoint": {"browseEndpoint": {"browseId": "VLLM",
+                "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_PLAYLIST"}}}}}]},
+              "subtitle": {"runs": [{"text": "Auto playlist"}]},
+              "navigationEndpoint": {"browseEndpoint": {"browseId": "VLLM",
+                "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_PLAYLIST"}}}},
+              "thumbnailRenderer": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://www.gstatic.com/youtube/media/ytm/images/pbg/liked-music-@576.png", "width": 576, "height": 576}
+              ]}}}
+            }},
+            {"musicTwoRowItemRenderer": {
+              "title": {"runs": [{"text": "Episodes for Later"}]},
+              "subtitle": {"runs": [{"text": "Auto playlist"}]},
+              "navigationEndpoint": {"browseEndpoint": {"browseId": "VLSE",
+                "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_PLAYLIST"}}}},
+              "thumbnailRenderer": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://www.gstatic.com/youtube/media/ytm/images/pbg/episodes-for-later-@576.png", "width": 576, "height": 576}
+              ]}}}
+            }},
+            {"musicTwoRowItemRenderer": {
+              "title": {"runs": [{"text": "Late night favorites"}]},
+              "subtitle": {"runs": [{"text": "Playlist"}, {"text": " • "}, {"text": "Abhishek"}]},
+              "navigationEndpoint": {"browseEndpoint": {"browseId": "VLPLfixtureLateNight0000000000001",
+                "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_PLAYLIST"}}}},
+              "thumbnailRenderer": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://i.ytimg.com/vi/fsiPzT50ZiM/hqdefault.jpg", "width": 480, "height": 360}
+              ]}}}
+            }},
+            {"musicTwoRowItemRenderer": {
+              "title": {"runs": [{"text": "Bollywood Hitlist"}]},
+              "subtitle": {"runs": [{"text": "Playlist"}, {"text": " • "}, {"text": "YouTube Music"}]},
+              "navigationEndpoint": {"browseEndpoint": {"browseId": "VLRDCLAK5uy_fixtureHitlist000000000000",
+                "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_PLAYLIST"}}}},
+              "thumbnailRenderer": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://lh3.googleusercontent.com/fixtureHitlist=w226-h226-l90-rj", "width": 226, "height": 226}
+              ]}}}
+            }}
+          ],
+          "continuations": [{"nextContinuationData": {"continuation": "4qmFsgPlaylistsPage2Token", "clickTrackingParams": "CAAQ"}}]
+        }
+      }]}}}}]
+    }
+  }
+}

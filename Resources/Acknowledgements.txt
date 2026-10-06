@@ -1,4 +1,4 @@
-Breezy acknowledgements
+Velvet Thorn acknowledgements
 
 Network providers
 
@@ -14,14 +14,14 @@ https://lrclib.net
 Recording-linked plain lyrics fallback: YouTube Music
 https://music.youtube.com
 LyricFind and Musixmatch are credited when identified by YouTube Music.
-Breezy does not request lyrics directly from either publisher.
+Velvet Thorn does not request lyrics directly from either publisher.
 
 Recording and work metadata, when enabled: MusicBrainz, a project of the
 MetaBrainz Foundation
 https://musicbrainz.org
 https://metabrainz.org
 MusicBrainz data is used with attribution; requests follow the MusicBrainz
-API rate limits and identify Breezy with a developer contact URL.
+API rate limits and identify Velvet Thorn with a developer contact URL.
 
 Optional remote extraction: YouTubeKit remote service
 https://remote-production.youtubekit.dev
@@ -34,7 +34,7 @@ Provider credits do not imply affiliation, endorsement, or content permission.
 
 Original artwork
 
-Breezy's bundled app icons and brand mark were created for this project with
+Velvet Thorn's bundled app icons and brand mark were created for this project with
 tools/generate-artwork.swift. No external artwork was used for those assets.
 
 Third-party software

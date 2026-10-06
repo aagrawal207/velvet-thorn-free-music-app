@@ -30,23 +30,18 @@ struct StorageSettingsView: View {
             librarySection
             searchesSection
             Section {
-                metric("Lyrics and lookups", value: "Memory only",
+                metric("Lyrics and Lookups", value: "Memory only",
                        detail: "Lyrics text, catalog results and stream links use temporary memory. They are fetched again when needed. Lyrics timing adjustments are saved in your library.")
                     .accessibilityIdentifier("storage.memoryOnly")
-                metric("YouTube sign-in", value: accountStatus,
+                metric("YouTube Sign-In", value: accountStatus,
                        detail: "Optional sign-in details use the Keychain on this device. Manage sign-in in Settings.")
                     .accessibilityIdentifier("storage.account")
             } header: {
-                Text("Other data").appFont(.caption)
+                SettingsSectionHeader(title: "Other Data", id: "storage.section.other")
             }
-            .listRowBackground(AppTheme.surface)
+            .settingsSectionRows()
         }
-        .appFont(.body)
-        .environment(\.defaultMinListRowHeight, 44)
-        .foregroundStyle(AppTheme.primaryText)
-        .tint(AppTheme.accent)
-        .scrollContentBackground(.hidden)
-        .background(AppTheme.background)
+        .settingsFormChrome()
         .navigationTitle("Storage")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("storage.screen")
@@ -93,77 +88,105 @@ struct StorageSettingsView: View {
     private var audioSection: some View {
         Section {
             if let usage = audioUsage {
-                metric("Stored audio", value: Self.bytes(usage.bytes),
+                metric("Stored Audio", value: Self.bytes(usage.bytes),
                        detail: audioDescription(usage))
                     .accessibilityIdentifier("storage.audio.usage")
                 if usage.pendingDownloads > 0 {
-                    LabeledContent("Pending downloads", value: usage.pendingDownloads.formatted())
+                    valueRow("Pending Downloads", value: usage.pendingDownloads.formatted())
                         .accessibilityIdentifier("storage.audio.pending")
                 }
             } else {
-                metric("Stored audio", value: hasLoadedUsage ? "Unavailable" : "Calculating…",
+                metric("Stored Audio", value: hasLoadedUsage ? "Unavailable" : "Calculating…",
                        detail: audioReadError ?? "Temporary audio caching is available only with a caching playback provider.")
                     .accessibilityIdentifier("storage.audio.usage")
             }
             cachedSongsLink
+            if model.downloads.isAvailable { downloadsLink }
             if let error = model.cachedSongsError ?? audioReadError {
-                VStack(alignment: .leading, spacing: 4) {
-                    description(error)
-                        .accessibilityIdentifier("storage.audio.readError")
-                    Button {
-                        Task { await refreshUsage() }
-                    } label: {
-                        Label("Try again", systemImage: "arrow.clockwise")
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .disabled(isRefreshing || model.isRefreshingCachedSongs || clearing != nil || model.player.isUpdatingAudioCacheLimit)
-                    .accessibilityIdentifier("storage.audio.retry")
+                description(error)
+                    .accessibilityIdentifier("storage.audio.readError")
+                Button {
+                    Task { await refreshUsage() }
+                } label: {
+                    Text("Try Again")
+                        .settingsRowTarget()
                 }
+                .disabled(isRefreshing || model.isRefreshingCachedSongs || clearing != nil || model.player.isUpdatingAudioCacheLimit)
+                .accessibilityIdentifier("storage.audio.retry")
             }
             audioCacheLimitRow
             if let usage = audioUsage {
-                metric("Current cache policy", value: "\(Self.bytes(usage.capacityBytes)) or \(usage.maximumSongs.formatted()) songs",
+                metric("Current Cache Policy", value: "\(Self.bytes(usage.capacityBytes)) or \(usage.maximumSongs.formatted()) songs",
                        detail: "Audio in use can temporarily exceed these limits. Bytes include each cached version and files being prepared; songs count once.")
                     .accessibilityIdentifier("storage.audio.limit")
             }
-            clearRow(.audio, enabled: hasLoadedUsage && audioUsage != nil,
-                     detail: "Songs in use are kept so playback can continue. The cache can grow again as you listen.")
+            clearRow(.audio, enabled: hasLoadedUsage && audioUsage != nil)
         } header: {
-            Text("Temporary audio cache").appFont(.caption)
+            SettingsSectionHeader(title: "Temporary Audio Cache", id: "storage.section.audio")
+        } footer: {
+            SettingsFooter(id: "storage.footer.audio") {
+                if model.downloads.isAvailable {
+                    Text("Downloads stay on this device until you delete them. They are not counted in the cache limit and not removed by iOS.")
+                }
+                Text("The cache limit makes room by balancing recent and repeat listening. Playing and upcoming songs are kept.")
+                Text("Clearing keeps songs in use so playback can continue. The cache can grow again as you listen.")
+            }
         }
-        .listRowBackground(AppTheme.surface)
+        .settingsSectionRows()
     }
 
     private var cachedSongsLink: some View {
         AppNavigationLink {
-            CachedSongsView()
+            // The Settings sheet covers the tab's offline bar, so this page carries the status itself.
+            CachedSongsView(showsOfflineStatus: true)
         } label: {
-            LabeledContent {
-                Text(cachedSongsStatus)
-                    .foregroundStyle(AppTheme.secondaryText)
-            } label: {
-                Label("Cached songs", systemImage: "music.note.list")
+            SettingsRowContent {
+                Text("Cached Songs")
+            } trailing: {
+                SettingsRowValue(text: cachedSongsStatus)
             }
-            .frame(minHeight: 44)
         }
-        .accessibilityLabel("Cached songs")
+        .accessibilityLabel("Cached Songs")
         .accessibilityValue(cachedSongsStatus)
         .accessibilityHint("Browse local audio and remove cached songs.")
         .accessibilityIdentifier("storage.cachedSongs")
     }
 
+    /// Downloads live outside the limit, so their bytes are shown beside the cache rather than inside its total.
+    private var downloadsLink: some View {
+        AppNavigationLink {
+            DownloadsView()
+        } label: {
+            SettingsRowContent {
+                Text("Downloads")
+            } trailing: {
+                SettingsRowValue(text: downloadsStatus)
+            }
+        }
+        .accessibilityLabel("Downloads")
+        .accessibilityValue(downloadsStatus)
+        .accessibilityHint("Browse and delete downloaded songs.")
+        .accessibilityIdentifier("storage.downloads")
+    }
+
+    private var downloadsStatus: String {
+        if model.cachedSongsError != nil { return "Couldn't check" }
+        guard model.hasLoadedCachedSongs, let usage = model.cachedSongsUsage else { return "Checking…" }
+        return "\(Self.songs(usage.downloadedSongCount)) · \(Self.bytes(usage.downloadedBytes))"
+    }
+
+    /// Cache-tier songs only, matching the Cached songs screen; the Downloads row carries the permanent tier.
     private var cachedSongsStatus: String {
         if model.cachedSongsError != nil { return "Couldn't check" }
         guard model.hasLoadedCachedSongs else { return "Checking…" }
         guard model.cachedSongsUsage != nil else { return model.isRefreshingCachedSongs ? "Checking…" : "Unavailable" }
-        return "\(model.cachedSongs.filter(\.isPlayable).count.formatted()) available locally"
+        return "\(model.temporaryCachedSongs.filter(\.isPlayable).count.formatted()) available locally"
     }
 
     private func audioDescription(_ usage: AudioCache.Usage) -> String {
         let available: String
         if model.hasLoadedCachedSongs, model.cachedSongsUsage != nil, model.cachedSongsError == nil {
-            available = "\(Self.songs(model.cachedSongs.filter(\.isPlayable).count)) verified for local playback. Other audio needs a connection."
+            available = "\(Self.songs(model.temporaryCachedSongs.filter(\.isPlayable).count)) verified for local playback. Other audio needs a connection."
         } else {
             available = "Local playback availability hasn't been verified."
         }
@@ -171,36 +194,32 @@ struct StorageSettingsView: View {
     }
 
     private var audioCacheLimitRow: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Picker("Audio cache limit", selection: Binding {
+        Group {
+            SettingsMenuRow(title: "Audio Cache Limit", selection: Binding {
                 model.library.preferences.audioCacheLimit
             } set: { limit in
                 model.updatePreferences { $0.audioCacheLimit = limit }
-            }) {
+            }, value: model.library.preferences.audioCacheLimit.title, id: "storage.audio.limitPicker") {
                 ForEach(AudioCacheLimit.allCases) { limit in
                     Text(limit.title).tag(limit)
                 }
             }
-            .pickerStyle(.menu)
-            .frame(minHeight: 44)
             .disabled(clearing != nil || !hasLoadedUsage || audioUsage == nil)
-            .accessibilityIdentifier("storage.audio.limitPicker")
-            description("Makes room by balancing recent and repeat listening. Playing and upcoming songs are kept.")
             if model.player.isUpdatingAudioCacheLimit {
                 ProgressView("Updating cache limit…")
                     .appFont(.caption)
                     .accessibilityIdentifier("storage.audio.updatingLimit")
             } else if let error = audioCacheLimitProblem {
                 Text(error)
-                    .appFont(.caption)
+                    .appFont(.footnote)
                     .foregroundStyle(AppTheme.accent)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("storage.audio.limitError")
                 Button {
                     model.player.setAudioCacheLimit(model.library.preferences.audioCacheLimit)
                 } label: {
-                    Text("Try again")
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        .contentShape(Rectangle())
+                    Text("Try Again")
+                        .settingsRowTarget()
                 }
                 .disabled(clearing != nil)
                 .accessibilityIdentifier("storage.audio.retryLimit")
@@ -219,88 +238,109 @@ struct StorageSettingsView: View {
 
     private var artworkSection: some View {
         Section {
-            metric("On disk", value: artworkUsage.map { Self.bytes($0.diskBytes) } ?? "Calculating…",
+            metric("On Disk", value: artworkUsage.map { Self.bytes($0.diskBytes) } ?? "Calculating…",
                    detail: artworkUsage.map { "Cover images kept temporarily, up to \(Self.bytes($0.diskCapacity)). iOS manages this cache." })
                 .accessibilityIdentifier("storage.artwork.disk")
             if let usage = artworkUsage {
-                metric("Image memory", value: Self.bytes(usage.decodedBytes),
+                metric("Image Memory", value: Self.bytes(usage.decodedBytes),
                        detail: "\(usage.decodedImages.formatted()) \(usage.decodedImages == 1 ? "image" : "images") ready to display, up to \(Self.bytes(usage.decodedCapacity)).")
                     .accessibilityIdentifier("storage.artwork.images")
-                metric("Image data memory", value: Self.bytes(usage.responseMemoryBytes),
+                metric("Image Data Memory", value: Self.bytes(usage.responseMemoryBytes),
                        detail: "Downloaded artwork held in memory, up to \(Self.bytes(usage.responseMemoryCapacity)).")
                     .accessibilityIdentifier("storage.artwork.responses")
             }
-            clearRow(.artwork, enabled: artworkUsage != nil,
-                     detail: "Clears saved artwork and image memory. Artwork loads again as you browse.")
+            clearRow(.artwork, enabled: artworkUsage != nil)
         } header: {
-            Text("Artwork cache").appFont(.caption)
+            SettingsSectionHeader(title: "Artwork Cache", id: "storage.section.artwork")
+        } footer: {
+            SettingsFooter(id: "storage.footer.artwork") {
+                Text("Clearing removes saved artwork and image memory. Artwork loads again as you browse.")
+            }
         }
-        .listRowBackground(AppTheme.surface)
+        .settingsSectionRows()
     }
 
     private var librarySection: some View {
         Section {
-            metric("Library data", value: Self.bytes(model.library.storageBytes),
+            metric("Library Data", value: Self.bytes(model.library.storageBytes),
                     detail: "Saved on this device. Includes preferences and lyrics timing adjustments. Clearing caches keeps this data.")
                 .accessibilityIdentifier("storage.library.bytes")
-            LabeledContent("Liked songs", value: model.library.favorites.count.formatted())
+            valueRow("Liked Songs", value: model.library.favorites.count.formatted())
                 .accessibilityIdentifier("storage.library.likes")
-            LabeledContent("Playlists", value: model.library.playlists.count.formatted())
+            valueRow("Super Liked", value: model.library.superLikes.count.formatted())
+                .accessibilityIdentifier("storage.library.superLikes")
+            valueRow("Playlists", value: model.library.playlists.count.formatted())
                 .accessibilityIdentifier("storage.library.playlists")
-            metric("Listening sessions", value: model.library.events.count.formatted(),
+            metric("Listening Sessions", value: model.library.events.count.formatted(),
                    detail: "\(Self.songs(model.library.recentlyPlayed.count)) in recently played. History helps build your personal mixes and recap.")
-            metric("Saved queue", value: Self.songs(model.library.playback.queue.count),
+            metric("Saved Queue", value: Self.songs(model.library.playback.queue.count),
                    detail: "Song details, playback position, shuffle and repeat. Saving a song in your library does not save its audio.")
-            metric("Followed artists", value: model.library.followedArtists.count.formatted(),
+            metric("Followed Artists", value: model.library.followedArtists.count.formatted(),
                    detail: "Saved release updates: \(model.library.releases.count.formatted()).")
-            LabeledContent("Personal mixes", value: model.library.mixes.count.formatted())
-            LabeledContent("Disliked songs", value: model.library.disliked.count.formatted())
-            metric("Tips recorded", value: model.library.tipCount.formatted(),
+            valueRow("Personal Mixes", value: model.library.mixes.count.formatted())
+            valueRow("Excluded from Recommendations", value: model.library.disliked.count.formatted())
+            metric("Tips Recorded", value: model.library.tipCount.formatted(),
                    detail: "Verified tip transaction identifiers are saved in your library to avoid counting the same purchase twice. Apple handles payment details.")
             if let error = model.library.errorMessage {
                 Text(error)
-                    .appFont(.caption)
+                    .appFont(.footnote)
                     .foregroundStyle(AppTheme.accent)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("storage.library.error")
             }
             if model.library.requiresReload {
                 LibraryReloadButton(identifier: "storage.library.reload")
             }
         } header: {
-            Text("Saved library").appFont(.caption)
+            SettingsSectionHeader(title: "Saved Library", id: "storage.section.library")
         }
-        .listRowBackground(AppTheme.surface)
+        .settingsSectionRows()
     }
 
     private var searchesSection: some View {
         Section {
-            metric("Recently opened", value: model.library.recentSearchSelections.count.formatted(),
+            metric("Recently Opened", value: model.library.recentSearchSelections.count.formatted(),
                    detail: "Songs and collections you open from Search. Typing a query doesn't add an entry.")
                 .accessibilityIdentifier("storage.searches.count")
             if !model.library.recentSearches.isEmpty {
-                metric("Older search terms", value: model.library.recentSearches.count.formatted(),
+                metric("Older Search Terms", value: model.library.recentSearches.count.formatted(),
                        detail: "Saved by earlier versions and included when clearing recent searches.")
                     .accessibilityIdentifier("storage.searches.legacyCount")
             }
-            clearRow(.searches, enabled: !model.library.recentSearchSelections.isEmpty || !model.library.recentSearches.isEmpty,
-                     detail: "Removes Recently opened and any older search terms. Your listening history stays.")
+            clearRow(.searches, enabled: !model.library.recentSearchSelections.isEmpty || !model.library.recentSearches.isEmpty)
         } header: {
-            Text("Recent searches").appFont(.caption)
+            SettingsSectionHeader(title: "Recent Searches", id: "storage.section.searches")
+        } footer: {
+            SettingsFooter(id: "storage.footer.searches") {
+                Text("Clearing removes Recently opened and any older search terms. Your listening history stays.")
+            }
         }
-        .listRowBackground(AppTheme.surface)
+        .settingsSectionRows()
     }
 
+    /// Title and value on one 44-point line; an informational detail follows with the shared footnote style.
     private func metric(_ title: String, value: String, detail: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            LabeledContent(title, value: value)
-            if let detail { description(detail) }
+        VStack(alignment: .leading, spacing: SettingsRowMetrics.stackedSpacing) {
+            valueRow(title, value: value)
+            if let detail {
+                description(detail)
+                    .padding(.bottom, 8)
+            }
         }
-        .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
 
-    private func clearRow(_ action: ClearAction, enabled: Bool, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func valueRow(_ title: String, value: String) -> some View {
+        SettingsRowContent {
+            Text(title)
+        } trailing: {
+            SettingsRowValue(text: value)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func clearRow(_ action: ClearAction, enabled: Bool) -> some View {
+        Group {
             Button(role: .destructive) {
                 AppNavigationIntent.perform(in: model) {
                     confirmation = action
@@ -312,14 +352,15 @@ struct StorageSettingsView: View {
                     Spacer()
                     if clearing == action { ProgressView() }
                 }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+                .settingsRowTarget()
             }
             .disabled(!enabled || clearing != nil || model.player.isUpdatingAudioCacheLimit)
             .accessibilityIdentifier("storage.clear.\(action.rawValue)")
-            description(detail)
             if let error = errors[action] {
-                Text(error).appFont(.caption).foregroundStyle(AppTheme.accent)
+                Text(error)
+                    .appFont(.footnote)
+                    .foregroundStyle(AppTheme.accent)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("storage.error.\(action.rawValue)")
             } else if let message = messages[action] {
                 description(message)
@@ -330,7 +371,7 @@ struct StorageSettingsView: View {
 
     private func description(_ text: String) -> some View {
         Text(text)
-            .appFont(.caption)
+            .appFont(.footnote)
             .foregroundStyle(AppTheme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -425,17 +466,17 @@ struct StorageSettingsView: View {
 
         var label: String {
             switch self {
-            case .audio: "Clear audio cache"
-            case .artwork: "Clear artwork cache"
-            case .searches: "Clear recent searches"
+            case .audio: "Clear Audio Cache"
+            case .artwork: "Clear Artwork Cache"
+            case .searches: "Clear Recent Searches"
             }
         }
 
         var title: String {
             switch self {
-            case .audio: "Clear temporary audio?"
-            case .artwork: "Clear artwork cache?"
-            case .searches: "Clear recent searches?"
+            case .audio: "Clear Temporary Audio?"
+            case .artwork: "Clear Artwork Cache?"
+            case .searches: "Clear Recent Searches?"
             }
         }
 

@@ -22,7 +22,7 @@ enum LibrarySyncValidation {
                 throw LibrarySyncError.invalidData("search selection retention boundary")
             }
         }
-        let preferences = try LibrarySyncPreferences.fields(UserPreferences())
+        let preferences = try LibrarySyncPreferences.resetFields()
         var preferenceValues: [String: Data] = [:]
         for (key, register) in state.registers {
             guard LibraryValidation.isValidID(key.id), key.id.utf8.count <= 16_384 else {
@@ -42,7 +42,8 @@ enum LibrarySyncValidation {
                   key.member.map({ LibraryValidation.isValidID($0) && $0.utf8.count <= 16_384 }) ?? true else {
                 throw LibrarySyncError.invalidData("playlist member key")
             }
-            if key.collection == .playlist || key.collection.isPlaylistChild || key.collection == .event {
+            if key.collection == .playlist || key.collection.isPlaylistChild || key.collection == .event
+                || key.collection == .lifetimeSession {
                 guard UUID(uuidString: key.id)?.uuidString == key.id else { throw LibrarySyncError.invalidData("canonical UUID") }
             }
             if key.collection.isPlaylistChild, state.registers[LibrarySyncKey(.playlist, key.id)] == nil {
@@ -58,6 +59,7 @@ enum LibrarySyncValidation {
             }
             guard let value = register.value else {
                 guard key.collection != .event, key.collection != .followMetadata,
+                      key.collection != .lifetimeSession,
                       key.collection != .releaseSeen, key.collection != .playlistUpdated else {
                     throw LibrarySyncError.invalidData("aggregate tombstone")
                 }
@@ -94,12 +96,21 @@ enum LibrarySyncValidation {
     private static func validateValue(_ value: Data, key: LibrarySyncKey, now: Date) throws {
         var document = LibraryDocument()
         switch key.collection {
+        case .lifetimeSession:
+            let receipt = try LibrarySyncCodec.decode(LifetimeListeningContribution.self, from: value)
+            try receipt.validate()
+            try LibraryValidation.validateCanonicalPayload(JSONSerialization.jsonObject(with: value), matching: receipt,
+                                                           context: "lifetime receipt payload")
         case .preference: return
         case .reaction:
             switch try LibrarySyncCodec.decode(LibrarySyncReaction.self, from: value) {
             case .liked(let track):
                 guard track.id == key.id else { throw LibrarySyncError.invalidData("liked song identity") }
                 document.favorites = [track]
+            case .superLiked(let track):
+                guard track.id == key.id else { throw LibrarySyncError.invalidData("super liked song identity") }
+                document.favorites = [track]
+                document.superLikedIDs = [track.id]
             case .disliked(let song):
                 guard song.id == key.id else { throw LibrarySyncError.invalidData("disliked song identity") }
                 document.disliked = [song]

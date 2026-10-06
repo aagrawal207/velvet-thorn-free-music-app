@@ -617,7 +617,7 @@ final class ICloudLibrarySyncTests: XCTestCase {
         a.sync.setEnabled(false)
     }
 
-    func testReadFailureDoesNotRetryAutomaticallyButForegroundRefreshCanRecover() async throws {
+    func testForegroundRefreshCanRecoverBeforeTheScheduledRetry() async throws {
         let harness = LibrarySyncTestHarness()
         defer { harness.remove() }
         let a = harness.device(debounce: .milliseconds(10))

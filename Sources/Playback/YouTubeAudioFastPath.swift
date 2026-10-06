@@ -1,4 +1,5 @@
 import Foundation
+import YouTubeKit
 
 struct FastPathResult: Sendable {
     var urls: [URL]
@@ -24,7 +25,8 @@ struct FastPathResult: Sendable {
 enum YouTubeAudioFastPath {
     private static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
 
-    static func extract(videoID: String) async throws -> FastPathResult {
+    static func extract(videoID: String, maximumBitRate: Int? = nil) async throws -> FastPathResult {
+        let compatibility = YouTubeKitHooks.extractionCompatibility
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.urlCredentialStorage = nil
@@ -39,10 +41,7 @@ enum YouTubeAudioFastPath {
         let (html, response) = try await boundedResponse(for: watch, session: session)
         guard (response as? HTTPURLResponse)?.statusCode == 200, html.count <= 4_000_000,
               let text = String(data: html, encoding: .utf8) else { throw PlaybackStreamError.invalidMedia }
-        let expression = try NSRegularExpression(pattern: #""(?:VISITOR_DATA|visitorData)":"([^"]+)""#)
-        guard let match = expression.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range(at: 1), in: text) else { throw PlaybackStreamError.noAudio }
-        let visitor = String(text[range])
+        guard let visitor = visitorData(in: text, compatibility: compatibility.rules) else { throw PlaybackStreamError.noAudio }
         try Task.checkCancellation()
         var request = URLRequest(url: URL(string: "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")!)
         request.httpMethod = "POST"
@@ -65,7 +64,13 @@ enum YouTubeAudioFastPath {
             YouTubeSessionRegistry.shared.recordBotCheck()
             throw PlaybackStreamError.signInRequired
         }
-        return try audioResult(in: data, videoID: videoID, allowOpus: OpusNativeAudio.isSupported)
+        guard compatibility.generation == YouTubeKitHooks.extractionCompatibility.generation else { throw CancellationError() }
+        return try audioResult(in: data, videoID: videoID, allowOpus: OpusNativeAudio.isSupported, maximumBitRate: maximumBitRate)
+    }
+
+    static func visitorData(in text: String, compatibility: ExtractionCompatibility = .bundled) -> String? {
+        if let updated = compatibility.visitorData(in: text) { return updated }
+        return ExtractionCompatibility(visitorKeys: ["VISITOR_DATA", "visitorData"]).visitorData(in: text)
     }
 
     private static func boundedResponse(for request: URLRequest, session: URLSession) async throws -> (Data, URLResponse) {
@@ -106,7 +111,7 @@ enum YouTubeAudioFastPath {
         try audioResult(in: data, videoID: videoID).urls
     }
 
-    static func audioResult(in data: Data, videoID: String, allowOpus: Bool = false) throws -> FastPathResult {
+    static func audioResult(in data: Data, videoID: String, allowOpus: Bool = false, maximumBitRate: Int? = nil) throws -> FastPathResult {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let status = object["playabilityStatus"] as? [String: Any], status["status"] as? String == "OK",
               let details = object["videoDetails"] as? [String: Any], details["videoId"] as? String == videoID,
@@ -131,9 +136,10 @@ enum YouTubeAudioFastPath {
             return (format, quality)
         }
         var result = FastPathResult(urls: [], loudnessDb: loudness(in: data), viewCount: viewCount(in: data))
-        let ranked = eligibleAudio.sorted { SourceAudioQuality.prefers($0.quality, over: $1.quality) }
+        // Under a ceiling the "best" tier is the best fitting format (or the lowest offered), for Opus and AAC alike.
+        let ranked = SourceAudioQuality.ranked(eligibleAudio, maximumBitRate: maximumBitRate) { $0.quality }
         let best = ranked.first?.quality
-        let bestAACRate = ranked.filter { $0.quality.codec != .opus }.map { $0.quality.bitRate ?? 0 }.max()
+        let bestAACRate = ranked.first { $0.quality.codec != .opus }.map { $0.quality.bitRate ?? 0 }
         // Ranking precedes URL usability so a challenged best tier reaches full extraction before an AAC downgrade.
         for (format, quality) in ranked {
             let isBest = (quality.bitRate ?? 0) == (best?.bitRate ?? 0) && (quality.codec == .opus) == (best?.codec == .opus)

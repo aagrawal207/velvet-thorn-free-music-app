@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 struct WatchBrowseView: View {
     @Environment(WatchCompanionModel.self) private var model
+    @Environment(\.watchAccent) private var accent
     @State private var presentationID = UUID()
     @State private var isVisible = false
     let location: String
@@ -52,7 +53,7 @@ struct WatchBrowseView: View {
                     }
                 }
                 if page.isTruncated {
-                    Text("Showing the first \(page.items.count) items. Open Breezy on iPhone for the rest.")
+                    Text("Showing the first \(page.items.count) items. Open Velvet Thorn on iPhone for the rest.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -86,7 +87,7 @@ struct WatchBrowseView: View {
         HStack(spacing: 8) {
             if isFolder {
                 Image(systemName: symbol(for: item.destination))
-                    .foregroundStyle(WatchTheme.accent)
+                    .foregroundStyle(accent)
                     .accessibilityHidden(true)
             }
             VStack(alignment: .leading, spacing: 3) {
@@ -128,9 +129,9 @@ struct WatchBrowseView: View {
 
     private var emptyMessage: String {
         switch location {
-        case "favorites": "Favorite songs in Breezy on iPhone to find them here."
+        case "favorites": "Favorite songs in Velvet Thorn on iPhone to find them here."
         case "recent": "Songs you play on iPhone appear here."
-        case "playlists": "Create a playlist in Breezy on iPhone."
+        case "playlists": "Create a playlist in Velvet Thorn on iPhone."
         case "queue": "Choose a song to start a queue on iPhone."
         default: "Add songs to this playlist on iPhone."
         }

@@ -351,32 +351,119 @@ private struct IconRecipe {
     let draw: (CGContext) -> Void
 }
 
+/// Colours for the shared Leafnote composition: one note whose flag is a leaf.
+private struct NotePalette {
+    let top: UInt32
+    let bottom: UInt32
+    let note: UInt32
+    let flag: UInt32
+}
+
+private func leafnote(_ c: CGContext, _ palette: NotePalette) {
+    background(c, palette.top, palette.bottom)
+    let stem = CGMutablePath()
+    stem.move(to: CGPoint(x: 493, y: 667))
+    stem.addCurve(to: CGPoint(x: 553, y: 258),
+                  control1: CGPoint(x: 566, y: 515), control2: CGPoint(x: 565, y: 369))
+    stroke(c, stem, palette.note, width: 52)
+
+    let head = CGMutablePath()
+    head.move(to: CGPoint(x: 551, y: 570))
+    head.addCurve(to: CGPoint(x: 247, y: 779),
+                  control1: CGPoint(x: 371, y: 561), control2: CGPoint(x: 269, y: 653))
+    head.addCurve(to: CGPoint(x: 551, y: 570),
+                  control1: CGPoint(x: 447, y: 806), control2: CGPoint(x: 561, y: 722))
+    fill(c, head, palette.note)
+
+    let flag = CGMutablePath()
+    flag.move(to: CGPoint(x: 552, y: 242))
+    flag.addCurve(to: CGPoint(x: 783, y: 439),
+                  control1: CGPoint(x: 648, y: 329), control2: CGPoint(x: 801, y: 282))
+    flag.addCurve(to: CGPoint(x: 552, y: 304),
+                  control1: CGPoint(x: 685, y: 469), control2: CGPoint(x: 590, y: 404))
+    flag.closeSubpath()
+    fill(c, flag, palette.flag)
+}
+
+/// A rose variant from five petal tones, lightest first; the gradients reuse them in a fixed pattern.
+private func roseVariant(background: (UInt32, UInt32), ink: UInt32, stem: UInt32, leaves: (UInt32, UInt32, UInt32),
+                         petals: [UInt32], fold: UInt32, engraving: UInt32,
+                         pen: (barrel: UInt32, nib: UInt32, trim: UInt32)) -> RosePalette {
+    precondition(petals.count == 5)
+    let (p0, p1, p2, p3, p4) = (petals[0], petals[1], petals[2], petals[3], petals[4])
+    return RosePalette(
+        backgroundTop: background.0, backgroundBottom: background.1, ink: ink, stem: stem,
+        leafLeft: leaves.0, leafRight: leaves.1, leafLower: leaves.2,
+        bloom: [(0, p2), (0.5, p3), (1, p4)], outerFold: fold,
+        leftPetal: [(0, p1), (0.55, p2), (1, p3)], lowerPetal: [(0, p1), (1, p3)], rightPetal: [(0, p1), (1, p3)],
+        heart: [(0, p0), (0.45, p1), (1, p2)], engraving: engraving,
+        penBarrel: pen.barrel, penNib: pen.nib, penTrim: pen.trim)
+}
+
+private func leafnoteRecipe(_ id: String, _ title: String, _ palette: NotePalette) -> IconRecipe {
+    IconRecipe(id: id, title: title) { leafnote($0, palette) }
+}
+
+private func roseRecipe(_ id: String, _ title: String, _ palette: RosePalette) -> IconRecipe {
+    IconRecipe(id: id, title: title) { rosePen($0, palette: palette) }
+}
+
 private let recipes: [IconRecipe] = [
-    IconRecipe(id: "Beat", title: "Leafnote") { c in
-        background(c, 0x27272F, 0x161A23)
-        let stem = CGMutablePath()
-        stem.move(to: CGPoint(x: 493, y: 667))
-        stem.addCurve(to: CGPoint(x: 553, y: 258),
-                      control1: CGPoint(x: 566, y: 515), control2: CGPoint(x: 565, y: 369))
-        stroke(c, stem, 0xA7EDD3, width: 52)
-
-        let head = CGMutablePath()
-        head.move(to: CGPoint(x: 551, y: 570))
-        head.addCurve(to: CGPoint(x: 247, y: 779),
-                      control1: CGPoint(x: 371, y: 561), control2: CGPoint(x: 269, y: 653))
-        head.addCurve(to: CGPoint(x: 551, y: 570),
-                      control1: CGPoint(x: 447, y: 806), control2: CGPoint(x: 561, y: 722))
-        fill(c, head, 0xA7EDD3)
-
-        let flag = CGMutablePath()
-        flag.move(to: CGPoint(x: 552, y: 242))
-        flag.addCurve(to: CGPoint(x: 783, y: 439),
-                      control1: CGPoint(x: 648, y: 329), control2: CGPoint(x: 801, y: 282))
-        flag.addCurve(to: CGPoint(x: 552, y: 304),
-                      control1: CGPoint(x: 685, y: 469), control2: CGPoint(x: 590, y: 404))
-        flag.closeSubpath()
-        fill(c, flag, 0xFF9B8F)
+    leafnoteRecipe("Beat", "Leafnote", NotePalette(top: 0x27272F, bottom: 0x161A23, note: 0xA7EDD3, flag: 0xFF9B8F)),
+    leafnoteRecipe("LeafPaper", "Paper", NotePalette(top: 0xFBF7EF, bottom: 0xEFE7D8, note: 0x2E7D64, flag: 0xE8604F)),
+    leafnoteRecipe("LeafSky", "Sky", NotePalette(top: 0xEAF4FF, bottom: 0xD4E6FB, note: 0x1E5FB8, flag: 0xFF8A5B)),
+    leafnoteRecipe("LeafBlossom", "Blossom", NotePalette(top: 0xFFF0F4, bottom: 0xF8DCE5, note: 0xB93080, flag: 0x2FA58C)),
+    leafnoteRecipe("LeafMidnight", "Midnight", NotePalette(top: 0x1A2340, bottom: 0x0B1022, note: 0x9CC3FF, flag: 0xFFC15A)),
+    leafnoteRecipe("LeafViolet", "Violet", NotePalette(top: 0x241B3D, bottom: 0x120D24, note: 0xC9B4FF, flag: 0x4DE0B0)),
+    leafnoteRecipe("LeafSunset", "Sunset", NotePalette(top: 0xFFB38A, bottom: 0xE8707A, note: 0xFFF6E6, flag: 0x5A2340)),
+    leafnoteRecipe("LeafMono", "Mono", NotePalette(top: 0xF4F4F6, bottom: 0xE2E2E7, note: 0x16161A, flag: 0xDC3159)),
+    IconRecipe(id: "Thorn", title: "Thorn") { c in
+        rosePen(c, palette: RosePalette(
+            backgroundTop: 0x17141C, backgroundBottom: 0x080F18, ink: 0x21151F, stem: 0x914451,
+            leafLeft: 0x914451, leafRight: 0xA34A57, leafLower: 0x80404E,
+            bloom: [(0, 0xC5404D), (0.5, 0xA82A42), (1, 0x73233B)], outerFold: 0xEF8174,
+            leftPetal: [(0, 0xED6260), (0.55, 0xD23B4C), (1, 0xA52B42)],
+            lowerPetal: [(0, 0xE15259), (1, 0xA32740)],
+            rightPetal: [(0, 0xEC5E60), (1, 0xB72C43)],
+            heart: [(0, 0xF5796C), (0.45, 0xE34B54), (1, 0xC53247)], engraving: 0xFFC0A0,
+            penBarrel: 0xF0E1C6, penNib: 0xFFF3DB, penTrim: 0xCBA779))
     },
+    IconRecipe(id: "Sonnet", title: "Sonnet") { c in
+        // Paper ink and mauve petals keep the cream mood; the petals stay dark enough to read on the paper.
+        rosePen(c, palette: RosePalette(
+            backgroundTop: 0xFFF3E2, backgroundBottom: 0xEFE0CD, ink: 0xF8EBDA, stem: 0xAD7A68,
+            leafLeft: 0xBA8776, leafRight: 0xC58D7C, leafLower: 0xA8756A,
+            bloom: [(0, 0x9E5468), (0.5, 0x7E3A52), (1, 0x52243A)], outerFold: 0xDDA9B3,
+            leftPetal: [(0, 0xBE7385), (0.55, 0x9C4F66), (1, 0x76354B)],
+            lowerPetal: [(0, 0xB4667B), (1, 0x7A3750)],
+            rightPetal: [(0, 0xBC7083), (1, 0x86405A)],
+            heart: [(0, 0xCE8593), (0.45, 0xB0607A), (1, 0x944762)], engraving: 0xEEC3CB,
+            penBarrel: 0x733949, penNib: 0x773549, penTrim: 0xA96770))
+    },
+    roseRecipe("ThornEdge", "Edge", roseVariant(
+        background: (0x0E1424, 0x05080F), ink: 0x111A2C, stem: 0x3D5A80, leaves: (0x3D5A80, 0x4A6B94, 0x34506F),
+        petals: [0x9CC8FF, 0x5C9DF5, 0x2F6FD6, 0x1E4FA8, 0x142F6B], fold: 0xA9D1FF, engraving: 0xCFE4FF,
+        pen: (0xD7263D, 0xFF5A5F, 0x8E1022))),
+    roseRecipe("ThornFrost", "Frost", roseVariant(
+        background: (0xEEF4FB, 0xDCE7F3), ink: 0xF2F7FC, stem: 0x6F8BA8, leaves: (0x7D98B4, 0x8AA5C0, 0x6A85A2),
+        petals: [0x8FB6E8, 0x5E8FD0, 0x3D6DB5, 0x2A5193, 0x1C3A6E], fold: 0xBCD4F0, engraving: 0xDCE8F7,
+        pen: (0xC8243A, 0xE14B57, 0x8C1427))),
+    roseRecipe("ThornNoir", "Noir", roseVariant(
+        background: (0x101012, 0x050506), ink: 0x18181B, stem: 0x4A4A50, leaves: (0x4A4A50, 0x56565D, 0x3E3E44),
+        petals: [0xF2F2F2, 0xD6D6D8, 0xB3B3B8, 0x86868C, 0x55555B], fold: 0xFFFFFF, engraving: 0xFFFFFF,
+        pen: (0xD7263D, 0xFF5A5F, 0x8E1022))),
+    roseRecipe("ThornVenom", "Venom", roseVariant(
+        background: (0x0D1410, 0x050906), ink: 0x101A13, stem: 0x2F6B45, leaves: (0x2F6B45, 0x3A7D52, 0x285C3B),
+        petals: [0xC6FF8A, 0x8EE65C, 0x5BC23D, 0x3A9429, 0x22621B], fold: 0xD8FFAD, engraving: 0xE8FFD0,
+        pen: (0x7A2BD6, 0xA25CFF, 0x4A148C))),
+    roseRecipe("ThornDusk", "Dusk", roseVariant(
+        background: (0x2A1838, 0x120A1E), ink: 0x241530, stem: 0x7A4E7E, leaves: (0x7A4E7E, 0x8A5A8E, 0x6A446E),
+        petals: [0xFFC48A, 0xFF9E5E, 0xF2773F, 0xC9552C, 0x8E3720], fold: 0xFFD8B0, engraving: 0xFFE3C8,
+        pen: (0x2EC4B6, 0x7FE7DC, 0x16867C))),
+    roseRecipe("ThornBlush", "Blush", roseVariant(
+        background: (0xFFF0F3, 0xF7DDE3), ink: 0xFFF5F7, stem: 0xC08A93, leaves: (0xC9959E, 0xD3A0A9, 0xB98690),
+        petals: [0xFF9FB4, 0xF27593, 0xD94F74, 0xAE3A5B, 0x7C2944], fold: 0xFFC6D3, engraving: 0xFFE0E7,
+        pen: (0x2B3A55, 0x46597D, 0x16213A))),
     IconRecipe(id: "Notes", title: "Drift") { c in
         background(c, 0xF9F0DF, 0xEDE1CC)
         let stems = CGMutablePath()
@@ -463,29 +550,6 @@ private let recipes: [IconRecipe] = [
         wave.addCurve(to: CGPoint(x: 192, y: 689),
                       control1: CGPoint(x: 672, y: 837), control2: CGPoint(x: 360, y: 839))
         fill(c, wave, 0xFFF2DB)
-    },
-    IconRecipe(id: "Thorn", title: "Thorn") { c in
-        rosePen(c, palette: RosePalette(
-            backgroundTop: 0x17141C, backgroundBottom: 0x080F18, ink: 0x21151F, stem: 0x914451,
-            leafLeft: 0x914451, leafRight: 0xA34A57, leafLower: 0x80404E,
-            bloom: [(0, 0xC5404D), (0.5, 0xA82A42), (1, 0x73233B)], outerFold: 0xEF8174,
-            leftPetal: [(0, 0xED6260), (0.55, 0xD23B4C), (1, 0xA52B42)],
-            lowerPetal: [(0, 0xE15259), (1, 0xA32740)],
-            rightPetal: [(0, 0xEC5E60), (1, 0xB72C43)],
-            heart: [(0, 0xF5796C), (0.45, 0xE34B54), (1, 0xC53247)], engraving: 0xFFC0A0,
-            penBarrel: 0xF0E1C6, penNib: 0xFFF3DB, penTrim: 0xCBA779))
-    },
-    IconRecipe(id: "Sonnet", title: "Sonnet") { c in
-        // Paper ink and mauve petals keep the cream mood; the petals stay dark enough to read on the paper.
-        rosePen(c, palette: RosePalette(
-            backgroundTop: 0xFFF3E2, backgroundBottom: 0xEFE0CD, ink: 0xF8EBDA, stem: 0xAD7A68,
-            leafLeft: 0xBA8776, leafRight: 0xC58D7C, leafLower: 0xA8756A,
-            bloom: [(0, 0x9E5468), (0.5, 0x7E3A52), (1, 0x52243A)], outerFold: 0xDDA9B3,
-            leftPetal: [(0, 0xBE7385), (0.55, 0x9C4F66), (1, 0x76354B)],
-            lowerPetal: [(0, 0xB4667B), (1, 0x7A3750)],
-            rightPetal: [(0, 0xBC7083), (1, 0x86405A)],
-            heart: [(0, 0xCE8593), (0.45, 0xB0607A), (1, 0x944762)], engraving: 0xEEC3CB,
-            penBarrel: 0x733949, penNib: 0x773549, penTrim: 0xA96770))
     },
 ]
 

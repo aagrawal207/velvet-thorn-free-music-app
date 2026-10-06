@@ -1,0 +1,209 @@
+{
+ "topFacet": "Mix",
+ "gr": [
+  {
+   "ty": "Mix",
+   "topSc": 10000000000,
+   "va": "1",
+   "stxt": "All",
+   "gd": [
+    {
+     "iid": "944286",
+     "id": 944286,
+     "ti": "Tum Hi Ho",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+     "sti": "Mithoon,Arijit Singh",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "tumhiho",
+     "ty": "Track",
+     "language": "Hindi",
+     "alist": "[Mithoon,Arijit Singh]",
+     "isrc": "INS181303031",
+     "pw": 0,
+     "isDolby": true
+    },
+    {
+     "iid": "151217",
+     "id": 151217,
+     "ti": "Arijit Singh - Tum Hi Ho",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjzk0NWP/size_m.jpg",
+     "sti": "Nandini Srikar,Arijit Singh,Saim Bhat",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "arijit-singh-tum-hi-ho",
+     "ty": "Album",
+     "language": "Hindi",
+     "alist": "[Nandini Srikar,Arijit Singh,Saim Bhat]",
+     "pw": 0
+    }
+   ]
+  },
+  {
+   "ty": "Playlist",
+   "topSc": 1592,
+   "va": "1",
+   "stxt": "Playlists",
+   "gd": [
+    {
+     "iid": "64407063",
+     "id": 64407063,
+     "ti": "Top Hindi Songs of 2010s",
+     "aw": "https://a10.gaanacdn.com/gn_pl_img/playlists/Bp1bAynb02/1bA5Gwwgb0/size_m_1778780811.jpg",
+     "sti": "Daler Mehndi,Darshan Raval,Neha Kakkar",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "gaana-dj-top-hindi-songs-of-2010s",
+     "ty": "Playlist",
+     "language": "Hindi",
+     "alist": "[Daler Mehndi,Darshan Raval,Neha Kakkar]",
+     "pw": 0,
+     "playlistType": 1
+    },
+    {
+     "iid": "65014148",
+     "id": 65014148,
+     "ti": "Most Searched on Gaana",
+     "aw": "https://a10.gaanacdn.com/gn_pl_img/playlists/10q3ZR1352/q3Zz5pPX35/size_m_1780312061.jpg",
+     "sti": "Madhurxo,Jennifer Lopez,Boney M",
+     "lang": [
+      "Hindi",
+      "Haryanvi",
+      "Punjabi",
+      "English",
+      "Marathi",
+      "Malayalam",
+      "Tamil",
+      "Telugu",
+      "Bengali",
+      "Kannada",
+      "Gujarati",
+      "Bhojpuri"
+     ],
+     "seo": "gaana-dj-most-searched-on-gaana-2",
+     "ty": "Playlist",
+     "language": "Hindi",
+     "alist": "[Madhurxo,Jennifer Lopez,Boney M]",
+     "pw": 1,
+     "playlistType": 1
+    }
+   ]
+  },
+  {
+   "ty": "Track",
+   "topSc": 630,
+   "va": "1",
+   "stxt": "Songs",
+   "gd": [
+    {
+     "iid": "40746",
+     "id": 40746,
+     "ti": "Maula Mere Maula",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/koMWQBbqLE/oMWQVq1bqL/size_m.jpg",
+     "sti": "Roop Kumar Rathod",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "maula-mere-maula",
+     "ty": "Track",
+     "language": "Hindi",
+     "alist": "[Roop Kumar Rathod]",
+     "isrc": "INH100629786",
+     "isLyrics": true,
+     "pw": 0,
+     "isDolby": true
+    },
+    {
+     "iid": "20825652",
+     "id": 20825652,
+     "ti": "The Arijit Singh Classic Mashup",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/21GWwR3pkg/1GWwgePwWp/size_m.jpg",
+     "sti": "Arijit Singh",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "the-arijit-singh-classic-mashup",
+     "ty": "Track",
+     "language": "Hindi",
+     "alist": "[Arijit Singh]",
+     "isrc": "INS181601419",
+     "isLyrics": true,
+     "pw": 0
+    }
+   ]
+  },
+  {
+   "ty": "Album",
+   "topSc": 590,
+   "va": "1",
+   "stxt": "Albums",
+   "gd": [
+    {
+     "iid": "16563412",
+     "id": 16563412,
+     "ti": "Tum Hi Ho Mera Pyar",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/BZgWoOW2d9/gWomRpVrK2/size_m.jpg",
+     "sti": "Namita Samantha,Vishwa Kumar",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "tum-hi-ho-mera-pyar-gWomRpVrK2",
+     "ty": "Album",
+     "language": "Hindi",
+     "alist": "[Namita Samantha,Vishwa Kumar]",
+     "pw": 0
+    },
+    {
+     "iid": "1790154",
+     "id": 1790154,
+     "ti": "Instrumental Film Songs",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/DwPKOxB3qV/wPKOpgDq3q/size_m_1718103769.jpg",
+     "sti": "Pritam,Amaal Mallik,Tony Kakkar",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "instrumental-film-songs",
+     "ty": "Album",
+     "language": "Hindi",
+     "alist": "[Pritam,Amaal Mallik,Tony Kakkar]",
+     "pw": 0
+    }
+   ]
+  }
+ ],
+ "srId": "trimmed",
+ "algo": "NEWSEARCH",
+ "action": 0,
+ "q": "tum hi ho",
+ "originalQuery": "tum hi ho",
+ "abFlag": 26,
+ "tabs": [
+  {
+   "dispV": "All",
+   "id": 8,
+   "paramV": "allItems",
+   "shNew": 0
+  },
+  {
+   "dispV": "Playlists",
+   "id": 12,
+   "paramV": "playlist",
+   "shNew": 0
+  },
+  {
+   "dispV": "Songs",
+   "id": 9,
+   "paramV": "track",
+   "shNew": 0
+  },
+  {
+   "dispV": "Albums",
+   "id": 10,
+   "paramV": "album",
+   "shNew": 0
+  }
+ ]
+}

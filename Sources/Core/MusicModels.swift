@@ -105,7 +105,7 @@ struct Track: Codable, Hashable, Identifiable, Sendable {
     var artistID: String? { credits.first { $0.id != nil }?.id }
 
     var artistName: String { credits.isEmpty ? "Unknown artist" : credits.map(\.name).joined(separator: ", ") }
-    var shareURL: URL? { URL(string: "https://music.youtube.com/watch?v=\(id)") }
+    // `shareURL` lives in MusicSource.swift: it depends on the id prefix and the widget target compiles only this file.
     /// Album page destination when the provider identified the release.
     var albumCollection: MusicCollection? {
         guard let albumID, !albumID.isEmpty else { return nil }

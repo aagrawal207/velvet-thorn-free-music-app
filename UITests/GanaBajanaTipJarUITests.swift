@@ -12,7 +12,7 @@ final class GanaBajanaTipJarUITests: XCTestCase {
         try ui.launch()
         try openTipJar(ui)
         XCTAssertEqual(ui.element("tipJar.explanation").label,
-                       "An optional tip helps me keep improving Breezy. Tips are one-time purchases through Apple and unlock no features or music.")
+                       "An optional tip helps me keep improving Velvet Thorn. Tips are one-time purchases through Apple and unlock no features or music.")
         let expected = [
             ("small", "Small tip", "$3.00"), ("medium", "Generous tip", "$5.00"), ("large", "Big tip", "$10.00"),
             ("grand", "Grand tip", "$25.00"), ("patron", "Patron tip", "$50.00"),
@@ -24,14 +24,14 @@ final class GanaBajanaTipJarUITests: XCTestCase {
             XCTAssertTrue(text.contains(name))
             XCTAssertTrue(text.contains(price))
             XCTAssertTrue(row.isEnabled)
-            XCTAssertGreaterThanOrEqual(row.frame.height, 52)
+            XCTAssertGreaterThanOrEqual(row.frame.height + 1e-6, 52)
         }
         XCTAssertFalse(ui.element("tipJar.count").exists)
         XCTAssertFalse(ui.app.buttons["tipJar.retry"].exists)
         ui.capture("tip-jar-local-storekit-iphone17pro")
-        try ui.tap(ui.app.navigationBars["Support development"].buttons["Settings"])
+        try ui.tap(ui.app.navigationBars["Support Development"].buttons.firstMatch)
         try ui.wait("Back must return to the existing Settings navigation stack") {
-            ui.app.navigationBars["Settings"].exists && !ui.app.navigationBars["Support development"].exists
+            ui.app.navigationBars[SettingsPageID.about.title].exists && !ui.app.navigationBars["Support Development"].exists
         }
     }
 
@@ -67,7 +67,7 @@ final class GanaBajanaTipJarUITests: XCTestCase {
         let retry = ui.app.buttons["tipJar.retry"]
         try ui.reveal(retry)
         XCTAssertTrue(ui.element("tipJar.loadError").exists)
-        XCTAssertGreaterThanOrEqual(retry.frame.height, 52)
+        XCTAssertGreaterThanOrEqual(retry.frame.height + 1e-6, 52)
         XCTAssertFalse(ui.app.buttons["com.agraabhi.ganabajana.tip.small"].exists)
         XCTAssertFalse(ui.app.alerts["Thank you"].exists)
 
@@ -125,10 +125,11 @@ final class GanaBajanaTipJarUITests: XCTestCase {
 
     private func openTipJar(_ ui: AppUITestDriver, expectingProducts: Bool = true) throws {
         try ui.openSettings()
+        try ui.openSettingsPage(.about)
         let link = ui.app.buttons["settings.tipJar"]
         try ui.reveal(link, maxSwipes: 24)
         try ui.tap(link)
-        try ui.wait("Settings must push the Support development page") { ui.app.navigationBars["Support development"].exists }
+        try ui.wait("Settings must push the Support development page") { ui.app.navigationBars["Support Development"].exists }
         try ui.wait("StoreKit must finish loading or show an explicit retry") {
             ui.app.buttons["com.agraabhi.ganabajana.tip.small"].exists || ui.app.buttons["tipJar.retry"].exists
         }

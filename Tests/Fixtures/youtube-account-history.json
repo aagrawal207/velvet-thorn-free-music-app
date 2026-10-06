@@ -1,0 +1,94 @@
+{
+  "responseContext": {"visitorData": "CgtmaXh0dXJlLXZpc2l0b3I%3D"},
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [{"tabRenderer": {"selected": true, "content": {"sectionListRenderer": {"contents": [
+        {"musicShelfRenderer": {
+          "title": {"runs": [{"text": "Today"}]},
+          "contents": [
+            {"musicResponsiveListItemRenderer": {
+              "playlistItemData": {"videoId": "NJAv_7lHUIU"},
+              "thumbnail": {"musicThumbnailRenderer": {"thumbnail": {"thumbnails": [
+                {"url": "https://lh3.googleusercontent.com/fixtureKesariya=w60-h60-l90-rj", "width": 60, "height": 60}
+              ]}}},
+              "overlay": {"musicItemThumbnailOverlayRenderer": {"content": {"musicPlayButtonRenderer": {"playNavigationEndpoint": {
+                "watchEndpoint": {"videoId": "NJAv_7lHUIU",
+                  "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"}}}
+              }}}}},
+              "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Kesariya", "navigationEndpoint": {
+                  "watchEndpoint": {"videoId": "NJAv_7lHUIU",
+                    "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"}}}}}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [
+                  {"text": "Arijit Singh", "navigationEndpoint": {"browseEndpoint": {"browseId": "UCDxKh1gFWeYsqePvgVzmPoQ",
+                    "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}},
+                  {"text": " • "},
+                  {"text": "Brahmastra", "navigationEndpoint": {"browseEndpoint": {"browseId": "MPREb_fixtureBrahma1",
+                    "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ALBUM"}}}}},
+                  {"text": " • "},
+                  {"text": "4:29"}
+                ]}}}
+              ],
+              "menu": {"menuRenderer": {"items": [{"menuServiceItemRenderer": {"text": {"runs": [{"text": "Remove from history"}]},
+                "serviceEndpoint": {"feedbackEndpoint": {"feedbackToken": "AB9zfpFixtureRemoveToken"}}}}]}}
+            }},
+            {"musicResponsiveListItemRenderer": {
+              "playlistItemData": {"videoId": "kJQP7kiw5Fk"},
+              "overlay": {"musicItemThumbnailOverlayRenderer": {"content": {"musicPlayButtonRenderer": {"playNavigationEndpoint": {
+                "watchEndpoint": {"videoId": "kJQP7kiw5Fk",
+                  "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_OMV"}}}
+              }}}}},
+              "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Despacito"}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [
+                  {"text": "Luis Fonsi", "navigationEndpoint": {"browseEndpoint": {"browseId": "UCxoq-PAQeAdk_zyg8YS0JqA",
+                    "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}},
+                  {"text": " • "},
+                  {"text": "8.7B views"},
+                  {"text": " • "},
+                  {"text": "4:42"}
+                ]}}}
+              ]
+            }}
+          ]
+        }},
+        {"musicShelfRenderer": {
+          "title": {"runs": [{"text": "Yesterday"}]},
+          "contents": [
+            {"musicResponsiveListItemRenderer": {
+              "playlistItemData": {"videoId": "fsiPzT50ZiM"},
+              "overlay": {"musicItemThumbnailOverlayRenderer": {"content": {"musicPlayButtonRenderer": {"playNavigationEndpoint": {
+                "watchEndpoint": {"videoId": "fsiPzT50ZiM",
+                  "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"}}}
+              }}}}},
+              "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Tum Hi Ho"}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [
+                  {"text": "Arijit Singh", "navigationEndpoint": {"browseEndpoint": {"browseId": "UCDxKh1gFWeYsqePvgVzmPoQ",
+                    "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}},
+                  {"text": " • "},
+                  {"text": "Aashiqui 2", "navigationEndpoint": {"browseEndpoint": {"browseId": "MPREb_E4GfUXfDfhy",
+                    "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ALBUM"}}}}},
+                  {"text": " • "},
+                  {"text": "4:22"}
+                ]}}}
+              ]
+            }},
+            {"musicResponsiveListItemRenderer": {
+              "playlistItemData": {"videoId": "NJAv_7lHUIU"},
+              "overlay": {"musicItemThumbnailOverlayRenderer": {"content": {"musicPlayButtonRenderer": {"playNavigationEndpoint": {
+                "watchEndpoint": {"videoId": "NJAv_7lHUIU",
+                  "watchEndpointMusicSupportedConfigs": {"watchEndpointMusicConfig": {"musicVideoType": "MUSIC_VIDEO_TYPE_ATV"}}}
+              }}}}},
+              "flexColumns": [
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Kesariya"}]}}},
+                {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Arijit Singh", "navigationEndpoint": {"browseEndpoint": {"browseId": "UCDxKh1gFWeYsqePvgVzmPoQ",
+                  "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}}]}}}
+              ]
+            }}
+          ]
+        }}
+      ]}}}}]
+    }
+  }
+}

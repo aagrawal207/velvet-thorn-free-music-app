@@ -26,7 +26,7 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
             let songMenu = list.otherElements["queue.row.1.\(AppUIFixture.kesariya)"]
                 .buttons["track.options.\(AppUIFixture.kesariya)"]
             try ui.tap(songMenu)
-            let addToQueue = ui.app.buttons["Add to queue"]
+            let addToQueue = ui.app.buttons["Add to Queue"]
             try ui.tap(addToQueue)
             try ui.wait("Adding the duplicate must dismiss its menu") { !addToQueue.exists }
             try assertQueue(original, currentIndex: 1, ui: ui)
@@ -84,7 +84,8 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
         try ui.expectPosition(position)
         try ui.expectLabel(ui.app.buttons["player.playPause"], "Play")
         XCTAssertFalse(ui.app.buttons["queue.saveRemaining"].exists, "Saving belongs to Queue, not the main player")
-        for id in ["player.lyrics", "player.browse", "player.airplay", "player.queue"] {
+        XCTAssertFalse(ui.app.buttons["player.browse"].exists, "Album browsing belongs to the artist line, not the bottom row")
+        for id in ["player.lyrics", "player.airplay", "player.download", "player.queue", "player.trailingTime"] {
             try assertMinimumTarget(ui.app.buttons[id], ui: ui)
         }
         try closePlayer(ui)
@@ -108,7 +109,7 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
             try ui.wait("The removed recording must leave the queue") { !song.exists }
         }
         try ui.wait("An empty queue must keep a disabled save action") {
-            ui.app.staticTexts["An open queue"].exists
+            ui.app.staticTexts["An Open Queue"].exists
                 && ui.app.buttons["queue.saveRemaining"].exists && !ui.app.buttons["queue.saveRemaining"].isEnabled
         }
         try assertMinimumTarget(ui.app.buttons["queue.saveRemaining"], ui: ui)
@@ -125,7 +126,7 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
         try namePlaylist("Recovered queue selection", ui: ui)
         let draft = draftContent(ui)
         let save = draft.buttons["queue.saveRemaining.save"]
-        try reveal(save, in: draft, navigationTitle: "Save remaining songs", ui: ui)
+        try reveal(save, in: draft, navigationTitle: "Save Remaining Songs", ui: ui)
         try ui.tap(save)
         let error = draft.staticTexts["queue.saveRemaining.error"]
         try ui.wait("A rejected library write must leave a visible, retryable draft") {
@@ -135,7 +136,7 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
         XCTAssertTrue(error.label.localizedCaseInsensitiveContains("reload"))
         try ui.expectValue(ui.app.textFields["queue.saveRemaining.name"], "Recovered queue selection")
         let reload = draft.buttons["queue.saveRemaining.reloadLibrary"]
-        try reveal(reload, in: draft, navigationTitle: "Save remaining songs", ui: ui)
+        try reveal(reload, in: draft, navigationTitle: "Save Remaining Songs", ui: ui)
         try assertMinimumTarget(reload, ui: ui)
         try ui.tap(reload)
         try ui.wait("Reloading the repaired library must clear the draft error") { !error.exists }
@@ -198,7 +199,7 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
                 .buttons["track.options.\(id)"]
             try ui.reveal(menu)
             try ui.tap(menu)
-            try ui.tap(ui.app.buttons["Play next"])
+            try ui.tap(ui.app.buttons["Play Next"])
             try openPlayer(ui)
             try ui.expectCurrentTrack(AppUIFixture.tumHiHo)
             try openQueue(ui)
@@ -225,10 +226,10 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
         try openSaveSheet(ui, count: 5, firstTitle: "Tum Hi Ho")
         let draft = draftContent(ui)
         for control in [draft.textFields["queue.saveRemaining.name"], draft.buttons["queue.saveRemaining.save"]] {
-            try reveal(control, in: draft, navigationTitle: "Save remaining songs", ui: ui, maxDrags: 16)
+            try reveal(control, in: draft, navigationTitle: "Save Remaining Songs", ui: ui, maxDrags: 16)
             try assertMinimumTarget(control, ui: ui)
         }
-        try assertMinimumTarget(ui.app.navigationBars["Save remaining songs"].buttons["queue.saveRemaining.done"], ui: ui)
+        try assertMinimumTarget(ui.app.navigationBars["Save Remaining Songs"].buttons["queue.saveRemaining.done"], ui: ui)
         ui.capture("queue-save-accessibility-text")
         try savePlaylist(ui)
         try assertQueue(fixtureIDs, currentIndex: 0, ui: ui)
@@ -324,7 +325,7 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
         let done = ui.app.navigationBars["Queue"].buttons["queue.done"]
         try ui.wait("The draft must be dismissed and Queue must be the interactive sheet") {
             !ui.app.textFields["queue.saveRemaining.name"].exists
-                && !ui.app.navigationBars["Save remaining songs"].exists
+                && !ui.app.navigationBars["Save Remaining Songs"].exists
                 && self.queueList(ui).exists && done.exists && done.isHittable
         }
     }
@@ -350,7 +351,7 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
         let action = ui.app.navigationBars["Queue"].buttons["queue.saveRemaining"]
         try assertMinimumTarget(action, ui: ui)
         try ui.tap(action)
-        let done = ui.app.navigationBars["Save remaining songs"].buttons["queue.saveRemaining.done"]
+        let done = ui.app.navigationBars["Save Remaining Songs"].buttons["queue.saveRemaining.done"]
         try ui.wait("Queue must open its interactive naming sheet") {
             ui.app.textFields["queue.saveRemaining.name"].exists && done.exists && done.isHittable
         }
@@ -371,7 +372,7 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
     private func namePlaylist(_ name: String, ui: AppUITestDriver) throws {
         let content = draftContent(ui)
         let field = content.textFields["queue.saveRemaining.name"]
-        try reveal(field, in: content, navigationTitle: "Save remaining songs", ui: ui)
+        try reveal(field, in: content, navigationTitle: "Save Remaining Songs", ui: ui)
         try ui.tap(field)
         try ui.dismissKeyboardIntroduction()
         try ui.replaceSelectedText(in: field, with: name)
@@ -382,7 +383,7 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
     private func savePlaylist(_ ui: AppUITestDriver) throws {
         let content = draftContent(ui)
         let save = content.buttons["queue.saveRemaining.save"]
-        try reveal(save, in: content, navigationTitle: "Save remaining songs", ui: ui)
+        try reveal(save, in: content, navigationTitle: "Save Remaining Songs", ui: ui)
         try assertMinimumTarget(save, ui: ui)
         try ui.tap(save)
         try waitForQueue(ui)
@@ -450,7 +451,8 @@ final class GanaBajanaQueueSaveUITests: XCTestCase {
                         else { bottom = min(bottom, frame.minY) }
                     }
                 }
-                let mini = ui.app.buttons["miniPlayer.open"]
+                // Rows pass beneath the glass, so the capsule's top, not its inset open button's, ends the visible area.
+                let mini = ui.app.otherElements["miniPlayer.container"]
                 if mini.exists, mini.frame.intersects(contentBounds) { bottom = min(bottom, mini.frame.minY) }
             }
             let keyboard = ui.app.keyboards.firstMatch

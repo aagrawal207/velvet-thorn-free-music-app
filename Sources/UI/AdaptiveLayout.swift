@@ -38,23 +38,52 @@ enum AppLayout {
 
 /// Home shelf geometry for one measured width, kept pure so the numbers are tested rather than eyeballed.
 struct HomeShelfMetrics: Equatable {
+    /// Gap between Made for You cards, across and down.
+    static let mixGridSpacing: CGFloat = 10
+    /// Rows sit further apart than columns because each card ends in two lines of text.
+    static let mixGridRowSpacing: CGFloat = 18
+    /// Narrowest Made for You card that still fits its collage, a two-line title and a readable caption.
+    static let mixCardMinimumWidth: CGFloat = 160
+
     let columnWidth: CGFloat
     let cardSize: CGFloat
     let tileSize: CGFloat
     let carouselBleed: CGFloat
+    /// Made for You never scrolls sideways: two cards per row on phones and four across an iPad column, halved
+    /// while a card would be narrower than `mixCardMinimumWidth`, and one per row at accessibility sizes.
+    let mixGridColumns: Int
+    let mixCardWidth: CGFloat
 
     init(containerWidth: CGFloat, sizeClass: UserInterfaceSizeClass?, isAccessibilitySize: Bool) {
         let width = AppLayout.columnWidth(in: containerWidth, sizeClass: sizeClass)
+        let isRegular = AppLayout.isRegularWidth(sizeClass)
         columnWidth = width
         carouselBleed = AppLayout.carouselBleed(in: containerWidth, sizeClass: sizeClass)
-        if AppLayout.isRegularWidth(sizeClass) {
-            cardSize = isAccessibilitySize ? 200 : min(180, max(160, width * 0.18))
-            // Three tiles per row after 20-point column padding and 14-point gaps; a column-wide tile is a 960-point square.
-            tileSize = isAccessibilitySize ? min(420, max(0, width - 40)) : min(260, max(200, (width - 68) / 3))
+        if isRegular {
+            cardSize = isAccessibilitySize ? 200 : min(150, max(132, width * 0.15))
+            // Four tiles across the column after the 20-point inset and 14-point gaps; a column-wide tile is a 960-point square.
+            tileSize = isAccessibilitySize ? min(420, max(0, width - 40)) : min(210, max(170, (width - 68) / 4))
         } else {
-            cardSize = isAccessibilitySize ? 200 : min(150, max(124, width * 0.36))
-            tileSize = isAccessibilitySize ? max(0, width - 40) : min(230, max(140, (width - 54) / 2))
+            cardSize = isAccessibilitySize ? 200 : min(124, max(104, width * 0.29))
+            // About 2.4 tiles across, so the third one peeks in and shows that the shelf scrolls.
+            tileSize = isAccessibilitySize ? max(0, width - 40) : min(170, max(120, (width - 68) / 2.4))
         }
+        let gridWidth = max(0, width - 40)
+        var columns = isAccessibilitySize ? 1 : isRegular ? 4 : 2
+        // Halving rather than dropping one keeps four mixes in full rows (4 by 1, 2 by 2), never three over one.
+        while columns > 1, Self.gridCardWidth(gridWidth, columns: columns) < Self.mixCardMinimumWidth { columns /= 2 }
+        mixGridColumns = columns
+        mixCardWidth = Self.gridCardWidth(gridWidth, columns: columns)
+    }
+
+    /// Rows in reading order; the last row stays short so its cards line up under the columns above.
+    static func gridRows<Item>(_ items: [Item], columns: Int) -> [[Item]] {
+        let columns = max(1, columns)
+        return stride(from: 0, to: items.count, by: columns).map { Array(items[$0..<min($0 + columns, items.count)]) }
+    }
+
+    private static func gridCardWidth(_ gridWidth: CGFloat, columns: Int) -> CGFloat {
+        max(0, (gridWidth - CGFloat(columns - 1) * mixGridSpacing) / CGFloat(columns))
     }
 }
 
@@ -103,8 +132,16 @@ enum KeyboardNotice {
 }
 
 enum AppPlatform {
-    /// The iPad binary on Apple silicon Macs: no on-screen keyboard, no alternate icons, always a hardware keyboard.
+    /// Any Mac build, Catalyst or the iPad binary: no on-screen keyboard, no alternate icons, always a hardware keyboard.
     static var isMacDesignedForIPad: Bool {
-        ProcessInfo.processInfo.isiOSAppOnMac
+        ProcessInfo.processInfo.isiOSAppOnMac || isMacCatalyst
+    }
+
+    static var isMacCatalyst: Bool {
+        #if targetEnvironment(macCatalyst)
+        true
+        #else
+        false
+        #endif
     }
 }

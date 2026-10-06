@@ -5,10 +5,11 @@ import XCTest
 final class GanaBajanaPlayerAirPlayUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
-    func testBottomActionRowHasOneBrowseControlAndOneVisibleNativeAirPlayButton() throws {
-        let ui = try launchPlayer()
-        let ids = ["player.airplay", "player.lyrics", "player.browse", "player.queue"]
-        let labels = ["AirPlay and audio output", "Lyrics", "Album and artists", "Queue"]
+    func testBottomActionRowHasNativeAirPlayLeadingAndLyricsQueueTrailing() throws {
+        // The cache fixture gives the player a download center, so the Download button is live rather than disabled.
+        let ui = try launchPlayer(arguments: ["--cache-fixture"])
+        let ids = ["player.airplay", "player.download", "player.lyrics", "player.queue"]
+        let labels = ["AirPlay and audio output", "Download", "Lyrics", "Queue"]
         let controls = ids.map { ui.app.buttons[$0] }
         let window = ui.app.windows.firstMatch.frame
         for (control, label) in zip(controls, labels) {
@@ -26,13 +27,22 @@ final class GanaBajanaPlayerAirPlayUITests: XCTestCase {
             XCTAssertLessThan(left.frame.midX, right.frame.midX)
             XCTAssertLessThanOrEqual(left.frame.maxX, right.frame.minX + 1e-6)
         }
-        let spacing = controls[1].frame.midX - controls[0].frame.midX
-        XCTAssertEqual(controls[2].frame.midX - controls[1].frame.midX, spacing, accuracy: 2)
-        XCTAssertEqual(controls[3].frame.midX - controls[2].frame.midX, spacing, accuracy: 2)
+        // AirPlay holds the column's leading edge with Download 8 points beside it; Queue holds the trailing edge with
+        // Lyrics 8 points inside it. The gap between the pairs is the row's only spacer.
+        let elapsed = ui.app.staticTexts["player.elapsed"]
+        let trailingTime = ui.app.buttons["player.trailingTime"]
+        XCTAssertEqual(controls[0].frame.minX, elapsed.frame.minX, accuracy: 1)
+        XCTAssertEqual(controls[1].frame.minX, controls[0].frame.maxX + 8, accuracy: 1)
+        XCTAssertEqual(controls[3].frame.maxX, trailingTime.frame.maxX, accuracy: 1)
+        XCTAssertEqual(controls[2].frame.maxX + 8, controls[3].frame.minX, accuracy: 1)
+        XCTAssertGreaterThan(controls[2].frame.minX - controls[1].frame.maxX, 44, "The row is split, not evenly spread.")
+        XCTAssertTrue(controls[1].isEnabled, "The download center exists in the cache fixture")
+        XCTAssertFalse(ui.app.buttons["player.browse"].exists, "Album browsing belongs to the artist line, not the bottom row.")
         XCTAssertFalse(ui.app.buttons["player.album"].exists)
         XCTAssertFalse(ui.app.buttons["player.artist"].exists)
         let airPlayFrame = try assertNativeAirPlayAnchor(ui)
-        ui.capture("player-four-actions-leftmost-native-airplay")
+        let downloadFrame = controls[1].frame
+        ui.capture("player-four-actions-leading-native-airplay-download")
 
         try ui.tap(ui.app.buttons["player.menu"])
         try ui.requireHittable(ui.app.buttons["player.options.toolbarDone"])
@@ -41,12 +51,17 @@ final class GanaBajanaPlayerAirPlayUITests: XCTestCase {
         let restoredFrame = try assertNativeAirPlayAnchor(ui)
         XCTAssertEqual(restoredFrame.minX, airPlayFrame.minX, accuracy: 1)
         XCTAssertEqual(restoredFrame.minY, airPlayFrame.minY, accuracy: 1)
+        XCTAssertEqual(controls[1].frame.minX, downloadFrame.minX, accuracy: 1)
+        XCTAssertEqual(controls[1].frame.minY, downloadFrame.minY, accuracy: 1)
 
         try ui.tap(ui.app.buttons["player.close"])
         try ui.openPlayer()
         let reopenedFrame = try assertNativeAirPlayAnchor(ui)
         XCTAssertEqual(reopenedFrame.minX, airPlayFrame.minX, accuracy: 1)
         XCTAssertEqual(reopenedFrame.minY, airPlayFrame.minY, accuracy: 1)
+        XCTAssertEqual(controls[1].frame.minX, downloadFrame.minX, accuracy: 1)
+        XCTAssertEqual(controls[1].frame.minY, downloadFrame.minY, accuracy: 1)
+        XCTAssertEqual(controls[1].label, "Download")
         try ui.expectCurrentTrack(AppUIFixture.tumHiHo)
     }
 
@@ -142,6 +157,7 @@ final class GanaBajanaPlayerAirPlayUITests: XCTestCase {
         XCTAssertTrue(anchor.frame.insetBy(dx: -1e-6, dy: -1e-6).contains(button.frame), file: file, line: line)
         XCTAssertTrue(ui.app.windows.firstMatch.frame.insetBy(dx: -1e-6, dy: -1e-6).contains(anchor.frame),
                       file: file, line: line)
+        XCTAssertLessThan(button.frame.midX, ui.app.buttons["player.download"].frame.midX, file: file, line: line)
         XCTAssertLessThan(button.frame.midX, ui.app.buttons["player.lyrics"].frame.midX, file: file, line: line)
         return button.frame
     }
@@ -151,16 +167,17 @@ final class GanaBajanaPlayerAirPlayUITests: XCTestCase {
             || application.staticTexts["Speakers & TVs"].exists
     }
 
-    private func launchPlayer() throws -> AppUITestDriver {
+    private func launchPlayer(arguments: [String] = []) throws -> AppUITestDriver {
         let ui = AppUITestDriver(testCase: self, prefix: "player-airplay")
         addTeardownBlock { await ui.finish() }
         XCUIDevice.shared.orientation = .portrait
         // Direct launch also works with iPad's top tabs; this test needs only the player surface.
-        ui.app.launchArguments = ["--uitesting", "--seed-ui", "--skip-welcome", "--reset-ui", "--player",
-                                  "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        ui.app.launchArguments = ["--uitesting", "--seed-ui", "--skip-welcome", "--reset-ui", "--player"] + arguments
+            + ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         ui.app.launchEnvironment = ["GANABAJANA_TEST_STORE": ui.storeName]
         ui.app.launch()
-        try ui.requireHittable(ui.app.buttons["player.close"])
+        // The cache fixture publishes its files before the player is presented.
+        try ui.requireHittable(ui.app.buttons["player.close"], timeout: 25)
         return ui
     }
 }

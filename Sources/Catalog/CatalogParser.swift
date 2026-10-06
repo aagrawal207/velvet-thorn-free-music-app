@@ -7,7 +7,13 @@ enum CatalogParser {
         var albumID: String?
         var credits: [ArtistCredit] = []
         var artworkURL: URL?
+        /// Playlists list what their owner added: a music video or upload with no linked album recording stays
+        /// as a video entry (`isAudioRecording == false`). Search, radio, artist and album pages keep audio only.
+        var keepsVideoRows = false
     }
+
+    /// Video entry types a playlist row may carry; podcasts stay excluded by `isPlayableRow`.
+    private static let videoEntryTypes: Set<String> = ["MUSIC_VIDEO_TYPE_OMV", "MUSIC_VIDEO_TYPE_UGC", "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC"]
 
     static func search(_ root: CatalogJSON, filter: SearchFilter, query: String? = nil) throws -> CatalogPage {
         try validate(root)
@@ -91,7 +97,7 @@ enum CatalogParser {
     }
 
     static func rowContext(_ root: CatalogJSON, id: String, inheriting inherited: RowContext? = nil) -> RowContext {
-        guard id.hasPrefix("MPRE") || id.hasPrefix("MPAL") else { return RowContext() }
+        guard id.hasPrefix("MPRE") || id.hasPrefix("MPAL") else { return RowContext(keepsVideoRows: id.hasPrefix("VL")) }
         let header = header(root)
         let title = CatalogText.clean(header["title"].text)
             ?? CatalogText.clean(root["microformat"]["microformatDataRenderer"]["title"].text)
@@ -127,6 +133,22 @@ enum CatalogParser {
         return page
     }
 
+    /// Rows of a page whose context the caller fixes up front: account library pages (liked songs, history) keep
+    /// music videos as video entries like playlists do and have no album header to inherit from.
+    static func browse(_ root: CatalogJSON, context: RowContext) throws -> CatalogPage {
+        try validate(root)
+        var page = CatalogPage(title: CatalogText.clean(header(root)["title"].text)
+            ?? CatalogText.clean(root["microformat"]["microformatDataRenderer"]["title"].text))
+        for (kind, renderer) in rows(root, includeCarousels: false) {
+            if let track = track(renderer, rendererKind: kind, context: context) { page.tracks.append(track) }
+            else if let collection = collection(renderer) { page.collections.append(collection) }
+        }
+        page.tracks = CatalogText.uniqueTracks(page.tracks)
+        page.collections = CatalogText.uniqueCollections(page.collections)
+        page.continuation = continuation(root)
+        return page
+    }
+
     static func radio(_ root: CatalogJSON) throws -> [Track] {
         try validate(root)
         let queues = root.values(for: "playlistPanelRenderer") + root.values(for: "playlistPanelContinuation")
@@ -143,20 +165,33 @@ enum CatalogParser {
         })
     }
 
-    static func audioCandidateIDs(_ root: CatalogJSON) -> [String] {
+    /// Per browse row, the recordings that may represent it, best first: a confirmed audio row is itself; otherwise
+    /// the credits link's album recording (an `MPTC` candidate that get_queue must confirm), then the row's own
+    /// video entry when the page keeps those. Rows that contribute nothing are omitted.
+    static func browseRowCandidates(_ root: CatalogJSON, inheriting context: RowContext = RowContext()) -> [[String]] {
         var seen = Set<String>()
-        return rows(root, includeCarousels: false).compactMap { kind, renderer in
-            if let recording = track(renderer, rendererKind: kind), recording.isAudioRecording == true { return recording.id }
+        return rows(root, includeCarousels: false).compactMap { kind, renderer -> [String]? in
+            let recording = track(renderer, rendererKind: kind, context: context)
+            if let recording, recording.isAudioRecording == true { return seen.insert(recording.id).inserted ? [recording.id] : nil }
+            var ids: [String] = []
             // Credits may identify the album recording behind an unavailable music clip.
             // These are candidates only; get_queue must confirm ATV metadata before use.
             for browse in renderer.values(for: "browseEndpoint") {
                 guard browse["browseEndpointContextSupportedConfigs"]["browseEndpointContextMusicConfig"]["pageType"].string == "MUSIC_PAGE_TYPE_TRACK_CREDITS",
                       let id = browse["browseId"].string, id.hasPrefix("MPTC"),
                       let candidate = CatalogText.videoID(String(id.dropFirst(4))) else { continue }
-                return candidate
+                ids.append(candidate)
+                break
             }
-            return nil
-        }.filter { seen.insert($0).inserted }
+            if let recording { ids.append(recording.id) }
+            let fresh = ids.filter { seen.insert($0).inserted }
+            return fresh.isEmpty ? nil : fresh
+        }
+    }
+
+    /// The audio-only candidate order of a browse page: confirmed rows and credits-linked album recordings.
+    static func audioCandidateIDs(_ root: CatalogJSON) -> [String] {
+        browseRowCandidates(root).flatMap(\.self)
     }
 
     /// A validated audio row may have replaced an album clip; the clip's explicit credits link can carry
@@ -340,7 +375,9 @@ enum CatalogParser {
         let confirmedAudio = audio != nil || CatalogText.videoID(renderer["atvExternalVideoId"].string) != nil
             || renderer["musicVideoType"].string == "MUSIC_VIDEO_TYPE_ATV"
         let type = videoType(renderer)
-        guard confirmedAudio || ((type == nil || type == "MUSIC_VIDEO_TYPE_UNKNOWN") && context.albumID != nil) else { return nil }
+        let isVideoEntry = type.map(videoEntryTypes.contains) == true && context.keepsVideoRows
+        guard confirmedAudio || isVideoEntry
+            || ((type == nil || type == "MUSIC_VIDEO_TYPE_UNKNOWN") && context.albumID != nil) else { return nil }
         let id = CatalogText.videoID(renderer["atvExternalVideoId"].string)
             ?? CatalogText.videoID(audio?["videoId"].string)
             ?? plainVideoID(renderer)
@@ -379,7 +416,7 @@ enum CatalogParser {
                      duration: changedRecording ? nil : duration,
                      artworkURL: changedRecording ? (context.artworkURL ?? CatalogText.artwork(.null, videoID: id))
                         : (CatalogText.artwork(renderer) ?? context.artworkURL ?? CatalogText.artwork(.null, videoID: id)),
-                     isExplicit: explicit, isAudioRecording: confirmedAudio ? true : nil,
+                     isExplicit: explicit, isAudioRecording: confirmedAudio ? true : (isVideoEntry ? false : nil),
                      playCount: changedRecording ? nil : playCount)
     }
 

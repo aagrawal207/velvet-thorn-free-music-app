@@ -245,7 +245,7 @@ final class AppModelListeningLanguageTests: XCTestCase {
         await task.value
         XCTAssertEqual(Set(searches.map(\.input.query)), ["Hindi songs", "English songs"])
         XCTAssertEqual(Set(context.model.homeSections.map(\.id)), ["discovery.language.hi", "discovery.language.en"])
-        XCTAssertTrue(context.model.homeSections.allSatisfy { $0.subtitle == "A starting point while Breezy learns your listening" })
+        XCTAssertTrue(context.model.homeSections.allSatisfy { $0.subtitle == "A starting point while Velvet Thorn learns your listening" })
         XCTAssertTrue(context.model.homeSections.flatMap(\.tracks).allSatisfy { $0.language == nil })
         XCTAssertFalse(context.model.listeningLanguageProfile.isLearned)
         XCTAssertFalse(context.model.hasListeningProfile)

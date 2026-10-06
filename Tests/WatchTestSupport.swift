@@ -63,17 +63,17 @@ enum WatchTestSupport {
 
     static func snapshot(
         sessionID: UUID = WatchTestSupport.sessionID, sequence: UInt64 = 1, position: Double = 42, duration: Double = 214,
-        playing: Bool = true, loading: Bool = false, favorite: Bool = false, error: String? = nil,
+        playing: Bool = true, loading: Bool = false, favorite: Bool = false, superLiked: Bool = false, error: String? = nil,
         empty: Bool = false, trackID: String = "watch-test-track", title: String = "A quiet evening",
         artist: String = "Breezy Sessions", shuffle: Bool = false, repeatMode: CompanionRepeatMode = .off,
-        libraryError: String? = nil
+        libraryError: String? = nil, accent: CompanionAccent? = nil
     ) -> CompanionSnapshot {
         CompanionSnapshot(sessionID: sessionID, sequence: sequence,
                           updatedAt: Date(timeIntervalSince1970: 1_750_000_000), nowPlaying: empty ? nil : CompanionNowPlaying(
                             trackID: trackID, title: title, artist: artist, position: position, duration: duration,
-                            isPlaying: playing, isLoading: loading, isFavorite: favorite, shuffleEnabled: shuffle, repeatMode: repeatMode,
-                            errorMessage: error
-                          ), libraryError: libraryError)
+                            isPlaying: playing, isLoading: loading, isFavorite: favorite, isSuperLiked: superLiked,
+                            shuffleEnabled: shuffle, repeatMode: repeatMode, errorMessage: error
+                          ), libraryError: libraryError, accent: accent)
     }
 
     static func response(

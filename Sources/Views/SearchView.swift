@@ -93,6 +93,23 @@ struct SearchView: View {
             }
             .padding(.top, 12)
             .background(AppTheme.background)
+            #if DEBUG
+            .overlay(alignment: .bottomLeading) {
+                // Fixture introspection for the warm-up UI test, following the RootView pattern: invisible, no hit testing.
+                if ProcessInfo.processInfo.arguments.contains("--fast-start-fixture") {
+                    VStack {
+                        Text("Warmed search results")
+                            .accessibilityIdentifier("search.warm.count")
+                            .accessibilityValue(String(model.playbackWarmer.resolvedCount))
+                        Text("Last playback start")
+                            .accessibilityIdentifier("search.playbackStart")
+                            .accessibilityValue(model.player.lastPlaybackStart ?? "")
+                    }
+                    .font(.system(size: 1))
+                    .allowsHitTesting(false)
+                }
+            }
+            #endif
         }
         .foregroundStyle(AppTheme.primaryText)
         .toolbar(.hidden, for: .navigationBar)
@@ -109,7 +126,7 @@ struct SearchView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(AppTheme.accent)
-                    .accessibilityLabel("Dismiss keyboard")
+                    .accessibilityLabel("Dismiss Keyboard")
                     .accessibilityIdentifier("search.dismissKeyboard.toolbar")
                 }
                 .padding(.horizontal, 8)
@@ -162,6 +179,7 @@ struct SearchView: View {
             isSearchFocused = false
             paginationTask?.cancel()
             isLoadingMore = false
+            model.cancelWarmPlayback(owner: PlaybackWarmer.searchOwner)
         }
     }
 
@@ -198,7 +216,7 @@ struct SearchView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Clear search")
+                .accessibilityLabel("Clear Search")
                 .accessibilityIdentifier("search.clear")
             }
         }
@@ -233,113 +251,66 @@ struct SearchView: View {
 
     private var discovery: some View {
         VStack(alignment: .leading, spacing: 24) {
-            libraryShortcuts
             AppNavigationLink {
-                SearchRadioBrowseView()
+                RadioView()
             } label: {
-                navigationRow(title: "Radio", subtitle: "Stations for a mood or genre",
+                navigationRow(title: "Radio", subtitle: "Start with a song or artist",
                               symbol: "dot.radiowaves.left.and.right")
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("search.radio.open")
+            AppNavigationLink {
+                LiveRadioView(browser: model.liveRadio, player: model.player, isOffline: model.isOffline) {
+                    model.playLiveRadio($0)
+                }
+            } label: {
+                navigationRow(title: "Live Radio", subtitle: "Public stations by country, language and theme",
+                              symbol: "radio")
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("search.liveRadio.open")
+            // Liked, cached and library shortcuts live in the Library tab; playlists stay as quick openers.
+            if !model.library.playlists.isEmpty { playlistShortcuts }
             recentSelections
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("search.discovery")
     }
 
-    private var libraryShortcuts: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            let columns = Array(repeating: GridItem(.flexible(), alignment: .top),
-                                count: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+    private var playlistShortcuts: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader(title: "Your Playlists")
+                .accessibilityIdentifier("search.library.playlists")
+            ForEach(model.library.playlists.sorted { $0.updatedAt > $1.updatedAt }.prefix(3)) { playlist in
                 AppNavigationLink {
-                    LibrarySavedSongsView(kind: .likes)
+                    LibraryUserPlaylistView(playlistID: playlist.id)
                 } label: {
-                    libraryCard(title: "Liked songs",
-                                subtitle: model.library.hasLoadedDocument ? songCount(model.library.favorites.count) : "Library unavailable",
-                                symbol: "heart.fill", tint: AppTheme.accent)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("search.library.likes")
-
-                AppNavigationLink {
-                    CachedSongsView()
-                } label: {
-                    libraryCard(title: "Cached songs", subtitle: "On this device",
-                                symbol: "arrow.down.circle.fill", tint: AppTheme.gold)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("search.library.cached")
-            }
-
-            if !model.library.playlists.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    SectionHeader(title: "Your playlists")
-                    ForEach(model.library.playlists.sorted { $0.updatedAt > $1.updatedAt }.prefix(3)) { playlist in
-                        AppNavigationLink {
-                            LibraryUserPlaylistView(playlistID: playlist.id)
-                        } label: {
-                            HStack(spacing: 14) {
-                                ArtworkView(url: playlist.tracks.first?.artworkURL, title: playlist.name,
-                                            size: 52, cornerRadius: 6)
-                                    .accessibilityHidden(true)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(playlist.name)
-                                        .appFont(.subheadline, weight: .semibold)
-                                        .foregroundStyle(AppTheme.primaryText)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                    Text("Playlist · \(songCount(playlist.tracks.count))")
-                                        .appFont(.caption)
-                                        .foregroundStyle(AppTheme.secondaryText)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                Image(systemName: "chevron.right")
-                                    .appFont(.caption, weight: .semibold)
-                                    .foregroundStyle(AppTheme.secondaryText)
-                            }
-                            .padding(.vertical, 6)
-                            .contentShape(Rectangle())
+                    HStack(spacing: 14) {
+                        ArtworkView(url: playlist.tracks.first?.artworkURL, title: playlist.name,
+                                    size: 52, cornerRadius: 6)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(playlist.name)
+                                .appFont(.subheadline, weight: .semibold)
+                                .foregroundStyle(AppTheme.primaryText)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("Playlist · \(songCount(playlist.tracks.count))")
+                                .appFont(.caption)
+                                .foregroundStyle(AppTheme.secondaryText)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(playlist.name), Playlist, \(songCount(playlist.tracks.count))")
-                        .accessibilityIdentifier("search.library.playlist.\(playlist.id.uuidString)")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "chevron.right")
+                            .appFont(.caption, weight: .semibold)
+                            .foregroundStyle(AppTheme.secondaryText)
                     }
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(playlist.name), Playlist, \(songCount(playlist.tracks.count))")
+                .accessibilityIdentifier("search.library.playlist.\(playlist.id.uuidString)")
             }
-            openLibraryButton
         }
-    }
-
-    private func libraryCard(title: String, subtitle: String, symbol: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: symbol)
-                .appFont(.title2, weight: .semibold)
-                .foregroundStyle(tint)
-                .frame(height: 32)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title)
-                    .appFont(.headline, weight: .semibold)
-                    .foregroundStyle(AppTheme.primaryText)
-                Text(subtitle)
-                    .appFont(.caption)
-                    .foregroundStyle(AppTheme.secondaryText)
-            }
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
-        .padding(16)
-        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: AppCorner.card))
-        .contentShape(RoundedRectangle(cornerRadius: AppCorner.card))
-    }
-
-    private var openLibraryButton: some View {
-        Button { model.openLibrary() } label: {
-            navigationRow(title: "Your library", symbol: "square.stack")
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("search.library.open")
     }
 
     private func navigationRow(title: String, subtitle: String? = nil, symbol: String) -> some View {
@@ -378,7 +349,7 @@ struct SearchView: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout())
         return VStack(alignment: .leading, spacing: 8) {
             headerLayout {
-                Text("Recently opened")
+                Text("Recently Opened")
                     .appFont(.title3, weight: .bold)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? .infinity : nil, alignment: .leading)
@@ -389,14 +360,14 @@ struct SearchView: View {
                         model.clearRecentSearchSelections()
                         if model.library.recentSearchSelections.isEmpty { showsAllRecentSelections = false }
                     } label: {
-                        Text("Clear all")
+                        Text("Clear All")
                             .appFont(.subheadline, weight: .semibold)
                             .foregroundStyle(AppTheme.accent)
                             .frame(minWidth: 44, minHeight: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Clear recently opened items")
+                    .accessibilityLabel("Clear Recently Opened Items")
                     .accessibilityIdentifier("search.recents.clear")
                 }
             }
@@ -488,23 +459,15 @@ struct SearchView: View {
 
     private var offlineResults: some View {
         let tracks = model.offlineSearchTracks(query: request.query)
+        // The offline bar above already opens Cached songs; the results stay a plain list of local matches.
         return VStack(alignment: .leading, spacing: 20) {
-            AppNavigationLink {
-                CachedSongsView()
-            } label: {
-                navigationRow(title: "Cached songs", subtitle: "On this device", symbol: "arrow.down.circle")
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("search.library.cached")
-            openLibraryButton
-
             if tracks.isEmpty {
-                EmptyStateView(symbol: "magnifyingglass", title: "No saved songs found",
+                EmptyStateView(symbol: "magnifyingglass", title: "No Saved Songs Found",
                                message: "Try a title, artist, or album from your library.")
                     .accessibilityIdentifier("search.offline.empty")
             } else {
                 VStack(alignment: .leading, spacing: 4) {
-                    SectionHeader(title: "Your songs")
+                    SectionHeader(title: "Your Songs")
                         .padding(.bottom, 8)
                     ForEach(tracks) { track in
                         TrackRow(track: track, accessibilityMetadata: "Song", onSelect: {
@@ -548,7 +511,7 @@ struct SearchView: View {
                         searchAttempt += 1
                     }
                 } label: {
-                    Label("Try again", systemImage: "arrow.clockwise")
+                    Label("Try Again", systemImage: "arrow.clockwise")
                         .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
@@ -580,37 +543,17 @@ struct SearchView: View {
             featuredArtistCard(artist)
         }
 
-        if !model.searchPage.tracks.isEmpty {
-            LazyVStack(alignment: .leading, spacing: 4) {
-                SectionHeader(title: "Songs")
-                    .padding(.bottom, 12)
-                ForEach(model.searchPage.tracks) { track in
-                    // A tapped result plays alone; Autoplay's radio for that song fills the queue, so a search
-                    // for one title is not followed by every other version of it.
-                    TrackRow(track: track, accessibilityMetadata: "Song", onSelect: {
-                        model.activateSearchSelection(.track(track), source: .result)
-                    }, searchOrigin: true)
-                }
+        let groups = sourceGroups
+        if groups.count > 1 {
+            // Several catalogs answered: each keeps its own heading so a listener can see where a song comes from.
+            ForEach(groups, id: \.source) { group in
+                songsList(group.tracks, header: group.source.title, headerID: "search.section.\(group.source.rawValue)")
+                collectionsGrid(group.collections, header: group.tracks.isEmpty ? group.source.title : model.searchFilter.title,
+                                headerID: group.tracks.isEmpty ? "search.section.\(group.source.rawValue)" : nil, width: width)
             }
-        }
-
-        if !model.searchPage.collections.isEmpty {
-            let size = min(204, max(120, (width - 54) / 2))
-            VStack(alignment: .leading, spacing: 16) {
-                SectionHeader(title: model.searchFilter.title)
-                if dynamicTypeSize.isAccessibilitySize {
-                    ForEach(model.searchPage.collections) { collection in
-                        accessibleCollectionRow(collection)
-                    }
-                } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: size), alignment: .top)], alignment: .leading, spacing: 22) {
-                        ForEach(model.searchPage.collections) { collection in
-                            searchCollectionCard(collection, size: size)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }
-            }
+        } else if let only = groups.first {
+            songsList(only.tracks, header: "Songs", headerID: nil)
+            collectionsGrid(only.collections, header: model.searchFilter.title, headerID: nil, width: width)
         }
 
         if model.searchPage.continuation != nil && hasResults {
@@ -629,6 +572,67 @@ struct SearchView: View {
             .foregroundStyle(AppTheme.accent)
             .disabled(isLoadingMore)
             .accessibilityIdentifier("search.loadMore")
+        }
+    }
+
+    /// Results split by catalog in `MusicSource` order; a single contributing source keeps the plain layout.
+    /// A source switched off after the search hides its rows right away instead of waiting for a new query.
+    private var sourceGroups: [SourceGroup] {
+        let enabled = Set(model.library.preferences.enabledCatalogSources)
+        let tracks = Dictionary(grouping: model.searchPage.tracks, by: \.source)
+        let collections = Dictionary(grouping: model.searchPage.collections, by: \.source)
+        return MusicSource.allCases.compactMap { source in
+            guard source == .youTubeMusic || enabled.contains(source) else { return nil }
+            let group = SourceGroup(source: source, tracks: tracks[source] ?? [], collections: collections[source] ?? [])
+            return group.tracks.isEmpty && group.collections.isEmpty ? nil : group
+        }
+    }
+
+    private struct SourceGroup {
+        let source: MusicSource
+        let tracks: [Track]
+        let collections: [MusicCollection]
+    }
+
+    @ViewBuilder
+    private func songsList(_ tracks: [Track], header: String, headerID: String?) -> some View {
+        if !tracks.isEmpty {
+            LazyVStack(alignment: .leading, spacing: 4) {
+                SectionHeader(title: header)
+                    .accessibilityIdentifier(headerID ?? "")
+                    .padding(.bottom, 12)
+                ForEach(tracks) { track in
+                    // A tapped result plays alone; Autoplay's radio for that song fills the queue, so a search
+                    // for one title is not followed by every other version of it.
+                    TrackRow(track: track, accessibilityMetadata: track.source == .youTubeMusic ? "Song" : "Song, \(track.source.title)",
+                             onSelect: {
+                        model.activateSearchSelection(.track(track), source: .result)
+                    }, searchOrigin: true)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func collectionsGrid(_ collections: [MusicCollection], header: String, headerID: String?, width: CGFloat) -> some View {
+        if !collections.isEmpty {
+            let size = min(204, max(120, (width - 54) / 2))
+            VStack(alignment: .leading, spacing: 16) {
+                SectionHeader(title: header)
+                    .accessibilityIdentifier(headerID ?? "")
+                if dynamicTypeSize.isAccessibilitySize {
+                    ForEach(collections) { collection in
+                        accessibleCollectionRow(collection)
+                    }
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: size), alignment: .top)], alignment: .leading, spacing: 22) {
+                        ForEach(collections) { collection in
+                            searchCollectionCard(collection, size: size)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -750,205 +754,5 @@ struct SearchView: View {
         let filter: SearchFilter
         let attempt: Int
         let isOffline: Bool
-    }
-}
-
-@MainActor
-private struct SearchRadioBrowseView: View {
-    @Environment(MusicAppModel.self) private var model
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var radioSetupExperience: RadioExperience?
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                radioHeader
-                if model.isOffline {
-                    Text("Radio needs a connection. You can still browse your library and cached songs from Search.")
-                        .appFont(.subheadline)
-                        .foregroundStyle(AppTheme.secondaryText)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                radioErrors
-                ForEach(RadioExperience.Group.allCases) { group in
-                    let stations = model.radioExperiences.filter { $0.group == group }
-                    if !stations.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(group.title)
-                                .appFont(.subheadline, weight: .semibold)
-                                .foregroundStyle(AppTheme.secondaryText)
-                                .accessibilityAddTraits(.isHeader)
-                                .accessibilityIdentifier("search.radio.group.\(group.rawValue)")
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .top), count: radioColumnCount),
-                                      spacing: 10) {
-                                ForEach(stations) { experience in
-                                    radioTile(experience)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 28)
-            .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
-            .frame(maxWidth: .infinity)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("search.radio")
-        }
-        .background(AppTheme.background)
-        .foregroundStyle(AppTheme.primaryText)
-        .tint(AppTheme.accent)
-        .navigationTitle("Radio")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .accessibilityIdentifier("search.radio.content")
-        .sheet(item: AppNavigationIntent.binding($radioSetupExperience, in: model, identity: { $0?.id })) { experience in
-            RadioSetupView(experience: experience, model: model)
-        }
-    }
-
-    private var radioColumnCount: Int {
-        if dynamicTypeSize.isAccessibilitySize { return 1 }
-        return AppLayout.isRegularWidth(horizontalSizeClass) ? 3 : 2
-    }
-
-    private var radioHeader: some View {
-        let active = model.activeRadioExperience
-        let isContinuing = active != nil && model.isContinuingRadio && !model.isLoadingRadio
-
-        return SectionHeader(title: "Find your radio")
-            .padding(.trailing, 56)
-            .frame(minHeight: 44)
-            .overlay(alignment: .trailing) {
-                if let active {
-                    Button {
-                        guard model.activeRadioExperience != nil else { return }
-                        model.isPlayerPresented = true
-                    } label: {
-                        ZStack {
-                            Image(systemName: "dot.radiowaves.left.and.right")
-                                .appFont(.title3)
-                                .opacity(isContinuing ? 0 : 1)
-                            if isContinuing {
-                                ProgressView()
-                                    .tint(AppTheme.accent)
-                                    .accessibilityIdentifier("search.station.progress.continuation")
-                            }
-                        }
-                        .frame(width: 24, height: 24)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(AppTheme.accent)
-                    .accessibilityLabel("Open \(active.radioTitle), \(model.activeRadioContentLabel ?? "radio")")
-                    .accessibilityValue(isContinuing ? "Loading more songs" : "")
-                    .accessibilityIdentifier("search.station.active")
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("search.radio.header")
-    }
-
-    @ViewBuilder
-    private var radioErrors: some View {
-        if let error = model.radioError, let selected = model.selectedRadioExperience {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Couldn’t start \(selected.radioTitle)")
-                    .appFont(.headline, weight: .semibold)
-                    .accessibilityIdentifier("search.station.error")
-                Text(error).appFont(.subheadline).foregroundStyle(AppTheme.secondaryText)
-                Button { model.retryRadio() } label: {
-                    Label("Try again", systemImage: "arrow.clockwise")
-                        .appFont(.subheadline, weight: .semibold)
-                        .frame(minWidth: 44, minHeight: 44)
-                }
-                .disabled(model.isOffline)
-                .accessibilityIdentifier("search.station.retry")
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-        }
-
-        if model.activeRadioExperience != nil, let error = model.radioContinuationError {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(error).appFont(.subheadline).foregroundStyle(AppTheme.secondaryText)
-                Button { model.retryRadioContinuation() } label: {
-                    Label("Try more songs", systemImage: "arrow.clockwise")
-                        .appFont(.subheadline, weight: .semibold)
-                        .frame(minWidth: 44, minHeight: 44)
-                }
-                .disabled(model.isOffline || model.isContinuingRadio)
-                .accessibilityIdentifier("search.station.retryContinuation")
-            }
-        }
-    }
-
-    private func radioTile(_ experience: RadioExperience) -> some View {
-        let isLoading = model.isLoadingRadio && model.selectedRadioExperience?.stationID == experience.stationID
-        let isActive = model.isActiveRadio(experience)
-        let selection = experience.selection(for: model.listeningLanguageProfile)
-        let color = experience.tone == .warm ? AppTheme.gold : AppTheme.violet
-        let contentLabel = selection.contentLabel
-        let copy = selection.description
-
-        return ZStack(alignment: .trailing) {
-            Button {
-                if model.isLoadingRadio && model.selectedRadioExperience?.stationID == experience.stationID {
-                    model.cancelPendingRadio()
-                } else {
-                    AppNavigationIntent.perform(in: model) { radioSetupExperience = experience }
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: experience.symbol)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(color)
-                        .frame(width: 22, height: 22)
-                    Text(experience.title)
-                        .appFont(.subheadline, weight: .semibold)
-                        .foregroundStyle(AppTheme.primaryText)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: isActive ? "waveform" : "play.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(color)
-                        .frame(width: 20, height: 20)
-                        .opacity(isLoading ? 0 : 1)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 10))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 10).strokeBorder(isActive ? color : .clear, lineWidth: 1)
-                }
-                .contentShape(RoundedRectangle(cornerRadius: 10))
-            }
-            .buttonStyle(.plain)
-            .disabled(model.isOffline && !isLoading)
-            .accessibilityLabel("\(experience.radioTitle). \(contentLabel). \(copy)")
-            .accessibilityValue(isLoading ? "Loading" : isActive ? "Current station" : "Play radio")
-            .accessibilityHint(isLoading ? "Tap again to cancel loading" : "Set radio preferences and optional artist hints")
-            .accessibilityAddTraits(isActive ? .isSelected : [])
-            .accessibilityIdentifier("search.station.\(experience.id)")
-
-            // The overlay occupies the reserved icon slot without merging its progress semantics into the button.
-            if isLoading {
-                ProgressView()
-                    .tint(color)
-                    .frame(width: 20, height: 20)
-                    .accessibilityLabel("Loading \(experience.radioTitle)")
-                    .accessibilityIdentifier("search.station.progress.\(experience.id)")
-                    .padding(.trailing, 12)
-                    .allowsHitTesting(false)
-            }
-        }
-        .accessibilityElement(children: .contain)
     }
 }

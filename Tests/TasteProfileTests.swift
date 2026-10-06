@@ -93,8 +93,10 @@ final class TasteProfileTests: XCTestCase {
         let artists = profile.topArtists(limit: 5)
         XCTAssertEqual(artists.map(\.name), ["Arijit Singh", "Shreya Ghoshal"])
         XCTAssertEqual(artists.map(\.id), ["UCarijit", "UCshreya"])
-        XCTAssertEqual(artists[0].weight, 350, accuracy: 1e-9)
-        XCTAssertEqual(artists[1].weight, 300, accuracy: 1e-9)
+        // Two plays of the duet today earn the weekly replay bonus for both of its artists.
+        let replay = TasteProfile.replayBonus(plays: 2)
+        XCTAssertEqual(artists[0].weight, 350 + replay, accuracy: 1e-9)
+        XCTAssertEqual(artists[1].weight, 300 + replay, accuracy: 1e-9)
         XCTAssertEqual(profile.topArtists(limit: 1).count, 1)
         XCTAssertTrue(profile.topArtists(limit: 0).isEmpty)
     }

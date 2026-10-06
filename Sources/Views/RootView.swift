@@ -11,6 +11,7 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     #endif
     @State private var keyboardHiding = KeyboardChromeHiding.nothing
+    @State private var showsYouTubeConnection = false
 
     var body: some View {
         @Bindable var model = model
@@ -19,9 +20,14 @@ struct RootView: View {
         ZStack {
             navigation
                 .accessibilityHidden(hidesNavigation)
+                .allowsHitTesting(!hidesNavigation)
 
             if !model.library.preferences.hasCompletedWelcome {
-                WelcomeView()
+                WelcomeView(onContinue: completeWelcome)
+                    .transition(.opacity)
+                    .zIndex(1)
+            } else if showsYouTubeConnection {
+                WelcomeYouTubeConnectionView { showsYouTubeConnection = false }
                     .transition(.opacity)
                     .zIndex(1)
             }
@@ -34,20 +40,37 @@ struct RootView: View {
         .preferredColorScheme(preferredColorScheme)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25),
                    value: model.library.preferences.hasCompletedWelcome)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: showsYouTubeConnection)
+        .overlay { HeartBurstOverlay(isActive: !model.isPlayerPresented) }
         .overlay(alignment: .top) { RootMessageBanner() }
         .fullScreenCover(isPresented: $model.isPlayerPresented) {
-            NowPlayingView()
+            // Mac Catalyst hosts this cover outside the window's environment, so it carries its own.
+            NowPlayingView(liveRadioFavorites: model.liveRadio.favorites)
+                .appPresentationEnvironment(model)
                 .preferredColorScheme(preferredColorScheme)
         }
         .sheet(isPresented: $model.isSettingsPresented) {
             NavigationStack {
                 SettingsView()
             }
+            .appPresentationEnvironment(model)
             .preferredColorScheme(preferredColorScheme)
             .appSheetChrome()
         }
+        .sheet(isPresented: $model.isNearbyDevicesPresented) {
+            if let nearby = model.nearbyDevices {
+                NearbyDevicesView(controller: nearby)
+                    .appPresentationEnvironment(model)
+                    .preferredColorScheme(preferredColorScheme)
+            }
+        }
+        .background { MacWindowChrome() }
         .accentColor(preferredColor)
         .tint(preferredColor)
+        .background { WindowTintBridge(color: UIColor(preferredColor)) }
+        .onChange(of: hidesNavigation, initial: true) { _, hidden in
+            model.setReleaseNotificationNavigationReady(!hidden)
+        }
         .task(id: model.toast) {
             guard let message = model.toast else { return }
             guard !model.library.requiresReload || message != model.library.errorMessage else { return }
@@ -122,7 +145,10 @@ struct RootView: View {
 
     @ViewBuilder
     private var navigation: some View {
-        if #available(iOS 26.0, *) {
+        if AppPlatform.isMacCatalyst {
+            // A Mac window shows the tabs as a sidebar; iPhone and iPad keep their tab bar.
+            nativeTabs.tabViewStyle(.sidebarAdaptable)
+        } else if #available(iOS 26.0, *) {
             nativeTabs.tabBarMinimizeBehavior(.never)
         } else {
             nativeTabs
@@ -133,7 +159,7 @@ struct RootView: View {
         TabView(selection: Binding(get: { model.selectedTab }, set: { model.selectTab($0) })) {
             Tab("Home", systemImage: "house", value: AppTab.home) {
                 NavigationStack(path: model.navigationPath(for: .home)) {
-                    HomeView().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0) }
+                    HomeView().miniPlayerClearanceProbe().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0).miniPlayerClearanceProbe() }
                 }
                 .modifier(MiniPlayerNavigationLayout(hidesPlayerForKeyboard: keyboardHiding.hidesMiniPlayer))
             }
@@ -141,7 +167,7 @@ struct RootView: View {
 
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search) {
                 NavigationStack(path: model.navigationPath(for: .search)) {
-                    SearchView().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0) }
+                    SearchView().miniPlayerClearanceProbe().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0).miniPlayerClearanceProbe() }
                 }
                 .modifier(MiniPlayerNavigationLayout(hidesPlayerForKeyboard: keyboardHiding.hidesMiniPlayer))
             }
@@ -149,18 +175,18 @@ struct RootView: View {
 
             Tab("Library", systemImage: "square.stack", value: AppTab.library) {
                 NavigationStack(path: model.navigationPath(for: .library)) {
-                    LibraryView().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0) }
+                    LibraryView().miniPlayerClearanceProbe().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0).miniPlayerClearanceProbe() }
                         .navigationDestination(item: widgetLibraryDestination) { kind in
-                            LibrarySavedSongsView(kind: kind).id(model.libraryRootGeneration)
+                            LibrarySavedSongsView(kind: kind).id(model.libraryRootGeneration).miniPlayerClearanceProbe()
                         }
                 }
                 .modifier(MiniPlayerNavigationLayout(hidesPlayerForKeyboard: keyboardHiding.hidesMiniPlayer))
             }
             .accessibilityIdentifier("tab.library")
 
-            Tab("Recap", systemImage: "chart.bar", value: AppTab.recap) {
+            Tab("Stats", systemImage: "chart.bar", value: AppTab.recap) {
                 NavigationStack(path: model.navigationPath(for: .recap)) {
-                    RecapView().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0) }
+                    RecapView().miniPlayerClearanceProbe().navigationDestination(for: MusicCollection.self) { CollectionDetailView(collection: $0).miniPlayerClearanceProbe() }
                 }
                 .modifier(MiniPlayerNavigationLayout(hidesPlayerForKeyboard: keyboardHiding.hidesMiniPlayer))
             }
@@ -179,10 +205,18 @@ struct RootView: View {
 
     private var hidesNavigation: Bool {
         #if DEBUG
-        !model.library.preferences.hasCompletedWelcome || model.isWidgetPreviewPresented
+        !model.library.preferences.hasCompletedWelcome || showsYouTubeConnection || model.isWidgetPreviewPresented
         #else
-        !model.library.preferences.hasCompletedWelcome
+        !model.library.preferences.hasCompletedWelcome || showsYouTubeConnection
         #endif
+    }
+
+    private func completeWelcome() {
+        guard !model.library.preferences.hasCompletedWelcome else { return }
+        model.updatePreferences { $0.hasCompletedWelcome = true }
+        guard model.library.preferences.hasCompletedWelcome else { return }
+        // Only this tap offers connection; restored or remotely applied welcome completion never prompts.
+        showsYouTubeConnection = model.account.session == nil && !model.account.isSignOutPending
     }
 
     private var widgetLibraryDestination: Binding<LibrarySavedSongsView.Kind?> {
@@ -195,57 +229,74 @@ struct RootView: View {
 private struct MiniPlayerNavigationLayout: ViewModifier {
     @Environment(MusicAppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var playerHeight: CGFloat = 0
     let hidesPlayerForKeyboard: Bool
-    @State private var showsCachedSongs = false
 
     func body(content: Content) -> some View {
-        // Reserve the player's intrinsic height in the stack's viewport, including direct NavigationLink destinations.
         VStack(spacing: 0) {
-            if model.isOffline { offlineBar }
-            content.frame(maxWidth: .infinity, maxHeight: .infinity)
-            player
-        }
-        .sheet(isPresented: AppNavigationIntent.binding($showsCachedSongs, in: model)) {
-            NavigationStack {
-                CachedSongsView()
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            AppSheetDoneButton(id: "cachedSongs.done") { showsCachedSongs = false }
-                        }
-                    }
+            if model.isOffline {
+                if model.isCachedSongsScreenVisible || model.isOnThisDeviceScreenVisible { offlineStatus } else { offlineBar }
             }
-            .appSheetChrome()
+            // The capsule floats over the stack so content scrolls beneath its glass; the stack's navigation controller
+            // reserves the height (`miniPlayerClearanceProbe`), because pushed pages ignore a SwiftUI inset placed here.
+            content
+                .environment(\.miniPlayerClearance, playerHeight)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .bottom) {
+                    VStack(spacing: 0) { player }
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { playerHeight = $0 }
+                }
         }
+    }
+
+    /// The bar keeps its height while a local-songs page is open, so pushing that page does not shift the stack.
+    private var offlineStatus: some View {
+        offlineBarContent(showsAction: false)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("You’re offline")
+            .accessibilityIdentifier("offline.status")
     }
 
     private var offlineBar: some View {
         Button {
-            AppNavigationIntent.perform(in: model) { showsCachedSongs = true }
+            model.openOnThisDevice()
         } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "wifi.slash")
-                Text("You’re offline").appFont(.subheadline, weight: .semibold)
-                Spacer(minLength: 8)
-                Text("Cached songs").appFont(.subheadline)
-                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-            }
-            .foregroundStyle(AppTheme.primaryText)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 8)
-            .frame(minHeight: 44)
-            .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
-            .frame(maxWidth: .infinity)
-            .background(AppTheme.raised)
-            .contentShape(Rectangle())
+            offlineBarContent(showsAction: true)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("You’re offline. Open cached songs")
-        .accessibilityIdentifier("offline.cachedSongs")
+        .accessibilityLabel("You’re offline. Open songs on this device")
+        .accessibilityIdentifier("offline.onThisDevice")
+    }
+
+    private func offlineBarContent(showsAction: Bool) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "wifi.slash")
+            Text("You’re offline").appFont(.subheadline, weight: .semibold)
+            Spacer(minLength: 8)
+            if showsAction {
+                Text("On This Device").appFont(.subheadline)
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+            }
+        }
+        .foregroundStyle(AppTheme.primaryText)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .frame(minHeight: 44)
+        .frame(maxWidth: AppLayout.contentMaxWidth(for: horizontalSizeClass))
+        .frame(maxWidth: .infinity)
+        .background(AppTheme.raised)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
     private var player: some View {
-        if let track = model.player.currentTrack, !hidesPlayerForKeyboard {
+        if model.player.isLiveRadio, !hidesPlayerForKeyboard {
+            LiveRadioMiniPlayer(player: model.player) { model.isPlayerPresented = true }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: AppLayout.floatingMaxWidth(for: horizontalSizeClass))
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+        } else if let track = model.player.currentTrack, !hidesPlayerForKeyboard {
             MiniPlayer(track: track)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: AppLayout.floatingMaxWidth(for: horizontalSizeClass))
@@ -301,17 +352,11 @@ private struct MiniPlayer: View {
                 if model.player.errorMessage != nil { model.player.retry() }
                 else { model.player.togglePlayback() }
             } label: {
-                ZStack {
-                    Image(systemName: model.player.errorMessage != nil ? "arrow.clockwise" : playbackActive ? "pause.fill" : "play.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .opacity(model.player.isLoading ? 0 : 1)
-                    ProgressView()
-                        .tint(AppTheme.primaryText)
-                        .opacity(model.player.isLoading ? 1 : 0)
-                        .accessibilityHidden(true)
-                }
-                .frame(width: 52, height: 52)
-                .contentShape(Rectangle())
+                PlaybackControlGlyph(symbol: model.player.errorMessage != nil ? "arrow.clockwise" : playbackActive ? "pause.fill" : "play.fill",
+                                     isLoading: model.player.isLoading, font: .system(size: 20, weight: .semibold),
+                                     arcDiameter: 38, arcLineWidth: 2, arcColor: AppTheme.primaryText)
+                    .frame(width: 52, height: 52)
+                    .contentShape(Rectangle())
             }
             .accessibilityLabel(model.player.errorMessage != nil ? "Retry playback" : playbackActive ? "Pause" : "Play")
             .accessibilityValue(model.player.errorMessage ?? (model.player.isLoading ? "Loading" : ""))
@@ -376,6 +421,7 @@ private struct MiniPlayer: View {
 @MainActor
 private struct WelcomeView: View {
     @Environment(MusicAppModel.self) private var model
+    let onContinue: () -> Void
 
     var body: some View {
         GeometryReader { geometry in
@@ -384,7 +430,7 @@ private struct WelcomeView: View {
                     HStack(spacing: 9) {
                         Image(AppIcons.primary.previewImageName).resizable().frame(width: 34, height: 34)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
-                        Text("Breezy")
+                        Text("Velvet Thorn")
                             .foregroundStyle(AppTheme.primaryText)
                     }
                     .appFont(.title2, weight: .bold, design: .rounded)
@@ -395,7 +441,7 @@ private struct WelcomeView: View {
                             .appFont(.largeTitle, weight: .bold, design: .rounded)
                             .foregroundStyle(AppTheme.primaryText)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("Play music you love. Breezy learns your listening languages along the way.")
+                        Text("Play music you love. Velvet Thorn learns your listening languages along the way.")
                             .appFont(.body)
                             .foregroundStyle(AppTheme.secondaryText)
                     }
@@ -410,11 +456,9 @@ private struct WelcomeView: View {
                             }
                         }
 
-                        Button {
-                            model.updatePreferences { $0.hasCompletedWelcome = true }
-                        } label: {
+                        Button(action: onContinue) {
                             HStack {
-                                Text("Start listening")
+                                Text("Start Listening")
                                 Spacer()
                                 Image(systemName: "arrow.right")
                             }
@@ -425,7 +469,7 @@ private struct WelcomeView: View {
                             .background(AppTheme.accent, in: Capsule())
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Start listening")
+                        .accessibilityLabel("Start Listening")
                         .accessibilityIdentifier("welcome.continue")
                     }
                     .padding(.bottom, 28)
@@ -449,6 +493,71 @@ private struct WelcomeView: View {
 }
 
 @MainActor
+private struct WelcomeYouTubeConnectionView: View {
+    @Environment(MusicAppModel.self) private var model
+    @State private var isSigningIn = false
+    let onFinish: () -> Void
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Text("Connect YouTube")
+                        .appFont(.largeTitle, weight: .bold, design: .rounded)
+                        .foregroundStyle(AppTheme.primaryText)
+                        .accessibilityAddTraits(.isHeader)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Optional. Bring your YouTube Music library to Velvet Thorn.")
+                            .appFont(.body)
+                        Text(YouTubeConnectionCopy.importExplanation)
+                        Text(YouTubeConnectionCopy.playbackExplanation)
+                        Text("You can connect later in Settings > Account & Connection. After signing in, open Import from YouTube Music there to choose what to copy.")
+                    }
+                    .appFont(.footnote)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    VStack(spacing: 8) {
+                        Button {
+                            AppNavigationIntent.perform(in: model) { isSigningIn = true }
+                        } label: {
+                            Text("Connect YouTube")
+                                .appFont(.headline, weight: .semibold)
+                                .foregroundStyle(AppTheme.onAccent)
+                                .frame(maxWidth: .infinity, minHeight: 56)
+                                .background(AppTheme.accent, in: Capsule())
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("welcome.youtube.connect")
+                        Button(action: onFinish) {
+                            Text("Not Now")
+                                .appFont(.body, weight: .semibold)
+                                .foregroundStyle(AppTheme.primaryText)
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("welcome.youtube.notNow")
+                    }
+                }
+                .padding(28)
+                .frame(maxWidth: 560)
+                .frame(minHeight: geometry.size.height.isFinite ? max(0, geometry.size.height) : 0, alignment: .center)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .background(AppTheme.background.ignoresSafeArea())
+        .accessibilityIdentifier("welcome.youtube.screen")
+        .sheet(isPresented: AppNavigationIntent.binding($isSigningIn, in: model), onDismiss: onFinish) {
+            YouTubeSignInView()
+                .appPresentationEnvironment(model)
+                .appSheetChrome()
+        }
+    }
+}
+
+@MainActor
 struct RootMessageBanner: View {
     @Environment(MusicAppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -457,6 +566,12 @@ struct RootMessageBanner: View {
         if let message = model.toast {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 12) {
+                    if let symbol = model.delights.toastSymbol(for: message) {
+                        Image(systemName: symbol)
+                            .appFont(.subheadline, weight: .semibold)
+                            .foregroundStyle(AppTheme.accent)
+                            .accessibilityHidden(true)
+                    }
                     Text(message)
                         .appFont(.subheadline)
                         .lineLimit(3)
@@ -508,7 +623,7 @@ struct LibraryReloadButton: View {
 
     var body: some View {
         Button { model.reloadSavedLibrary() } label: {
-            Label("Reload saved library", systemImage: "arrow.clockwise")
+            Label("Reload Saved Library", systemImage: "arrow.clockwise")
                 .appFont(.subheadline, weight: .semibold)
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
@@ -522,6 +637,7 @@ struct LibraryReloadButton: View {
 @MainActor
 private enum PlaybackFailureFeedback {
     static func message(for player: PlayerController) -> String? {
+        if player.isLiveRadio { return player.errorMessage }
         guard let track = player.currentTrack, let error = player.errorMessage else { return nil }
         return "Couldn’t play \(track.title). \(error)"
     }

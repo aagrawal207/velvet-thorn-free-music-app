@@ -20,7 +20,7 @@ final class GanaBajanaICloudSettingsUITests: XCTestCase {
         XCTAssertFalse(ui.app.buttons["settings.icloud.syncNow"].exists)
         XCTAssertTrue(ui.app.staticTexts["settings.icloud.status"].label.contains("off"))
         ui.capture("icloud-settings-disabled-local-library-kept")
-        try ui.tap(ui.app.navigationBars["iCloud sync"].buttons.firstMatch)
+        try ui.tap(ui.app.navigationBars["iCloud Sync"].buttons.firstMatch)
         try expectSummary(ui, isOn: false)
         ui.capture("icloud-summary-disabled")
 
@@ -28,7 +28,7 @@ final class GanaBajanaICloudSettingsUITests: XCTestCase {
         try openSync(ui, expectingEnabled: false)
         try ui.expectSwitch("settings.icloud.enabled", isOn: false)
         XCTAssertFalse(ui.app.buttons["settings.icloud.syncNow"].exists)
-        try ui.tap(ui.app.navigationBars["iCloud sync"].buttons.firstMatch)
+        try ui.tap(ui.app.navigationBars["iCloud Sync"].buttons.firstMatch)
         try ui.tap(ui.app.buttons["settings.done"])
         try ui.selectTab("library")
         try ui.openPlaylist(named: AppUIFixture.seededPlaylist)
@@ -45,7 +45,7 @@ final class GanaBajanaICloudSettingsUITests: XCTestCase {
         try openSync(ui, expectingEnabled: false)
         try ui.expectSwitch("settings.icloud.enabled", isOn: false)
         try ui.setSwitch("settings.icloud.enabled", to: true)
-        try ui.tap(ui.app.navigationBars["iCloud sync"].buttons.firstMatch)
+        try ui.tap(ui.app.navigationBars["iCloud Sync"].buttons.firstMatch)
         try expectSummary(ui, isOn: true)
         ui.capture("icloud-summary-enabled-waiting-light")
 
@@ -67,10 +67,11 @@ final class GanaBajanaICloudSettingsUITests: XCTestCase {
         try ui.openSettings()
         try expectSummary(ui, isOn: expectingEnabled)
         try ui.tap(ui.app.buttons["settings.icloud"])
-        try ui.wait("The iCloud sync settings must open") { ui.app.navigationBars["iCloud sync"].exists }
+        try ui.wait("The iCloud sync settings must open") { ui.app.navigationBars["iCloud Sync"].exists }
     }
 
     private func expectSummary(_ ui: AppUITestDriver, isOn: Bool) throws {
+        try ui.openSettingsPage(.library)
         let row = ui.app.buttons["settings.icloud"]
         try ui.reveal(row, maxSwipes: 20)
         try ui.wait("The iCloud row must expose the preference separately from activity") {
@@ -78,7 +79,7 @@ final class GanaBajanaICloudSettingsUITests: XCTestCase {
             return value.hasPrefix(isOn ? "On. Status:" : "Off. Status:")
                 && value.contains(isOn ? "Waiting to sync with iCloud" : "off")
         }
-        XCTAssertEqual(row.label, "iCloud sync")
+        XCTAssertEqual(row.label, "iCloud Sync")
         XCTAssertGreaterThanOrEqual(row.frame.height + 1e-6, 44)
     }
 }

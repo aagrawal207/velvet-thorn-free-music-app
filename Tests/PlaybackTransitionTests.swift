@@ -286,7 +286,7 @@ final class PlaybackTransitionTests: XCTestCase {
 
     // MARK: - Normalization
 
-    func testNormalizationAttenuatesLoudTracksOnlyAndFollowsTheSetting() async throws {
+    func testNormalizationRequestsAttenuationAndGainUpAndFollowsTheSetting() async throws {
         let loud = Track(id: "transition-loud", title: "Loud")
         let quiet = Track(id: "transition-quiet", title: "Quiet")
         let resolver = try fixtures([(loud, 3, 6), (quiet, 4, -3)])
@@ -304,7 +304,7 @@ final class PlaybackTransitionTests: XCTestCase {
         player.apply(changed)
         XCTAssertEqual(player.normalizationGain, 0.501, accuracy: 0.002)
         try await PlaybackTestSupport.waitUntil(timeout: 6) { player.currentTrack == quiet && player.isPlaying }
-        XCTAssertEqual(player.normalizationGain, 1, "Negative loudness is never boosted")
+        XCTAssertEqual(player.normalizationGain, 1.412_538, accuracy: 0.000_001, "Quiet tracks request gain-up through the shared tap")
         player.play([loud])
         try await PlaybackTestSupport.waitUntil { player.isPlaying }
         XCTAssertEqual(player.normalizationGain, 0.501, accuracy: 0.002)
@@ -313,7 +313,7 @@ final class PlaybackTransitionTests: XCTestCase {
     func testNormalizationGainFormula() {
         XCTAssertEqual(PlaybackNormalization.gain(loudnessDb: 6, enabled: true), 0.501, accuracy: 0.001)
         XCTAssertEqual(PlaybackNormalization.gain(loudnessDb: 20, enabled: true), 0.1, accuracy: 0.0001)
-        XCTAssertEqual(PlaybackNormalization.gain(loudnessDb: -3, enabled: true), 1)
+        XCTAssertEqual(PlaybackNormalization.gain(loudnessDb: -3, enabled: true), 1.412_538, accuracy: 0.000_001)
         XCTAssertEqual(PlaybackNormalization.gain(loudnessDb: 0, enabled: true), 1)
         XCTAssertEqual(PlaybackNormalization.gain(loudnessDb: nil, enabled: true), 1)
         XCTAssertEqual(PlaybackNormalization.gain(loudnessDb: .nan, enabled: true), 1)

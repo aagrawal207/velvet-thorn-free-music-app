@@ -160,7 +160,7 @@ final class CarPlaySessionController: NSObject, CPInterfaceControllerDelegate, C
     private func showRootFailure(_ message: String) {
         log.error("event=root_template_failed")
         let connected = connection
-        let fallback = makeList(location: "root", title: "Breezy")
+        let fallback = makeList(location: "root", title: "Velvet Thorn")
         lists.error(on: fallback, title: "Couldn’t open CarPlay", message: message) { [weak self, weak fallback] in
             guard let self, self.isCurrent(connected), let fallback, self.rootTemplate === fallback,
                   self.isVisible(fallback), !self.navigator.isChangingTemplates else { return }
@@ -204,12 +204,12 @@ final class CarPlaySessionController: NSObject, CPInterfaceControllerDelegate, C
     private func load(_ list: CPListTemplate) {
         guard let context = context(for: list) else { return }
         guard let playback = currentPlayback() else {
-            showBrowseError(on: list, title: "Breezy isn’t ready",
+            showBrowseError(on: list, title: "Velvet Thorn isn’t ready",
                             message: "The shared player isn’t available yet. Choose Retry to check again.")
             return
         }
         let request = CompanionRequest(action: .browse(context.location))
-        let response = playback.handle(request)
+        let response = playback.handle(request, origin: .carPlay)
         receive(response.snapshot)
         guard response.id == request.id, response.accepted, let page = response.page, page.location == context.location else {
             if showLibraryFailure(response, on: list) { return }
@@ -240,7 +240,7 @@ final class CarPlaySessionController: NSObject, CPInterfaceControllerDelegate, C
         guard isVisible(list), let context = context(for: list), context.page?.revision == revision else { return }
         beginIntent()
         guard let playback = currentPlayback() else {
-            showBrowseError(on: list, title: "Breezy isn’t ready", message: "The shared player isn’t available. Choose Retry.")
+            showBrowseError(on: list, title: "Velvet Thorn isn’t ready", message: "The shared player isn’t available. Choose Retry.")
             return
         }
         guard playback.snapshot.sessionID == sessionID else {
@@ -253,7 +253,7 @@ final class CarPlaySessionController: NSObject, CPInterfaceControllerDelegate, C
             load(next)
         } else {
             let request = CompanionRequest(action: .playItem(location: context.location, itemID: item.id, revision: revision))
-            let response = playback.handle(request)
+            let response = playback.handle(request, origin: .carPlay)
             receive(response.snapshot)
             guard response.id == request.id, response.accepted else {
                 if showLibraryFailure(response, on: list) { return }
@@ -321,17 +321,18 @@ final class CarPlaySessionController: NSObject, CPInterfaceControllerDelegate, C
             return
         }
         if let expectedState {
-            let current = playback.handle(CompanionRequest(action: .snapshot)).snapshot
+            let current = playback.handle(CompanionRequest(action: .snapshot), origin: .carPlay).snapshot
             receive(current)
             guard let actual = current.nowPlaying, actual.trackID == expectedState.trackID else { return }
             switch request.action {
             case .setFavorite where actual.isFavorite != expectedState.isFavorite: return
+            case .setSuperLiked where actual.isSuperLiked != expectedState.isSuperLiked: return
             case .setShuffle where actual.shuffleEnabled != expectedState.shuffleEnabled: return
             case .setRepeatMode where actual.repeatMode != expectedState.repeatMode: return
             default: break
             }
         }
-        let response = playback.handle(request)
+        let response = playback.handle(request, origin: .carPlay)
         receive(response.snapshot)
         guard response.id == request.id, response.accepted else {
             if let expected = request.expectedTrackID, expected != response.snapshot.nowPlaying?.trackID { return }
@@ -397,7 +398,8 @@ final class CarPlaySessionController: NSObject, CPInterfaceControllerDelegate, C
         let old = previous?.nowPlaying
         let new = snapshot.nowPlaying
         if visibleList != nil || old == new || old?.trackID != new?.trackID || old?.isFavorite != new?.isFavorite
-            || old?.shuffleEnabled != new?.shuffleEnabled || old?.errorMessage != new?.errorMessage {
+            || old?.isSuperLiked != new?.isSuperLiked || old?.shuffleEnabled != new?.shuffleEnabled
+            || old?.errorMessage != new?.errorMessage {
             scheduleRefresh()
         }
     }
@@ -416,7 +418,7 @@ final class CarPlaySessionController: NSObject, CPInterfaceControllerDelegate, C
     private func presentPlaybackFailureIfNeeded() {
         guard playbackAttempt != nil || interface.topTemplate === CPNowPlayingTemplate.shared,
               let playback = currentPlayback() else { return }
-        let current = playback.handle(CompanionRequest(action: .snapshot)).snapshot
+        let current = playback.handle(CompanionRequest(action: .snapshot), origin: .carPlay).snapshot
         receive(current)
         if playbackAttempt == nil, interface.topTemplate === CPNowPlayingTemplate.shared { recordPlaybackAttempt(current) }
         // Library recovery belongs on the phone; only the bridge's playback error can offer a playback retry.

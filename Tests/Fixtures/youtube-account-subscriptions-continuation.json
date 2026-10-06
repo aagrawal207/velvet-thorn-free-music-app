@@ -1,0 +1,25 @@
+{
+  "responseContext": {"visitorData": "CgtmaXh0dXJlLXZpc2l0b3I%3D"},
+  "continuationContents": {
+    "musicShelfContinuation": {
+      "contents": [
+        {"musicResponsiveListItemRenderer": {
+          "flexColumns": [
+            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "The Weeknd"}]}}},
+            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "38.1M subscribers"}]}}}
+          ],
+          "navigationEndpoint": {"browseEndpoint": {"browseId": "UC0WP5P-ufpRfjbNrmOWwLBQ",
+            "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}
+        }},
+        {"musicResponsiveListItemRenderer": {
+          "flexColumns": [
+            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "Arijit Singh"}]}}},
+            {"musicResponsiveListItemFlexColumnRenderer": {"text": {"runs": [{"text": "26.4M subscribers"}]}}}
+          ],
+          "navigationEndpoint": {"browseEndpoint": {"browseId": "UCDxKh1gFWeYsqePvgVzmPoQ",
+            "browseEndpointContextSupportedConfigs": {"browseEndpointContextMusicConfig": {"pageType": "MUSIC_PAGE_TYPE_ARTIST"}}}}
+        }}
+      ]
+    }
+  }
+}

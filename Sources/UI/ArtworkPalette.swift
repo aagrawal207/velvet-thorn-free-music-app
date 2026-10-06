@@ -218,11 +218,11 @@ struct ArtworkBackdropStyle: Equatable {
             scrimStops = [(0, 0), (0, 1)]
             return
         }
+        baseStops = Self.baseTargets(dark: dark).map {
+            Stop(color: palette.tint($0.usesSecondary ? palette.secondary : palette.primary, luminance: $0.luminance,
+                                     saturation: $0.saturation), location: $0.location)
+        }
         if dark {
-            // Lock-screen balance: a brighter tinted top fading to a deep tone behind the controls.
-            baseStops = [Stop(color: palette.tint(palette.primary, luminance: 0.12, saturation: 0.45...0.85), location: 0),
-                         Stop(color: palette.tint(palette.secondary, luminance: 0.07, saturation: 0.4...0.8), location: 0.5),
-                         Stop(color: palette.tint(palette.primary, luminance: 0.025, saturation: 0.35...0.75), location: 1)]
             artworkOpacity = 0.3
             artworkSaturation = 1.6
             artworkBlend = .screen
@@ -231,9 +231,6 @@ struct ArtworkBackdropStyle: Equatable {
             let boost = min(0.4, max(0, palette.averageLuminance - 0.2))
             scrimStops = [(max(0.28, 0.08 + boost), 0), (0.28 + boost, 0.45), (0.66 + boost * 0.5, 1)]
         } else {
-            baseStops = [Stop(color: palette.tint(palette.primary, luminance: 0.86, saturation: 0.16...0.32), location: 0),
-                         Stop(color: palette.tint(palette.secondary, luminance: 0.82, saturation: 0.14...0.3), location: 0.5),
-                         Stop(color: palette.tint(palette.primary, luminance: 0.76, saturation: 0.12...0.28), location: 1)]
             artworkOpacity = 0.3
             artworkSaturation = 1.3
             artworkBlend = .multiply
@@ -241,6 +238,26 @@ struct ArtworkBackdropStyle: Equatable {
             let boost = min(0.35, max(0, (0.4 - palette.averageLuminance) * 0.9))
             scrimStops = [(0.3 + boost, 0), (0.45 + boost, 0.5), (0.62 + boost * 0.5, 1)]
         }
+    }
+
+    struct BaseTarget: Equatable {
+        let usesSecondary: Bool
+        let luminance: Double
+        let saturation: ClosedRange<Double>
+        let location: Double
+    }
+
+    /// Base gradient recipe, top to bottom. The animated player backdrop tints its mesh rows to the same stops.
+    static func baseTargets(dark: Bool) -> [BaseTarget] {
+        if dark {
+            // Lock-screen balance: a brighter tinted top fading to a deep tone behind the controls.
+            return [BaseTarget(usesSecondary: false, luminance: 0.12, saturation: 0.45...0.85, location: 0),
+                    BaseTarget(usesSecondary: true, luminance: 0.07, saturation: 0.4...0.8, location: 0.5),
+                    BaseTarget(usesSecondary: false, luminance: 0.025, saturation: 0.35...0.75, location: 1)]
+        }
+        return [BaseTarget(usesSecondary: false, luminance: 0.86, saturation: 0.16...0.32, location: 0),
+                BaseTarget(usesSecondary: true, luminance: 0.82, saturation: 0.14...0.3, location: 0.5),
+                BaseTarget(usesSecondary: false, luminance: 0.76, saturation: 0.12...0.28, location: 1)]
     }
 
     static func == (lhs: ArtworkBackdropStyle, rhs: ArtworkBackdropStyle) -> Bool {

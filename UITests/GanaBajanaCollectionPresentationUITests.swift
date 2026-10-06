@@ -38,7 +38,7 @@ final class GanaBajanaCollectionPresentationUITests: XCTestCase {
     func testMixShowsEachLengthAndOneFooterSummary() throws {
         let ui = makeDriver()
         try ui.launch(additionalArguments: ["--light", "--artwork-fixture"])
-        let recentMix = ui.app.buttons["Recently played, see all"]
+        let recentMix = ui.app.buttons["Recently Played, see all"]
         try ui.reveal(recentMix)
         try ui.tap(recentMix)
         try ui.wait("Recently played must open its mix collection") {

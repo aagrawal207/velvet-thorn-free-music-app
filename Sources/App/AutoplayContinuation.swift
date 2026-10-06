@@ -25,10 +25,12 @@ enum AutoplayContinuation {
     }
 
     /// The listener's most recently played queue song other than the ending one, else the nearest earlier song.
-    /// Autoplay's own additions seed only when nothing the listener chose remains.
+    /// Autoplay's own additions seed only when nothing the listener chose remains; resting songs never seed.
     static func fallbackSeed(queue: [Track], after last: Track, recentIDs: [String], autoplayIDs: Set<String>,
-                             disliked: Set<String>) -> Track? {
-        let candidates = queue.filter { $0.id != last.id && !disliked.contains($0.id) && $0.isAudioRecording != false }
+                             disliked: Set<String>, resting: RestingSongs = RestingSongs()) -> Track? {
+        let candidates = queue.filter {
+            $0.id != last.id && !disliked.contains($0.id) && $0.isAudioRecording != false && !resting.contains($0)
+        }
         let chosen = candidates.filter { !autoplayIDs.contains($0.id) }
         let pool = chosen.isEmpty ? candidates : chosen
         let ids = Set(pool.map(\.id))

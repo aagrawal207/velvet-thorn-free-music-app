@@ -310,6 +310,7 @@ final class LibraryPersistenceTests: XCTestCase {
             try withLibraryTestDirectory { directory in
                 let track = libraryTestTrack()
                 var document = LibraryDocument()
+                document.version = 1
                 document.favorites = [track]
                 document.events = [ListeningEvent(
                     id: UUID(), track: track, startedAt: Date().addingTimeInterval(-3600), listenedSeconds: 45
@@ -320,7 +321,7 @@ final class LibraryPersistenceTests: XCTestCase {
                 document.preferences.saveListeningHistory = false
                 document.preferences.allowRemoteFallback = true
                 document.playback = PlaybackSnapshot(queue: [track], position: 12.75, shuffleEnabled: true)
-                var json = try XCTUnwrap(JSONSerialization.jsonObject(with: LibraryPersistence.encode(document)) as? [String: Any])
+                var json = try XCTUnwrap(JSONSerialization.jsonObject(with: LibrarySyncTestData.legacyDocumentBytes(document)) as? [String: Any])
                 var preferences = try XCTUnwrap(json["preferences"] as? [String: Any])
                 preferences.removeValue(forKey: "useEncryptedDNS")
                 json["preferences"] = preferences
@@ -340,6 +341,8 @@ final class LibraryPersistenceTests: XCTestCase {
                 XCTAssertEqual(store.playback.position, 12.75)
                 XCTAssertTrue(store.playback.shuffleEnabled)
                 XCTAssertEqual(store.events.first?.listenedSeconds, 45)
+                XCTAssertEqual(store.lifetimeListeningSummary.seconds, 45)
+                XCTAssertEqual(store.lifetimeListeningSummary.plays, 1)
                 store.updatePlayback(store.playback)
                 let unchangedPreferences = store.preferences
                 store.preferences = unchangedPreferences
@@ -353,6 +356,9 @@ final class LibraryPersistenceTests: XCTestCase {
                 XCTAssertEqual(restored.preferences.appearance, .light)
                 XCTAssertEqual(restored.favorites, [track])
                 XCTAssertEqual(restored.events.first?.listenedSeconds, 45)
+                XCTAssertEqual(restored.lifetimeListeningSummary, store.lifetimeListeningSummary)
+                XCTAssertEqual(try JSONDecoder().decode(LibraryPersistence.VersionHeader.self, from: Data(contentsOf: url)).version,
+                               LibraryPersistence.currentVersion)
                 XCTAssertNil(restored.playback.originalQueue)
             }
         }
@@ -372,6 +378,78 @@ final class LibraryPersistenceTests: XCTestCase {
             XCTAssertNotNil(store.errorMessage)
             store.toggleFavorite(libraryTestTrack())
             XCTAssertEqual(try Data(contentsOf: url), data)
+        }
+    }
+
+    @MainActor
+    func testPlayerQualityEqualizerAndSourcePreferencesDefaultWhenAbsentOrUnreadableWithoutBlockingTheLibrary() async throws {
+        let decode = { (json: String) in try LibrarySyncCodec.decode(UserPreferences.self, from: Data(json.utf8)) }
+        XCTAssertEqual(try decode("{}"), UserPreferences())
+        let nulls = #"{"trailingTimeStyle":null,"audioQuality":null,"equalizer":null,"downloadsOverCellular":null,"#
+            + #""autoDownloadLikedSongs":null,"enabledCatalogSources":null,"sponsorBlockSkipping":null}"#
+        XCTAssertEqual(try decode(nulls), UserPreferences())
+        let unreadable = #"{"trailingTimeStyle":"future-style","audioQuality":7,"equalizer":true,"downloadsOverCellular":"yes","#
+            + #""autoDownloadLikedSongs":1,"enabledCatalogSources":"gaana","sponsorBlockSkipping":[true]}"#
+        XCTAssertEqual(try decode(unreadable), UserPreferences(), "Unlike older choices, these never block the file")
+
+        let valid = #"{"trailingTimeStyle":"remaining","audioQuality":"dataSaver","#
+            + #""equalizer":{"isEnabled":true,"preset":"jazz","gains":[1,2,3,4,5,6,7,8,9,10],"preamp":-2.5},"#
+            + #""downloadsOverCellular":true,"autoDownloadLikedSongs":true,"enabledCatalogSources":["gaana","youtube"],"sponsorBlockSkipping":true}"#
+        let decoded = try decode(valid)
+        XCTAssertEqual(decoded.trailingTimeStyle, .remaining)
+        XCTAssertEqual(decoded.audioQuality, .dataSaver)
+        XCTAssertEqual(decoded.equalizer, EqualizerSettings(isEnabled: true, preset: .jazz, gains: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], preamp: -2.5))
+        XCTAssertTrue(decoded.downloadsOverCellular)
+        XCTAssertTrue(decoded.autoDownloadLikedSongs)
+        XCTAssertEqual(decoded.enabledCatalogSources, [.gaana, .youTubeMusic])
+        XCTAssertTrue(decoded.sponsorBlockSkipping)
+
+        let clamped = try decode(#"{"equalizer":{"isEnabled":"true","preset":"future-preset","gains":[99,-99,3],"preamp":40}}"#).equalizer
+        XCTAssertFalse(clamped.isEnabled)
+        XCTAssertEqual(clamped.preset, .flat)
+        XCTAssertEqual(clamped.gains, [12, -12, 3, 0, 0, 0, 0, 0, 0, 0], "Gains clamp into range and pad to ten bands")
+        XCTAssertEqual(clamped.preamp, 12)
+        XCTAssertEqual(try decode(#"{"equalizer":{"gains":[1,2,3,4,5,6,7,8,9,10,11,12],"preamp":-40}}"#).equalizer,
+                       EqualizerSettings(gains: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], preamp: -12))
+        XCTAssertEqual(try decode(#"{"equalizer":{"gains":"loud","preamp":"quiet","isEnabled":null}}"#).equalizer, EqualizerSettings())
+        XCTAssertEqual(try decode(#"{"equalizer":{}}"#).equalizer, EqualizerSettings())
+
+        XCTAssertEqual(try decode(#"{"enabledCatalogSources":["spotify","saavn","youtube","saavn"]}"#).enabledCatalogSources,
+                       [.jioSaavn, .youTubeMusic, .jioSaavn], "Unknown sources drop; order and repeats are kept as stored")
+        XCTAssertEqual(try decode(#"{"enabledCatalogSources":[]}"#).enabledCatalogSources, [])
+        XCTAssertEqual(try decode(#"{"enabledCatalogSources":["nothing-known"]}"#).enabledCatalogSources, [])
+        XCTAssertEqual(try decode(#"{"enabledCatalogSources":["gaana",1]}"#).enabledCatalogSources, MusicSource.allCases)
+
+        try withLibraryTestDirectory { directory in
+            var json = try XCTUnwrap(JSONSerialization.jsonObject(with: LibraryPersistence.encode(LibraryDocument())) as? [String: Any])
+            var preferences = try XCTUnwrap(json["preferences"] as? [String: Any])
+            preferences["audioQuality"] = "lossless"
+            preferences["equalizer"] = ["preset": "hyper", "gains": Array(repeating: 99, count: 11)]
+            preferences.removeValue(forKey: "trailingTimeStyle")
+            preferences.removeValue(forKey: "enabledCatalogSources")
+            json["preferences"] = preferences
+            let data = try JSONSerialization.data(withJSONObject: json, options: .sortedKeys)
+            let url = directory.appendingPathComponent(LibraryPersistence.fileName)
+            try LibraryPersistence.write(data, to: url, replacing: nil)
+            let store = LibraryStore(directory: directory)
+            XCTAssertNil(store.errorMessage)
+            XCTAssertFalse(store.requiresReload)
+            XCTAssertEqual(store.preferences.audioQuality, .best)
+            XCTAssertEqual(store.preferences.trailingTimeStyle, .songLength)
+            XCTAssertEqual(store.preferences.enabledCatalogSources, MusicSource.allCases)
+            XCTAssertEqual(store.preferences.equalizer, EqualizerSettings(gains: Array(repeating: 12, count: 10)))
+            let unchanged = store.preferences
+            store.preferences = unchanged
+            XCTAssertEqual(try Data(contentsOf: url), data, "Reading unreadable optional preferences needs no rewrite")
+
+            store.preferences.trailingTimeStyle = .remaining
+            XCTAssertNil(store.errorMessage)
+            let restored = LibraryStore(directory: directory)
+            XCTAssertNil(restored.errorMessage)
+            XCTAssertEqual(restored.preferences, store.preferences)
+            XCTAssertEqual(restored.preferences.trailingTimeStyle, .remaining)
+            XCTAssertEqual(restored.preferences.equalizer.gains, Array(repeating: 12, count: 10))
+            XCTAssertEqual(restored.preferences.audioQuality, .best)
         }
     }
 

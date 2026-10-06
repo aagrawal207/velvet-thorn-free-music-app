@@ -18,10 +18,15 @@ struct LyricsDocument: Codable, Sendable {
     var matchedTitle: String?
     var matchedArtist: String?
     var fetchedAt: Date
+    var attributionText: String?
+    var attributionURL: URL?
+    /// The source recording can differ from trackID after an exact cross-catalog match.
+    var providerTrackID: String?
 
     init(trackID: String, kind: LyricsKind, lines: [LyricLine] = [], plainText: String? = nil,
          source: String = "LRCLIB", sourceID: Int? = nil, matchedTitle: String? = nil,
-         matchedArtist: String? = nil, fetchedAt: Date = Date()) {
+         matchedArtist: String? = nil, fetchedAt: Date = Date(), attributionText: String? = nil,
+         attributionURL: URL? = nil, providerTrackID: String? = nil) {
         self.trackID = trackID
         self.kind = kind
         self.lines = lines
@@ -31,5 +36,8 @@ struct LyricsDocument: Codable, Sendable {
         self.matchedTitle = matchedTitle
         self.matchedArtist = matchedArtist
         self.fetchedAt = fetchedAt
+        self.attributionText = attributionText
+        self.attributionURL = attributionURL
+        self.providerTrackID = providerTrackID
     }
 }

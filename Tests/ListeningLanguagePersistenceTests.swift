@@ -62,15 +62,25 @@ final class ListeningLanguagePersistenceTests: XCTestCase {
                 legacy.recentlyPlayed = [RecentListen(track: favorite, playedAt: now, position: 150)]
                 legacy.playback = PlaybackSnapshot(queue: [favorite], position: 150)
                 legacy.recordingLanguageOverrides = ["another-recording": "future-code"]
-                if journal { legacy.syncState = try LibrarySyncJournal.seed(legacy, now: now, writer: LibrarySyncTestData.a) }
+                if journal {
+                    var state = try LibrarySyncJournal.seed(legacy, now: now, writer: LibrarySyncTestData.a)
+                    state.version = 1
+                    state.registers = state.registers.filter { $0.key.collection != .lifetimeSession }
+                    legacy.syncState = state
+                }
                 if let state = legacy.syncState {
                     XCTAssertFalse(state.registers.keys.contains { $0.collection == .preference && $0.id.hasPrefix("languageNudges/") })
-                    let replica = LibrarySyncReplica(replicaID: LibrarySyncTestData.a, state: state)
+                    let replica = LibrarySyncReplica(version: 1, replicaID: LibrarySyncTestData.a, state: state)
                     let roundTrip = try LibrarySyncCodec.decodeReplica(LibrarySyncCodec.encodeReplica(replica),
                                                                       expectedReplicaID: replica.replicaID, now: now)
-                    XCTAssertEqual(roundTrip, replica)
+                    var upgraded = replica
+                    upgraded.version = LibrarySyncReplica.currentVersion
+                    upgraded.state.version = LibrarySyncState.currentVersion
+                    XCTAssertEqual(roundTrip, upgraded)
+                    XCTAssertEqual(roundTrip.state.registers, state.registers)
+                    XCTAssertEqual(roundTrip.state.clock, state.clock)
                 }
-                var object = try XCTUnwrap(JSONSerialization.jsonObject(with: LibraryPersistence.encode(legacy)) as? [String: Any])
+                var object = try XCTUnwrap(JSONSerialization.jsonObject(with: LibrarySyncTestData.legacyDocumentBytes(legacy)) as? [String: Any])
                 var preferences = try XCTUnwrap(object["preferences"] as? [String: Any])
                 preferences.removeValue(forKey: "languageNudges")
                 object["preferences"] = preferences
@@ -100,6 +110,8 @@ final class ListeningLanguagePersistenceTests: XCTestCase {
                 XCTAssertFalse(reopened.preferences.saveListeningHistory)
                 XCTAssertEqual(reopened.events.first?.id, legacy.events.first?.id)
                 XCTAssertEqual(reopened.events.first?.listenedSeconds, 30)
+                XCTAssertEqual(reopened.lifetimeListeningSummary.seconds, 30)
+                XCTAssertEqual(reopened.lifetimeListeningSummary.plays, 1)
                 XCTAssertEqual(reopened.favorites, legacy.favorites)
                 XCTAssertEqual(reopened.playback.queue, legacy.playback.queue)
                 XCTAssertEqual(reopened.playback.position, 150)

@@ -35,6 +35,7 @@ struct SystemReleaseNotificationSubmitter: ReleaseNotificationSubmitting {
         content.title = "New from \(release.artistName)"
         content.body = release.subtitle.isEmpty ? release.title : "\(release.title) · \(release.subtitle)"
         content.sound = .default
+        content.userInfo = ["releaseTitle": release.title, "releaseSubtitle": release.subtitle]
         let request = UNNotificationRequest(identifier: release.notificationIdentifier, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request, withCompletionHandler: { @Sendable error in
             if let error {

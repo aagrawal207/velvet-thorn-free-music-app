@@ -4,6 +4,24 @@ import XCTest
 
 @MainActor
 final class AppModelCloudSyncTests: XCTestCase {
+    func testSyncNoticeClearsAfterRecoveryWithoutDismissingAnUnrelatedToastOrNavigating() async throws {
+        let context = try AppModelTestContext()
+        addTeardownBlock { try await context.close() }
+        let model = context.model
+        model.selectedTab = .search
+        let notify = try XCTUnwrap(model.cloudSync.onFailureNotification)
+        notify("Retry sync in Settings.")
+        XCTAssertEqual(model.toast, "Retry sync in Settings.")
+        XCTAssertEqual(model.selectedTab, .search)
+        XCTAssertFalse(model.isPlayerPresented)
+        notify(nil)
+        XCTAssertNil(model.toast)
+        notify("Retry sync in Settings.")
+        model.showToast("Unrelated message")
+        notify(nil)
+        XCTAssertEqual(model.toast, "Unrelated message")
+    }
+
     func testFreshAndLegacyMissingTransitionPreferencesUseNoOverlap() throws {
         let fresh = UserPreferences()
         let legacy = try JSONDecoder().decode(UserPreferences.self, from: Data("{}".utf8))
@@ -134,9 +152,9 @@ final class AppModelCloudSyncTests: XCTestCase {
         let file = context.directory.appendingPathComponent(LibraryPersistence.fileName)
         let bytes = try Data(contentsOf: file)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
-        XCTAssertEqual(object["version"] as? Int, 3)
+        XCTAssertEqual(object["version"] as? Int, LibraryPersistence.currentVersion)
         let journal = try XCTUnwrap(object["syncState"] as? [String: Any])
-        XCTAssertEqual(journal["version"] as? Int, 2)
+        XCTAssertEqual(journal["version"] as? Int, LibrarySyncState.currentVersion)
         XCTAssertEqual(LibraryStore(directory: context.directory).recentSearchSelections, context.library.recentSearchSelections)
         let applied = try context.library.cloudReplica(replicaID: LibrarySyncTestData.a).state
         for selection in [selectedSong, selectedArtist] {
@@ -165,7 +183,7 @@ final class AppModelCloudSyncTests: XCTestCase {
         var malformed = valid
         malformed.registers = [LibrarySyncKey(.searchSelection, "track:wrong-recording"): try XCTUnwrap(valid.registers.values.first)]
         var future = valid
-        future.version = 3
+        future.version = LibrarySyncState.currentVersion + 1
         let file = context.directory.appendingPathComponent(LibraryPersistence.fileName)
         let saved = try Data(contentsOf: file)
         for incoming in [malformed, future] {

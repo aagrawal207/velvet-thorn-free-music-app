@@ -1,0 +1,69 @@
+{
+ "songs": [
+  {
+   "id": "aRZbUYD7",
+   "title": "Tum Hi Ho",
+   "subtitle": "Mithoon, Arijit Singh - Aashiqui 2",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/song/tum-hi-ho/EToxUyFpcwQ",
+   "image": "https://c.saavncdn.com/430/Aashiqui-2-Hindi-2013-150x150.jpg",
+   "language": "hindi",
+   "year": "2013",
+   "play_count": "372864574",
+   "explicit_content": "0",
+   "more_info": {
+    "music": "Mithoon",
+    "album_id": "1139549",
+    "album": "Aashiqui 2",
+    "320kbps": "true",
+    "duration": "262",
+    "has_lyrics": "false",
+    "label": "T-Series",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyRofh8YQPTqjR2tIxTYXqGEQHgqnNfsetouo4rsD0s4RZKObWAyHrEhw7tS9a8Gtq",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "459320",
+       "name": "Arijit Singh",
+       "role": "primary_artists",
+       "type": "artist"
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "music",
+       "type": "artist"
+      },
+      {
+       "id": "459320",
+       "name": "Arijit Singh",
+       "role": "singer",
+       "type": "artist"
+      },
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "lyricist",
+       "type": "artist"
+      },
+      {
+       "id": "669125",
+       "name": "Aditya Roy Kapur",
+       "role": "starring",
+       "type": "artist"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

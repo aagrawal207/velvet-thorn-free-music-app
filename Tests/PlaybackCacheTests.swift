@@ -43,7 +43,8 @@ final class PlaybackCacheTests: XCTestCase {
         try await PlaybackTestSupport.waitUntil { player.isCurrentTrackCached }
         XCTAssertEqual(player.currentStreamURL, firstRemote, "The playing item is left alone once its copy lands")
         let downloads = await resolver.requests.filter { if case .download = $0 { return true } else { return false } }
-        XCTAssertEqual(Array(downloads.prefix(2)), [.download(second.id), .download(first.id)], "Next first, then current")
+        XCTAssertEqual(downloads, [.download(first.id), .download(second.id)],
+                       "The current song first; the next one only after half of this 5 s song, and never twice")
         let retained = await resolver.retained
         XCTAssertEqual(retained.last, [first.id, second.id])
 
@@ -71,6 +72,8 @@ final class PlaybackCacheTests: XCTestCase {
         ])
         let player = PlayerController(resolver: resolver)
         defer { player.pause() }
+        // The landing time is measured from the first audio, so the next download must not wait to settle.
+        player.nextDownloadSettleSeconds = 0
         player.apply(settings(crossfade: 0, gapless: true))
         player.play([first, second])
         try await PlaybackTestSupport.waitUntil { player.isPlaying && player.standbyTrack == self.second && player.isStandbyReady }

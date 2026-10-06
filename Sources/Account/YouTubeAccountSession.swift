@@ -49,10 +49,13 @@ struct YouTubeAccountSession: Codable, Hashable, Sendable {
 
     var cookies: [StoredCookie]
     var signedInAt: Date
+    /// An opaque sign-in binding, not a Google account identifier. Legacy sessions require reconnecting for writes.
+    var writeSessionID: UUID?
 
     init(cookies: [StoredCookie], signedInAt: Date = Date()) {
         self.cookies = cookies.filter(\.appliesToYouTube)
         self.signedInAt = signedInAt
+        self.writeSessionID = UUID()
     }
 
     /// Nil when the cookies do not describe a signed-in account.

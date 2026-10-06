@@ -34,6 +34,8 @@ Capture and upload operations used `asc` 5.3.4. The local capture route is `asc 
 
 `capture-02/` repeats the same two live sessions after the owner's review adjustments (heart raised on the line, translucent liked fill) and supersedes `capture-01/` for any upload. **Nothing was uploaded.** The remote galleries still hold the September 24 set. Replacing them is one guarded publication run once the owner decides to deliver a matching binary; if the provider decision changes the player, this set is superseded too.
 
+Both local capture sets under `artifacts/StoreScreenshots-20260925/` predate R13's player changes (heart back in the heading, full-width progress bar, resized AirPlay glyph, swipe up) and the R12 shell; their Player image shows the retired progress-to-heart trail. No recapture is planned under the local-only decision ([ROADMAP.md](../ROADMAP.md)).
+
 ## Historical build-4 screenshots
 
 `artifacts/AppStore-1.0.0-4/iphone-final/` and `ipad-final/` contain the refreshed images; `iphone-assets.json` and `ipad-assets.json` record source build, device, raw attachment and checksums. The order is Search/library shortcuts, language-free radio setup, app icons, Customize Home, iCloud waiting and empty Library. Native dimensions, RGB pixels and ICC profiles are preserved. All twelve final images were inspected.

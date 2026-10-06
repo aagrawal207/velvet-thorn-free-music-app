@@ -6,9 +6,48 @@ import XCTest
 final class HomeCustomizationTests: XCTestCase {
     func testDefaultHomeStartsWithRecentlyPlayed() {
         let layout = UserPreferences().homeLayout
-        XCTAssertEqual(layout.orderedSections.map(\.rawValue), ["recentlyPlayed", "madeForYou", "newReleases", "becauseYouLike", "charts", "discovery"])
+        XCTAssertEqual(layout.orderedSections.map(\.rawValue),
+                       ["recentlyPlayed", "madeForYou", "newReleases", "becauseYouLike", "charts", "discovery", "superLiked"])
         XCTAssertEqual(layout.visibleSections, layout.orderedSections)
         XCTAssertTrue(layout.isDefault)
+    }
+
+    func testSuperLikedIsTheLastSectionKindSoSavedSixSectionDefaultsStayDefault() throws {
+        XCTAssertEqual(HomeSectionKind.allCases.count, 7)
+        XCTAssertEqual(HomeSectionKind.allCases.last, .superLiked)
+        XCTAssertEqual(HomeSectionKind.superLiked.rawValue, "superLiked")
+        XCTAssertEqual(HomeSectionKind.superLiked.title, "Super Liked")
+        XCTAssertEqual(HomeSectionKind.superLiked.settingsTitle, "Super Liked")
+        XCTAssertFalse(HomeSectionKind.superLiked.detail.isEmpty)
+
+        // A layout saved by the six-section build: the new shelf appends visible and the order still counts as default.
+        let saved = Data(#"{"order":["recentlyPlayed","madeForYou","newReleases","becauseYouLike","charts","discovery"],"hidden":[]}"#.utf8)
+        let layout = try JSONDecoder().decode(HomeLayoutPreferences.self, from: saved)
+        XCTAssertEqual(layout.orderedSections.last, .superLiked)
+        XCTAssertEqual(layout.visibleSections.last, .superLiked)
+        XCTAssertTrue(layout.isVisible(.superLiked))
+        XCTAssertTrue(layout.isDefault)
+    }
+
+    func testSavedOrderWithoutSuperLikedAppendsItAfterTheSavedSectionsAndCanHideIt() throws {
+        let saved = Data(#"{"order":["charts","discovery","recentlyPlayed"],"hidden":["discovery"]}"#.utf8)
+        var layout = try JSONDecoder().decode(HomeLayoutPreferences.self, from: saved)
+        XCTAssertEqual(layout.orderedSections, [.charts, .discovery, .recentlyPlayed, .madeForYou, .newReleases, .becauseYouLike, .superLiked])
+        XCTAssertEqual(layout.visibleSections.last, .superLiked)
+        XCTAssertFalse(layout.isDefault)
+
+        layout.setVisible(false, for: .superLiked)
+        XCTAssertFalse(layout.isVisible(.superLiked))
+        XCTAssertFalse(layout.visibleSections.contains(.superLiked))
+        let encoded = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(layout)) as? [String: Any])
+        let hidden = try XCTUnwrap(encoded["hidden"] as? [String])
+        XCTAssertEqual(Set(hidden), ["discovery", "superLiked"])
+
+        layout.move(from: IndexSet(integer: 6), to: 0)
+        XCTAssertEqual(layout.orderedSections.first, .superLiked)
+        layout.reset()
+        XCTAssertTrue(layout.isDefault)
+        XCTAssertEqual(layout.orderedSections.last, .superLiked)
     }
 
     func testOldPreferencesWithoutHomeLayoutOrWithNullKeepTheirOtherChoices() throws {
@@ -52,8 +91,9 @@ final class HomeCustomizationTests: XCTestCase {
             store.preferences.homeLayout.setVisible(false, for: .newReleases)
             let restored = LibraryStore(directory: directory)
             XCTAssertNil(restored.errorMessage)
-            XCTAssertEqual(restored.preferences.homeLayout.orderedSections, [.charts, .recentlyPlayed, .madeForYou, .newReleases, .becauseYouLike, .discovery])
-            XCTAssertEqual(restored.preferences.homeLayout.visibleSections, [.charts, .madeForYou, .becauseYouLike, .discovery])
+            XCTAssertEqual(restored.preferences.homeLayout.orderedSections,
+                           [.charts, .recentlyPlayed, .madeForYou, .newReleases, .becauseYouLike, .discovery, .superLiked])
+            XCTAssertEqual(restored.preferences.homeLayout.visibleSections, [.charts, .madeForYou, .becauseYouLike, .discovery, .superLiked])
             XCTAssertTrue(restored.preferences.saveListeningHistory)
             XCTAssertEqual(restored.favorites, [song])
             XCTAssertEqual(restored.recentlyPlayed.first?.position, 30)
@@ -92,9 +132,10 @@ final class HomeCustomizationTests: XCTestCase {
             try LibraryPersistence.write(data, to: url, replacing: nil)
             let store = LibraryStore(directory: directory)
             XCTAssertNil(store.errorMessage)
-            XCTAssertEqual(store.preferences.homeLayout.orderedSections, [.charts, .recentlyPlayed, .madeForYou, .newReleases, .becauseYouLike, .discovery])
+            XCTAssertEqual(store.preferences.homeLayout.orderedSections,
+                           [.charts, .recentlyPlayed, .madeForYou, .newReleases, .becauseYouLike, .discovery, .superLiked])
             XCTAssertFalse(store.preferences.homeLayout.isVisible(.recentlyPlayed))
-            store.preferences.homeLayout.move(from: IndexSet(integer: 0), to: 6)
+            store.preferences.homeLayout.move(from: IndexSet(integer: 0), to: 7)
             store.preferences.homeLayout.reset()
             let saved = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
             let savedPreferences = try XCTUnwrap(saved["preferences"] as? [String: Any])
@@ -108,16 +149,16 @@ final class HomeCustomizationTests: XCTestCase {
     func testPartialOrDuplicateOrdersAppendMissingKnownSectionsOnlyOnce() throws {
         let data = Data(#"{"order":["discovery","unknown","discovery"],"hidden":["charts"]}"#.utf8)
         let layout = try JSONDecoder().decode(HomeLayoutPreferences.self, from: data)
-        XCTAssertEqual(layout.orderedSections, [.discovery, .recentlyPlayed, .madeForYou, .newReleases, .becauseYouLike, .charts])
-        XCTAssertEqual(layout.visibleSections, [.discovery, .recentlyPlayed, .madeForYou, .newReleases, .becauseYouLike])
+        XCTAssertEqual(layout.orderedSections, [.discovery, .recentlyPlayed, .madeForYou, .newReleases, .becauseYouLike, .charts, .superLiked])
+        XCTAssertEqual(layout.visibleSections, [.discovery, .recentlyPlayed, .madeForYou, .newReleases, .becauseYouLike, .superLiked])
         let missing = try JSONDecoder().decode(HomeLayoutPreferences.self, from: Data("{}".utf8))
         XCTAssertTrue(missing.isDefault)
     }
 
     func testMovingSeveralSectionsUsesNativeListDestinationSemanticsAndRejectsInvalidMoves() {
         var layout = HomeLayoutPreferences()
-        layout.move(from: IndexSet([0, 1]), to: 6)
-        XCTAssertEqual(layout.orderedSections, [.newReleases, .becauseYouLike, .charts, .discovery, .recentlyPlayed, .madeForYou])
+        layout.move(from: IndexSet([0, 1]), to: 7)
+        XCTAssertEqual(layout.orderedSections, [.newReleases, .becauseYouLike, .charts, .discovery, .superLiked, .recentlyPlayed, .madeForYou])
         let saved = layout
         layout.move(from: IndexSet(integer: 20), to: 0)
         layout.move(from: IndexSet(integer: 0), to: -1)

@@ -1,5 +1,33 @@
 # Breezy initial release status
 
+## September 30: build 11 delivered to TestFlight
+
+**Breezy 1.0.0 (11) is VALID and ready for internal TestFlight testing**, build `eed48919-97be-46a8-a3ca-b742f502d782`. The existing Friends group has access and en-US What to Test notes were saved and read back. Signed archive/export, Apple validation and remote checksum verification passed. [Delivery receipt](../../artifacts/AppStore-1.0.0-11/summary.json) owns the frozen evidence; [APPSTORE_TESTFLIGHT.md](../APPSTORE_TESTFLIGHT.md) owns current availability. Expiration: December 29, 2026, 21:34:58 UTC.
+
+This was an explicitly authorized TestFlight upload. The public draft retains build 6, with no review submission, invitation or Git write. Earlier records below keep their historical scope.
+
+## September 27: build 6 delivered
+
+**Breezy 1.0.0 (6) is uploaded, processed VALID, App Store eligible and attached to the iOS draft.** The owner explicitly authorized this upload after the R16 fixes. Build ID: `e36b7e87-31d1-4ad6-b0bc-1ca428043353`. The draft remains `PREPARE_FOR_SUBMISSION`; no App Review or Beta App Review submission was made.
+
+The signed archive and exported IPA passed the Release audit, nested signature/profile checks and Apple validation. Remote file size and MD5 match the local 18,796,986-byte IPA; frozen input hashes still match the source. [Delivery receipt](../../artifacts/AppStore-1.0.0-6/summary.json) and [ASC_STATE.json](ASC_STATE.json) record the details. The temporary signing keychain was removed and the original keychain configuration restored.
+
+The existing internal TestFlight group **Friends** has access to build 6. Its internal state is `READY_FOR_BETA_TESTING`; external state is `READY_FOR_BETA_SUBMISSION`. The task created no group or invitation. External validation still reports four missing review contact fields and What to Test; existing store screenshots and review notes retain older provenance. [APPSTORE_TESTFLIGHT.md](../APPSTORE_TESTFLIGHT.md) owns those remaining steps. Build-3/4/5 delivery artifacts remain frozen.
+
+## September 27: TestFlight preparation reopened
+
+**TestFlight preparation reopened, public App Store submission not authorized in this task.** The owner requested refreshed listing text to prepare to share Breezy with a friend. This scope supersedes the dormant decision only for editable listing text and read-only TestFlight investigation. The older records below retain their original dates and scope.
+
+The personal `asc` profile works. The iOS `1.0.0` draft, version `2754a299-5b46-4e62-8f79-8bf80c6078d5`, remains `PREPARE_FOR_SUBMISSION` with build 5 attached. Its en-US **description, promotionalText and keywords** were updated and read back. The follow-up canonical metadata dry run reports no adds, updates or deletes. This is next-build copy: managed downloads, EQ, JioSaavn/Gaana, expanded history and share cards are newer than build 5. The owner-requested visible **Stats** name also needs to match the successor binary; source still showed **Listening** during this check. Local `1.0.0 (6)` is uncommitted and performance work is underway.
+
+Build 5 is `VALID`, unexpired and `READY_FOR_BETA_SUBMISSION` externally, with no beta review submission. TestFlight has no groups, beta app localization or What to Test notes. The read-only validator reports five missing fields: review contact first name, last name, email, phone, and What to Test. Its recorded expiry is **22 December 2026, 19:29:34 PST**. The separate public review draft still has zero items and is unsubmitted.
+
+[APPSTORE_TESTFLIGHT.md](../APPSTORE_TESTFLIGHT.md) owns current evidence and gates. [Next-build beta text](testflight-next-build.md) stays local until a matching binary is ready. Prior metadata and redacted receipts are in `artifacts/TestFlight-Prep/20260927/`. No archive, upload, tester invitation, beta submission, declaration change or public-page publication occurred in this task. Existing content authorization and recipient relinking questions remain open; TestFlight approval has not been established.
+
+## Historical distribution hold and release records
+
+> **Dormant since 25 September 2026.** The owner chose local-only distribution (Xcode installs with development signing); see [docs/ROADMAP.md](../ROADMAP.md). The gates and owner steps below are kept as a record and are not being worked. Nothing here has been removed.
+
 **Status: 24 September 2026 UTC. Breezy 1.0.0 (5) is uploaded, processed `VALID`, App Store eligible and attached to the iOS draft.** Apple blocked adding the app to review because required declarations are missing. The review container is empty and unsubmitted. The owner-selected app is [6815025307](https://appstoreconnect.apple.com/apps/6815025307). Changes remain **uncommitted after `ebb5d5c`**. [ASC_STATE.json](ASC_STATE.json) records exact IDs and verified state; [VERIFICATION.md](../VERIFICATION.md) owns test evidence.
 
 **Build 5 includes R6/R7/R8/R9.** R9 adds [official recording-language and duration metadata](../YOUTUBE_DATA_API.md), with 174 focused unit cases and one native live API test passed. [Home Screen widgets](../WIDGETS.md), [listening-led discovery](../LISTENING_DISCOVERY.md) and earlier player/Search/cache features remain included. [Support/Privacy refinements are published](PUBLIC_PAGES.md). The refreshed phone/iPad galleries show the six main listening screens from post-build-5 source, including R10 visuals, and need a matching new binary before review. Watch/IAP evidence retains build 3. Previous release directories remain frozen.

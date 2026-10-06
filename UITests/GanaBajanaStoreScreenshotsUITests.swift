@@ -18,58 +18,63 @@ final class GanaBajanaStoreScreenshotsUITests: XCTestCase {
 
     func test01SearchLibraryShortcuts() throws {
         let ui = try launchCaptureApp()
-        try requireControl(ui.app.buttons["search.library.likes"], in: ui)
-        try requireControl(ui.app.buttons["search.library.cached"], in: ui)
-        XCTAssertTrue(ui.app.buttons["search.library.likes"].label.contains("0 songs"))
-        try requireControl(ui.app.buttons["search.library.open"], in: ui)
+        // R13: liked, cached and library shortcuts moved to the Library tab; Search starts with Radio and recents.
         try requireControl(ui.app.buttons["search.radio.open"], in: ui)
+        XCTAssertFalse(ui.app.buttons["search.library.likes"].exists)
+        XCTAssertFalse(ui.app.buttons["search.library.cached"].exists)
+        XCTAssertFalse(ui.app.buttons["search.library.open"].exists)
         try ui.requireHittable(ui.app.staticTexts["search.recents.empty"])
         XCTAssertFalse(ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.filter.")).firstMatch.exists)
         XCTAssertFalse(ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.library.playlist.")).firstMatch.exists)
-        XCTAssertFalse(ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.station.")).firstMatch.exists)
+        XCTAssertFalse(ui.element("search.radio.content").exists)
+        XCTAssertFalse(ui.app.searchFields["Songs or artists"].exists)
         try capture("01-search", in: ui)
     }
 
-    func test02RadioSetup() throws {
+    func test02RadioSongAndArtistSearch() throws {
         let ui = try launchCaptureApp()
         try openRadioBrowser(ui)
-        try ui.tap(ui.app.buttons["search.station.focus"])
-        try ui.requireHittable(ui.app.buttons["radio.setup.cancel"])
-        XCTAssertTrue(ui.app.navigationBars["Set up radio"].exists)
-        XCTAssertFalse(ui.app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "radio.setup.language.")).firstMatch.exists)
-        try ui.requireHittable(ui.element("radio.setup.listeningLanguages"))
-        XCTAssertEqual(ui.element("radio.setup.listeningLanguages").label, "Languages follow your listening")
-        XCTAssertTrue(ui.app.buttons["radio.setup.era.anytime"].isSelected)
-        XCTAssertEqual(ui.element("radio.setup.selectionCount").label, "0 of 4 hints")
-        XCTAssertFalse(ui.app.buttons["radio.setup.clearArtists"].isEnabled)
-        XCTAssertFalse(ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "radio.setup.artist.")).firstMatch.exists)
-        XCTAssertFalse(ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "radio.setup.addArtist.")).firstMatch.exists)
-        let start = ui.app.buttons["radio.setup.start"]
-        try requireControl(start, in: ui)
-        XCTAssertTrue(start.isEnabled)
-        XCTAssertEqual(start.value as? String, "Style defaults")
-        try ui.requireHittable(ui.element("radio.setup.selectionCount"))
-        try capture("02-radio-setup", in: ui)
+        let type = ui.app.buttons["radio.search.type"]
+        try requireControl(type, in: ui)
+        try ui.expectValue(type, "Songs")
+        try ui.tap(type)
+        try ui.tap(ui.app.buttons["Artists"])
+        try ui.expectValue(type, "Artists")
+        try ui.tap(type)
+        try ui.tap(ui.app.buttons["Songs"])
+        try ui.expectValue(type, "Songs")
+        try ui.expectLabel(ui.element("radio.search.guidance"), "Search for a song or artist, then tap to start radio.")
+        for prefix in ["radio.search.song.", "radio.search.artist.", "radio.suggestion.", "radio.listenAgain."] {
+            XCTAssertFalse(ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix)).firstMatch.exists)
+        }
+        XCTAssertFalse(ui.element("radio.session").exists)
+        XCTAssertFalse(ui.app.buttons["miniPlayer.open"].exists)
+        XCTAssertFalse(ui.app.buttons["radio.tune.done"].exists)
+        try capture("02-radio-search", in: ui)
     }
 
     func test03AppIcons() throws {
         let ui = try launchCaptureApp()
         try openMediaFreeSettings(ui)
+        try ui.openSettingsPage(.appearance)
         let link = ui.app.buttons["settings.appIcon"]
         try ui.reveal(link, maxSwipes: 24)
         try requireControl(link, in: ui)
         try ui.tap(link)
         try ui.requireHittable(ui.app.buttons["settings.icon.Beat"])
-        XCTAssertTrue(ui.app.navigationBars["App icon"].exists)
-        let icons = [("Beat", "Leafnote"), ("Notes", "Drift"), ("Boombox", "Moonleaf"),
-                     ("Speaker", "Ripple"), ("Waves", "Tide"), ("Thorn", "Thorn"), ("Sonnet", "Sonnet")]
+        XCTAssertTrue(ui.app.navigationBars["App Icon"].exists)
+        let icons = [("Beat", "Leafnote"), ("LeafPaper", "Paper"), ("LeafSky", "Sky"), ("LeafBlossom", "Blossom"),
+                     ("LeafMidnight", "Midnight"), ("LeafViolet", "Violet"), ("LeafSunset", "Sunset"), ("LeafMono", "Mono"),
+                     ("Thorn", "Thorn"), ("Sonnet", "Sonnet"), ("ThornEdge", "Edge"), ("ThornFrost", "Frost"),
+                     ("ThornNoir", "Noir"), ("ThornVenom", "Venom"), ("ThornDusk", "Dusk"), ("ThornBlush", "Blush"),
+                     ("Notes", "Drift"), ("Boombox", "Moonleaf"), ("Speaker", "Ripple"), ("Waves", "Tide")]
         for (id, title) in icons {
             let button = ui.app.buttons["settings.icon.\(id)"]
             try requireControl(button, in: ui)
             XCTAssertEqual(button.label, title)
             XCTAssertEqual(button.isSelected, id == "Beat", "Use a dedicated installation with the primary Leafnote icon.")
         }
-        XCTAssertEqual(ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "settings.icon.")).count, 7)
+        XCTAssertEqual(ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "settings.icon.")).count, 20)
         XCTAssertFalse(ui.element("settings.icon.pending").exists)
         XCTAssertFalse(ui.element("settings.icon.error").exists)
         try capture("03-app-icons", in: ui)
@@ -78,6 +83,7 @@ final class GanaBajanaStoreScreenshotsUITests: XCTestCase {
     func test04CustomizeHome() throws {
         let ui = try launchCaptureApp()
         try openMediaFreeSettings(ui)
+        try ui.openSettingsPage(.discovery)
         let customize = ui.app.buttons["settings.customizeHome"]
         try ui.reveal(customize, maxSwipes: 24)
         try ui.tap(customize)
@@ -100,12 +106,13 @@ final class GanaBajanaStoreScreenshotsUITests: XCTestCase {
     func test05ICloudStatus() throws {
         let ui = try launchCaptureApp()
         try openMediaFreeSettings(ui)
+        try ui.openSettingsPage(.library)
         let link = ui.app.buttons["settings.icloud"]
         try ui.reveal(link)
         try requireControl(link, in: ui)
         try ui.tap(link)
         try ui.expectSwitch("settings.icloud.enabled", isOn: true)
-        XCTAssertTrue(ui.app.navigationBars["iCloud sync"].exists)
+        XCTAssertTrue(ui.app.navigationBars["iCloud Sync"].exists)
         XCTAssertEqual(ui.element("settings.icloud.status").label, "Waiting to sync with iCloud")
         XCTAssertFalse(ui.element("settings.icloud.lastSaved").exists)
         XCTAssertFalse(ui.element("settings.icloud.error").exists)
@@ -123,8 +130,8 @@ final class GanaBajanaStoreScreenshotsUITests: XCTestCase {
         try ui.requireHittable(ui.app.buttons["library.likes"])
         let empty = ui.element("library.playlists.empty")
         XCTAssertTrue(empty.waitForExistence(timeout: 10))
-        XCTAssertTrue(ui.app.staticTexts["Your library"].exists)
-        XCTAssertTrue(empty.staticTexts["A place for your next mix"].exists)
+        XCTAssertTrue(ui.app.staticTexts["Your Library"].exists)
+        XCTAssertTrue(empty.staticTexts["A Place for Your Next Mix"].exists)
         XCTAssertTrue(ui.app.staticTexts["Keep a little of what you love."].exists)
         XCTAssertFalse(ui.app.buttons["library.recents.all"].exists)
         try requireControl(empty.buttons["library.playlists.createFirst"], in: ui)
@@ -204,7 +211,8 @@ final class GanaBajanaStoreScreenshotsUITests: XCTestCase {
         if ui.app.buttons["player.playPause"].label == "Pause" { try ui.tap(ui.app.buttons["player.playPause"]) }
         try ui.expectLabel(ui.app.buttons["player.playPause"], "Play")
         try captureListeningScreen("02-player", in: ui, recordingIDs: playedIDs)
-        try ui.tap(ui.app.buttons["player.browse"])
+        // A catalog recording with an album opens the album and artists chooser from its artist line.
+        try ui.tap(ui.app.buttons["player.artistName"])
         try ui.tap(ui.app.buttons["player.browse.album"])
         try ui.wait("The album must finish opening", timeout: 60) {
             !ui.app.buttons["player.close"].exists && ui.app.staticTexts["ALBUM"].exists
@@ -215,6 +223,8 @@ final class GanaBajanaStoreScreenshotsUITests: XCTestCase {
 
         try openListeningPlayer(in: ui)
         try ui.tap(ui.app.buttons["player.artistName"])
+        let firstCredit = ui.app.buttons["player.artist.0"]
+        if firstCredit.waitForExistence(timeout: 5) { try ui.tap(firstCredit) }
         let artistTitle = ui.app.staticTexts.matching(NSPredicate(
             format: "identifier == %@ AND label == %@", "collection.title", "Arijit Singh")).firstMatch
         try ui.wait("The real artist page must finish opening", timeout: 90) {
@@ -370,6 +380,7 @@ final class GanaBajanaStoreScreenshotsUITests: XCTestCase {
 
         let ui = try launchCaptureApp()
         try openMediaFreeSettings(ui)
+        try ui.openSettingsPage(.about)
         let link = ui.app.buttons["settings.tipJar"]
         try ui.reveal(link, maxSwipes: 24)
         try ui.tap(link)
@@ -454,11 +465,10 @@ final class GanaBajanaStoreScreenshotsUITests: XCTestCase {
         try ui.wait("Radio browsing must open through the Search navigation link") {
             ui.app.navigationBars["Radio"].exists && ui.element("search.radio.content").exists
         }
-        try ui.requireHittable(ui.element("search.radio.header"))
-        try ui.requireHittable(ui.element("search.radio.group.moods"))
-        let focus = ui.app.buttons["search.station.focus"]
-        try ui.reveal(focus)
-        try requireControl(focus, in: ui)
+        try ui.requireHittable(ui.app.searchFields["Songs or artists"])
+        try ui.requireHittable(ui.element("radio.search.guidance"))
+        XCTAssertFalse(ui.app.textFields["search.field"].exists)
+        XCTAssertFalse(ui.app.keyboards.firstMatch.exists)
     }
 
     private func prepareMediaFreeHome(_ ui: AppUITestDriver) throws {
@@ -466,6 +476,7 @@ final class GanaBajanaStoreScreenshotsUITests: XCTestCase {
         try ui.requireHittable(ui.app.buttons["home.settings"])
         try ui.tap(ui.app.buttons["home.settings"])
         try ui.requireHittable(ui.app.buttons["settings.done"])
+        try ui.openSettingsPage(.discovery)
         let customize = ui.app.buttons["settings.customizeHome"]
         try ui.reveal(customize, maxSwipes: 24)
         try ui.tap(customize)
@@ -516,7 +527,8 @@ final class GanaBajanaStoreScreenshotsUITests: XCTestCase {
                 && !ui.app.alerts.firstMatch.exists && !ui.element("message.text").exists
         }
         let forbiddenPrefixes = ["track.", "collection.", "miniPlayer.", "player.", "lyrics.", "home.group.",
-                                 "search.featuredArtist", "search.recent.", "radio.setup.artist.", "radio.setup.addArtist.",
+                                 "search.featuredArtist", "search.recent.", "radio.search.song.", "radio.search.artist.",
+                                 "radio.suggestion.", "radio.listenAgain.", "radio.session",
                                  "signin.", "settings.youtubeStatus", "settings.youtubeError"]
         let predicate = NSCompoundPredicate(orPredicateWithSubpredicates: forbiddenPrefixes.map {
             NSPredicate(format: "identifier BEGINSWITH %@", $0)

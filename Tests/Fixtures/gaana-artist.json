@@ -1,0 +1,244 @@
+{
+ "status": 1,
+ "user_token_status": "0",
+ "artist": {
+  "artist_id": "52767",
+  "seokey": "arijit-singh",
+  "name": "Arijit Singh",
+  "atw": "https://a10.gaanacdn.com/gn_img/artists/Dk9KNk23Bx/k9KNqJJbBx/size_m_1739172212.jpg",
+  "artwork": "http://a10.gaanacdn.com/images/artists/67/52767/crop_80x80_52767.jpg",
+  "artwork_bio": "https://a10.gaanacdn.com/gn_img/artists/Dk9KNk23Bx/k9KNqJJbBx/size_xl_1739172212.jpg",
+  "favorite_count": "8213023",
+  "songs": "5731",
+  "albums": "2648",
+  "languages": [
+   "punjabi",
+   "tamil",
+   "hindi",
+   "bengali",
+   "telugu",
+   "malayalam",
+   "kannada",
+   "english",
+   "marathi",
+   "odia",
+   "bhojpuri",
+   "haryanvi"
+  ],
+  "popularity": 10164054702,
+  "rating": "1",
+  "is_podcast_artist": "0",
+  "roles": [
+   {
+    "id": 1,
+    "name": "Singer"
+   },
+   {
+    "id": 2,
+    "name": "Composer"
+   },
+   {
+    "id": 3,
+    "name": "Lyricist"
+   }
+  ]
+ },
+ "section_data": [
+  {
+   "section_type": 2,
+   "view_type": 0,
+   "section_data_url": "https://apiv2.gaana.com/home/artist/tracks/52767",
+   "section_title": "Top Songs",
+   "show_load_more": false,
+   "entities_repo": {
+    "count": "191",
+    "status": 1,
+    "eof": 0,
+    "entities": [
+     {
+      "language": "Hindi",
+      "seokey": "tujhe-kitna-chahne-lage",
+      "name": "Tujhe Kitna Chahne Lage",
+      "artwork": "https://a10.gaanacdn.com/gn_img/song/ZaP37RKDy7/P371NLRVbD/size_m_1559305408.jpg",
+      "atw": "https://a10.gaanacdn.com/gn_img/song/ZaP37RKDy7/P371NLRVbD/size_m_1559305408.jpg",
+      "entity_id": "26974811",
+      "entity_type": "TR",
+      "artwork_medium": "https://a10.gaanacdn.com/gn_img/song/ZaP37RKDy7/P371NLRVbD/size_l_1559305408.jpg",
+      "favorite_count": 2397805,
+      "premium_content": "0",
+      "entity_info": [
+       {
+        "key": "artist",
+        "value": [
+         {
+          "artist_id": "52767",
+          "name": "Arijit Singh",
+          "seokey": "arijit-singh"
+         }
+        ]
+       },
+       {
+        "key": "album",
+        "value": [
+         {
+          "album_id": "2602904",
+          "name": "Kabir Singh",
+          "album_seokey": "kabir-singh"
+         }
+        ]
+       },
+       {
+        "key": "parental_warning",
+        "value": 0
+       },
+       {
+        "key": "play_ct",
+        "value": "345M+"
+       },
+       {
+        "key": "artwork_large",
+        "value": "https://a10.gaanacdn.com/gn_img/song/ZaP37RKDy7/P371NLRVbD/size_l_1559305408.jpg"
+       },
+       {
+        "key": "duration",
+        "value": "285"
+       },
+       {
+        "key": "isrc",
+        "value": "INS181902088"
+       },
+       {
+        "key": "rest_lev",
+        "value": "0"
+       },
+       {
+        "key": "vendor_rest_lev",
+        "value": "0"
+       },
+       {
+        "key": "download_enabled",
+        "value": 0
+       },
+       {
+        "key": "is_premium",
+        "value": 1
+       }
+      ]
+     },
+     {
+      "language": "Hindi",
+      "seokey": "raabta",
+      "name": "Raabta",
+      "artwork": "https://a10.gaanacdn.com/gn_img/albums/BZgWoOW2d9/ZgWo1q7K2d/size_m_1713800446.jpg",
+      "atw": "https://a10.gaanacdn.com/gn_img/albums/BZgWoOW2d9/ZgWo1q7K2d/size_m_1713800446.jpg",
+      "entity_id": "582161",
+      "entity_type": "TR",
+      "artwork_medium": "https://a10.gaanacdn.com/gn_img/albums/BZgWoOW2d9/ZgWo1q7K2d/size_l_1713800446.jpg",
+      "favorite_count": 1158764,
+      "premium_content": "0",
+      "entity_info": [
+       {
+        "key": "artist",
+        "value": [
+         {
+          "artist_id": "11468",
+          "name": "Pritam",
+          "seokey": "pritam"
+         },
+         {
+          "artist_id": "52767",
+          "name": "Arijit Singh",
+          "seokey": "arijit-singh"
+         },
+         {
+          "artist_id": "529",
+          "name": "Amitabh Bhattacharya",
+          "seokey": "amitabh-bhattacharya"
+         }
+        ]
+       },
+       {
+        "key": "album",
+        "value": [
+         {
+          "album_id": "59812",
+          "name": "Agent Vinod",
+          "album_seokey": "agent-vinod-hindi"
+         }
+        ]
+       },
+       {
+        "key": "parental_warning",
+        "value": 0
+       },
+       {
+        "key": "play_ct",
+        "value": "101M+"
+       },
+       {
+        "key": "artwork_large",
+        "value": "https://a10.gaanacdn.com/gn_img/albums/BZgWoOW2d9/ZgWo1q7K2d/size_l_1713800446.jpg"
+       },
+       {
+        "key": "duration",
+        "value": "243"
+       },
+       {
+        "key": "isrc",
+        "value": "INS181200529"
+       },
+       {
+        "key": "rest_lev",
+        "value": "0"
+       },
+       {
+        "key": "vendor_rest_lev",
+        "value": "0"
+       },
+       {
+        "key": "download_enabled",
+        "value": 0
+       },
+       {
+        "key": "is_premium",
+        "value": 1
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "section_type": 1,
+   "view_type": 0,
+   "section_data_url": "https://apiv2.gaana.com/home/artist/playlist/52767",
+   "section_title": "Top Playlists",
+   "show_load_more": false,
+   "entities_repo": {}
+  },
+  {
+   "section_type": 1,
+   "view_type": 0,
+   "section_data_url": "https://apiv2.gaana.com/home/artist/album/52767",
+   "section_title": "Top Albums",
+   "show_load_more": false,
+   "entities_repo": {}
+  },
+  {
+   "section_type": 1,
+   "view_type": 0,
+   "section_data_url": "https://apiv2.gaana.com/home/artist/podcast/52767",
+   "section_title": "Top Podcasts",
+   "show_load_more": false,
+   "entities_repo": {}
+  },
+  {
+   "section_type": 1,
+   "view_type": 0,
+   "section_data_url": "https://apiv2.gaana.com/player/similar-artists/52767",
+   "section_title": "Similar Artists",
+   "show_load_more": false,
+   "entities_repo": {}
+  }
+ ]
+}

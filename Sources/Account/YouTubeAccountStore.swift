@@ -88,7 +88,14 @@ final class MemorySecretStore: SecretStoring {
 final class YouTubeAccountStore {
     static let secretKey = "session"
 
-    private(set) var session: YouTubeAccountSession?
+    private(set) var session: YouTubeAccountSession? {
+        didSet {
+            sessionRevision &+= 1
+            for observer in Array(sessionObservers.values) { observer() }
+        }
+    }
+    @ObservationIgnored private(set) var sessionRevision: UInt64 = 0
+    @ObservationIgnored private var sessionObservers: [UUID: @MainActor () -> Void] = [:]
     private(set) var errorMessage: String?
     private(set) var isSignOutPending = false
     /// Mirrors the registry so Settings can explain why signing in helps; refreshed on demand.
@@ -118,6 +125,17 @@ final class YouTubeAccountStore {
     }
 
     var isSignedIn: Bool { session != nil }
+
+    /// Synchronous retirement lets account-dependent work stop before a replacement session is published elsewhere.
+    func observeSessionChanges(_ observer: @escaping @MainActor () -> Void) -> UUID {
+        let id = UUID()
+        sessionObservers[id] = observer
+        return id
+    }
+
+    func removeSessionObserver(_ id: UUID) {
+        sessionObservers.removeValue(forKey: id)
+    }
 
     /// True when the stored cookies have an expiry that already passed; the user has to sign in again.
     var isExpired: Bool {

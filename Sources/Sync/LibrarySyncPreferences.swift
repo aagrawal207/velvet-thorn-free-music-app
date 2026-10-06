@@ -1,6 +1,13 @@
 import Foundation
 
 enum LibrarySyncPreferences {
+    static func resetFields() throws -> [String: Data] {
+        var defaults = UserPreferences()
+        // Journal v1/v2 tombstones meant Random. Changing a UI default cannot reinterpret a saved reset.
+        defaults.shuffleStyle = .random
+        return try fields(defaults)
+    }
+
     // Codable remains the field inventory, including preferences added by subsequent app versions.
     static func fields(_ preferences: UserPreferences) throws -> [String: Data] {
         let object = try JSONSerialization.jsonObject(with: LibrarySyncCodec.encode(preferences))

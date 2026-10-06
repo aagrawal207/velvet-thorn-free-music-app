@@ -62,6 +62,10 @@ final class CompanionPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(context.library.playback.position, 31)
         context.library.toggleFavorite(song)
         try await AppModelFixtures.eventually { received.last?.nowPlaying?.isFavorite == true }
+        XCTAssertEqual(received.last?.nowPlaying?.isSuperLiked, false)
+        context.library.setSuperLiked(song, true)
+        try await AppModelFixtures.eventually { received.last?.nowPlaying?.isSuperLiked == true }
+        XCTAssertEqual(received.last?.nowPlaying?.isFavorite, true)
         let beforeQueueChange = try XCTUnwrap(received.last).sequence
         context.player.enqueue(next)
         try await AppModelFixtures.eventually { (received.last?.sequence ?? 0) > beforeQueueChange }
@@ -239,6 +243,127 @@ final class CompanionPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(Set(LibraryStore(directory: context.directory).favorites.map(\.id)), [song.id, externalSong.id])
     }
 
+    func testSuperLikePromotesLikingIfNeededDemotesToALikeAndUnlikeRemovesBothDurably() throws {
+        let song = libraryTestTrack()
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [song]))
+        let controller = CompanionPlaybackController(model: context.model)
+        XCTAssertEqual(CompanionPlaybackController.Origin.watch.likeSurface, .watch)
+        XCTAssertEqual(CompanionPlaybackController.Origin.carPlay.likeSurface, .carPlay)
+        XCTAssertEqual(controller.snapshot.nowPlaying?.isFavorite, false)
+        XCTAssertEqual(controller.snapshot.nowPlaying?.isSuperLiked, false)
+
+        let promote = CompanionRequest(action: .setSuperLiked(true), expectedTrackID: song.id)
+        let promoted = controller.handle(promote, origin: .carPlay)
+        XCTAssertTrue(promoted.accepted)
+        XCTAssertEqual(promoted.snapshot.nowPlaying?.isFavorite, true, "Promoting an unliked song likes it first")
+        XCTAssertEqual(promoted.snapshot.nowPlaying?.isSuperLiked, true)
+        XCTAssertTrue(context.library.isSuperLiked(song))
+        let saved = LibraryStore(directory: context.directory)
+        XCTAssertEqual(saved.favorites, [song])
+        XCTAssertTrue(saved.isSuperLiked(song))
+        let promotedBytes = try savedBytes(context)
+        assertSameReceipt(controller.handle(promote, origin: .watch), promoted)
+        XCTAssertTrue(controller.handle(.init(action: .setSuperLiked(true), expectedTrackID: song.id), origin: .watch).accepted)
+        XCTAssertEqual(try savedBytes(context), promotedBytes, "A repeated desired tier writes nothing")
+
+        let demoted = controller.handle(.init(action: .setSuperLiked(false), expectedTrackID: song.id), origin: .watch)
+        XCTAssertTrue(demoted.accepted)
+        XCTAssertEqual(demoted.snapshot.nowPlaying?.isFavorite, true, "Demotion keeps the like")
+        XCTAssertEqual(demoted.snapshot.nowPlaying?.isSuperLiked, false)
+        XCTAssertTrue(context.library.isFavorite(song))
+        XCTAssertFalse(context.library.isSuperLiked(song))
+        let demotedStore = LibraryStore(directory: context.directory)
+        XCTAssertEqual(demotedStore.favorites, [song])
+        XCTAssertTrue(demotedStore.superLikedIDs.isEmpty)
+
+        XCTAssertTrue(controller.handle(.init(action: .setSuperLiked(true), expectedTrackID: song.id), origin: .carPlay).accepted)
+        XCTAssertTrue(context.library.isSuperLiked(song))
+        let unliked = controller.handle(.init(action: .setFavorite(false), expectedTrackID: song.id), origin: .carPlay)
+        XCTAssertTrue(unliked.accepted)
+        XCTAssertEqual(unliked.snapshot.nowPlaying?.isFavorite, false, "Unliking removes the like and the super like")
+        XCTAssertEqual(unliked.snapshot.nowPlaying?.isSuperLiked, false)
+        XCTAssertFalse(context.library.isFavorite(song))
+        XCTAssertFalse(context.library.isSuperLiked(song))
+        let cleared = LibraryStore(directory: context.directory)
+        XCTAssertTrue(cleared.favorites.isEmpty)
+        XCTAssertTrue(cleared.superLikedIDs.isEmpty)
+
+        XCTAssertTrue(controller.handle(.init(action: .setFavorite(true), expectedTrackID: song.id)).accepted)
+        XCTAssertTrue(controller.handle(.init(action: .setSuperLiked(true), expectedTrackID: song.id)).accepted)
+        XCTAssertEqual(context.library.favorites, [song], "Promoting a liked song keeps one favorite entry")
+        XCTAssertTrue(context.library.isSuperLiked(song))
+        XCTAssertFalse(context.player.isPlaying)
+        XCTAssertFalse(context.player.isLoading)
+    }
+
+    func testSuperLikeWithoutACurrentTrackFailsWithNoTrackAndWritesNothing() throws {
+        let context = try makeContext()
+        let controller = CompanionPlaybackController(model: context.model)
+        XCTAssertNil(controller.snapshot.nowPlaying)
+        let bytes = try savedBytes(context)
+        for action in [CompanionAction.setSuperLiked(true), .setSuperLiked(false), .setFavorite(true)] {
+            let response = controller.handle(.init(action: action))
+            XCTAssertFalse(response.accepted, "\(action)")
+            XCTAssertEqual(response.error, "Choose a song on your iPhone or in the library first.", "\(action)")
+            XCTAssertNil(response.snapshot.libraryError, "\(action)")
+        }
+        XCTAssertTrue(context.library.favorites.isEmpty)
+        XCTAssertTrue(context.library.superLikedIDs.isEmpty)
+        XCTAssertEqual(try savedBytes(context), bytes)
+    }
+
+    func testFailedSuperLikeWriteIsRejectedWithTheLibraryErrorAndRetriesAfterRecovery() throws {
+        let song = libraryTestTrack()
+        let externalSong = libraryTestTrack("external")
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [song]))
+        let controller = CompanionPlaybackController(model: context.model)
+        LibraryStore(directory: context.directory).toggleFavorite(externalSong)
+        let externalBytes = try savedBytes(context)
+        let request = CompanionRequest(action: .setSuperLiked(true), expectedTrackID: song.id)
+        let rejected = controller.handle(request, origin: .carPlay)
+        XCTAssertFalse(rejected.accepted)
+        XCTAssertEqual(rejected.error, rejected.snapshot.libraryError)
+        XCTAssertEqual(rejected.snapshot.nowPlaying?.isFavorite, false)
+        XCTAssertEqual(rejected.snapshot.nowPlaying?.isSuperLiked, false)
+        XCTAssertNil(rejected.snapshot.nowPlaying?.errorMessage)
+        XCTAssertFalse(context.library.isSuperLiked(song))
+        XCTAssertTrue(context.library.requiresReload)
+        XCTAssertEqual(try savedBytes(context), externalBytes)
+        XCTAssertEqual(context.model.reloadSavedLibrary(), .reloaded)
+        assertSameReceipt(controller.handle(request, origin: .carPlay), rejected)
+        XCTAssertFalse(context.library.isSuperLiked(song))
+        let retried = controller.handle(.init(action: .setSuperLiked(true), expectedTrackID: song.id), origin: .carPlay)
+        XCTAssertTrue(retried.accepted)
+        XCTAssertNil(retried.snapshot.libraryError)
+        XCTAssertEqual(retried.snapshot.nowPlaying?.isSuperLiked, true)
+        let saved = LibraryStore(directory: context.directory)
+        XCTAssertEqual(Set(saved.favorites.map(\.id)), [song.id, externalSong.id])
+        XCTAssertEqual(saved.superLikedIDs, [song.id])
+    }
+
+    func testSuperLikeHonoursAFreshLeaseAndRejectsAnExpiredOneWithoutChangingTheTier() throws {
+        let song = libraryTestTrack()
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [song]))
+        var now = ContinuousClock.now
+        let controller = CompanionPlaybackController(model: context.model, monotonicNow: { now })
+        let lease = try XCTUnwrap(controller.handle(.init(action: .snapshot)).executionLease)
+        now = now.advanced(by: .milliseconds(5_999))
+        XCTAssertTrue(controller.handle(.init(action: .setSuperLiked(true), expectedTrackID: song.id, executionLease: lease)).accepted)
+        XCTAssertTrue(context.library.isSuperLiked(song))
+        let bytes = try savedBytes(context)
+        now = now.advanced(by: .milliseconds(1))
+        let expired = controller.handle(.init(action: .setSuperLiked(false), expectedTrackID: song.id, executionLease: lease))
+        XCTAssertFalse(expired.accepted)
+        XCTAssertEqual(expired.error, "This playback request expired. Refresh and try again.")
+        XCTAssertTrue(context.library.isSuperLiked(song))
+        XCTAssertTrue(context.library.isFavorite(song))
+        XCTAssertEqual(try savedBytes(context), bytes)
+        let foreign = CompanionExecutionLease(id: UUID(), sessionID: controller.snapshot.sessionID)
+        XCTAssertFalse(controller.handle(.init(action: .setSuperLiked(false), expectedTrackID: song.id, executionLease: foreign)).accepted)
+        XCTAssertTrue(context.library.isSuperLiked(song))
+        XCTAssertEqual(try savedBytes(context), bytes)
+    }
+
     func testCheckpointWriteFailureIsVisibleAlongsideTheActualLivePosition() throws {
         let song = libraryTestTrack()
         let context = try makeContext(snapshot: PlaybackSnapshot(queue: [song]))
@@ -312,7 +437,7 @@ final class CompanionPlaybackControllerTests: XCTestCase {
         let context = try makeContext(snapshot: PlaybackSnapshot(queue: songs, currentIndex: 1, position: 12))
         let controller = CompanionPlaybackController(model: context.model)
         let bytes = try savedBytes(context)
-        let actions: [CompanionAction] = [.play, .pause, .next, .previous, .seek(99), .setFavorite(true),
+        let actions: [CompanionAction] = [.play, .pause, .next, .previous, .seek(99), .setFavorite(true), .setSuperLiked(true),
                                           .setShuffle(true), .setRepeatMode(.all)]
         for action in actions {
             XCTAssertFalse(controller.handle(.init(action: action, expectedTrackID: songs[0].id)).accepted)
@@ -322,6 +447,7 @@ final class CompanionPlaybackControllerTests: XCTestCase {
         XCTAssertFalse(context.player.isLoading)
         XCTAssertFalse(context.player.shuffleEnabled)
         XCTAssertTrue(context.library.favorites.isEmpty)
+        XCTAssertTrue(context.library.superLikedIDs.isEmpty)
         XCTAssertEqual(try savedBytes(context), bytes)
     }
 
@@ -332,7 +458,8 @@ final class CompanionPlaybackControllerTests: XCTestCase {
         let root = try page("root", on: controller)
         let bytes = try savedBytes(context)
         let requests: [CompanionRequest] = [
-            .init(version: 2, action: .next), .init(action: .play, expectedTrackID: ""),
+            .init(version: 1, action: .next), .init(version: 3, action: .next), .init(version: 1, action: .setSuperLiked(true)),
+            .init(action: .play, expectedTrackID: ""),
             .init(action: .play, expectedTrackID: String(repeating: "x", count: 70_000)),
             .init(action: .seek(.nan)), .init(action: .seek(.infinity)), .init(action: .seek(-.infinity)),
             .init(action: .seek(-1)), .init(action: .seek(Double.greatestFiniteMagnitude)),
@@ -350,6 +477,7 @@ final class CompanionPlaybackControllerTests: XCTestCase {
         XCTAssertEqual(context.player.position, 12)
         XCTAssertEqual(context.player.queue.count, 1)
         XCTAssertFalse(context.player.isLoading)
+        XCTAssertTrue(context.library.superLikedIDs.isEmpty)
         XCTAssertEqual(try savedBytes(context), bytes)
     }
 
@@ -357,7 +485,7 @@ final class CompanionPlaybackControllerTests: XCTestCase {
         let context = try makeContext()
         let controller = CompanionPlaybackController(model: context.model)
         XCTAssertNil(controller.snapshot.nowPlaying)
-        for action in [CompanionAction.play, .pause, .next, .previous, .seek(0), .setFavorite(true)] {
+        for action in [CompanionAction.play, .pause, .next, .previous, .seek(0), .setFavorite(true), .setSuperLiked(true)] {
             XCTAssertFalse(controller.handle(.init(action: action)).accepted)
         }
         for location in ["favorites", "recent", "playlists", "queue"] {
@@ -706,8 +834,8 @@ final class CompanionPlaybackControllerTests: XCTestCase {
         let bytes = try savedBytes(context)
         let snapshot = controller.snapshot
         let actions: [CompanionAction] = [
-            .play, .pause, .next, .previous, .seek(99), .setFavorite(true), .setShuffle(true), .setRepeatMode(.one),
-            .playItem(location: "queue", itemID: queue.items[1].id, revision: queue.revision),
+            .play, .pause, .next, .previous, .seek(99), .setFavorite(true), .setSuperLiked(true), .setShuffle(true),
+            .setRepeatMode(.one), .playItem(location: "queue", itemID: queue.items[1].id, revision: queue.revision),
         ]
         for action in actions {
             let response = controller.handle(.init(action: action, expectedTrackID: songs[0].id, executionLease: lease))
@@ -724,6 +852,7 @@ final class CompanionPlaybackControllerTests: XCTestCase {
         XCTAssertFalse(context.player.shuffleEnabled)
         XCTAssertEqual(context.player.repeatMode, .off)
         XCTAssertTrue(context.library.favorites.isEmpty)
+        XCTAssertTrue(context.library.superLikedIDs.isEmpty)
     }
 
     func testUnknownWrongSessionAndForeignControllerLeasesCannotMutate() throws {
@@ -988,6 +1117,30 @@ final class CompanionPlaybackControllerTests: XCTestCase {
         XCTAssertNotNil(response.executionLease, file: file, line: line)
         XCTAssertEqual(response.executionLease?.sessionID, response.snapshot.sessionID, file: file, line: line)
         XCTAssertNotEqual(response.executionLease?.id, original.executionLease?.id, file: file, line: line)
+    }
+
+    func testEveryAppAccentProjectsToTheSameCompanionRawValue() {
+        XCTAssertEqual(AppAccent.allCases.map(\.companionAccent), CompanionAccent.allCases)
+        for accent in AppAccent.allCases { XCTAssertEqual(accent.companionAccent.rawValue, accent.rawValue) }
+    }
+
+    func testAccentPreferenceChangePublishesANewSnapshotWithoutOtherPreferenceChurn() async throws {
+        let context = try makeContext(snapshot: PlaybackSnapshot(queue: [libraryTestTrack()]))
+        let controller = CompanionPlaybackController(model: context.model)
+        var received: [CompanionSnapshot] = []
+        let observation = controller.observe { received.append($0) }
+        defer { controller.removeObserver(observation) }
+        XCTAssertEqual(received.last?.accent, context.library.preferences.accent.companionAccent)
+        let target: AppAccent = context.library.preferences.accent == .ocean ? .amber : .ocean
+        context.model.updatePreferences { $0.accent = target }
+        try await AppModelFixtures.eventually { received.last?.accent == target.companionAccent }
+        let sequence = try XCTUnwrap(received.last).sequence
+        XCTAssertEqual(controller.handle(.init(action: .snapshot)).snapshot.accent, target.companionAccent)
+
+        context.model.updatePreferences { $0.autoplay.toggle() }
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(received.last?.sequence, sequence, "Unrelated preferences do not produce a companion snapshot")
     }
 
     private func makeContext(languages: Set<MusicLanguage> = [.english], snapshot: PlaybackSnapshot = PlaybackSnapshot(),

@@ -45,6 +45,11 @@ protocol LyricsProviding: Sendable {
     func lyrics(for track: Track) async throws -> LyricsDocument
 }
 
+/// Optional discovery; existing consumers and providers keep the single-document contract.
+protocol LyricsVariantsProviding: LyricsProviding {
+    func lyricVariants(for track: Track) async throws -> [LyricsDocument]
+}
+
 /// Source encoding metadata is separate from YouTubeKit.Stream, whose signed URL must never enter a cache sidecar.
 struct SourceAudioQuality: Codable, Equatable, Sendable {
     enum Codec: String, Codable, Sendable {
@@ -91,6 +96,31 @@ struct SourceAudioQuality: Codable, Equatable, Sendable {
         return lhs?.codec != .opus && rhs?.codec == .opus
     }
 
+    /// Playback order under an optional ceiling (`AudioQualityPreference.maximumBitRate`): fitting formats best first,
+    /// then higher ones closest first so a song still plays when nothing fits; unknown bitrates cannot prove they fit.
+    static func ranked<Candidate>(_ candidates: [Candidate], maximumBitRate: Int?,
+                                  quality: (Candidate) -> SourceAudioQuality?) -> [Candidate] {
+        let ordered = candidates.sorted { prefers(quality($0), over: quality($1)) }
+        guard let maximumBitRate else { return ordered }
+        var fitting: [Candidate] = [], above: [Candidate] = [], unknown: [Candidate] = []
+        for candidate in ordered {
+            guard let bitRate = quality(candidate)?.bitRate else { unknown.append(candidate); continue }
+            if bitRate <= maximumBitRate { fitting.append(candidate) } else { above.append(candidate) }
+        }
+        let closest = above.sorted { lhs, rhs in
+            let left = quality(lhs)?.bitRate ?? 0, right = quality(rhs)?.bitRate ?? 0
+            if left != right { return left < right }
+            return quality(lhs)?.codec != .opus && quality(rhs)?.codec == .opus
+        }
+        return fitting + closest + unknown
+    }
+
+    /// True when `quality` is allowed to play under the ceiling; an absent ceiling or unknown bitrate never blocks.
+    static func fits(_ quality: SourceAudioQuality?, maximumBitRate: Int?) -> Bool {
+        guard let maximumBitRate, let bitRate = quality?.bitRate else { return true }
+        return bitRate <= maximumBitRate
+    }
+
     var summary: String {
         var parts = [bitRate.map { "\(Int((Double($0) / 1_000).rounded())) kbps \(codec.title)" } ?? codec.title]
         if let sampleRate {
@@ -99,6 +129,14 @@ struct SourceAudioQuality: Codable, Equatable, Sendable {
         }
         if let channels { parts.append(channels == 1 ? "Mono" : channels == 2 ? "Stereo" : "\(channels) channels") }
         return parts.joined(separator: " · ")
+    }
+
+    /// Acquisition provenance describes the playing bytes, never the catalog identity or measured output fidelity.
+    static func playbackSummary(quality: SourceAudioQuality?, catalogSource: MusicSource?, playbackSource: MusicSource?) -> String {
+        let encoding = quality?.summary ?? "Quality information unavailable"
+        guard let playbackSource else { return encoding + " · Playback source unknown" }
+        let provider = catalogSource == playbackSource ? playbackSource.title : "via \(playbackSource.title)"
+        return encoding + " · " + provider
     }
 
     private enum CodingKeys: String, CodingKey { case codec, bitRate, sampleRate, channels }
@@ -121,15 +159,23 @@ struct ResolvedStream: Sendable {
     /// Views of this recording/upload, not the provider's aggregate song plays. Cached streams retain old views.
     var viewCount: Int64?
     var quality: SourceAudioQuality?
+    /// The provider that supplied these bytes; nil means unknown, including legacy cached copies.
+    /// This is acquisition metadata, not a second catalog identity or a source inferred from the URL.
+    var playbackSource: MusicSource?
+    /// In-memory provenance of fresh YouTube extraction. Complete cached files cannot confirm compatibility updates.
+    var extractionGeneration: UInt64?
 
     init(url: URL, duration: TimeInterval? = nil, expiresAt: Date? = nil, loudnessDb: Double? = nil,
-         viewCount: Int64? = nil, quality: SourceAudioQuality? = nil) {
+         viewCount: Int64? = nil, quality: SourceAudioQuality? = nil, playbackSource: MusicSource? = nil,
+         extractionGeneration: UInt64? = nil) {
         self.url = url
         self.duration = duration
         self.expiresAt = expiresAt
         self.loudnessDb = loudnessDb
         self.viewCount = viewCount
         self.quality = quality
+        self.playbackSource = playbackSource
+        self.extractionGeneration = extractionGeneration
     }
 }
 

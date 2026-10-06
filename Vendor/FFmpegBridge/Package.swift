@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "FFmpegBridge",
-    platforms: [.iOS(.v18)],
+    platforms: [.iOS(.v18), .macCatalyst(.v18)],
     products: [
         .library(name: "FFmpegBridge", targets: ["FFmpegBridge"])
     ],

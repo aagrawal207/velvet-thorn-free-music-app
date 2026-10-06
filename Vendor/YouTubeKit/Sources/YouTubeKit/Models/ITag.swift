@@ -181,6 +181,7 @@ fileprivate let DASH_AUDIO: [Int: (Int?, Int?)] = [
     325: (nil, nil),  // MP4
     328: (nil, nil),  // MP4 (ec-3 surround)
     380: (nil, nil),  // MP4 (ac-3 surround)
+    774: (nil, 256),  // WEBM (opus, Premium high quality; Gana Bajana patch)
 ]
 
 fileprivate let ALL_ITAGS = PROGRESSIVE_VIDEO.merging(with: HLS_VIDEO).merging(with: DASH_VIDEO).merging(with: DASH_AUDIO)

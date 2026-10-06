@@ -14,6 +14,10 @@ struct LyricsAttributionView: View {
             } else {
                 Text("Lyrics · \(document.source)")
             }
+            if let credit = document.attributionText, !credit.isEmpty {
+                Text(credit).fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("lyrics.copyright")
+            }
             if let title = document.matchedTitle, let artist = document.matchedArtist {
                 Text("Matched: \(title) · \(artist)").fixedSize(horizontal: false, vertical: true)
             }
@@ -21,5 +25,6 @@ struct LyricsAttributionView: View {
         .appFont(.caption)
         .foregroundStyle(AppTheme.secondaryText)
         .tint(AppTheme.accent)
+        .accessibilityIdentifier("lyrics.attribution")
     }
 }

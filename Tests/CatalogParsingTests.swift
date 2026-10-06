@@ -77,7 +77,7 @@ final class CatalogParsingTests: XCTestCase {
                        "The older straplineText key still credits the album")
         let playlist = try CatalogParser.browse(root, id: "VLPLtest")
         XCTAssertTrue(playlist.credits.isEmpty, "Only album pages take the header artist as credits")
-        XCTAssertTrue(playlist.tracks.isEmpty, "Outside an album, rows without an ATV confirmation stay out")
+        XCTAssertTrue(playlist.tracks.isEmpty, "Outside an album, rows with neither an ATV confirmation nor a video entry type stay out")
     }
 
     func testInheritedAlbumContextCannotLeakIntoAnotherAlbumOrAPlaylist() throws {
@@ -196,6 +196,100 @@ final class CatalogParsingTests: XCTestCase {
         XCTAssertNil(terminal.continuation)
         let continued = try CatalogParser.search(CatalogFixtures.json(CatalogFixtures.search([CatalogFixtures.song()], continued: true)), filter: .songs)
         XCTAssertEqual(continued.tracks.count, 1)
+    }
+
+    /// Recorded 26 September 2026 from a live `bollywood party` playlists search: a community `VLPL…` playlist page
+    /// in the two-column layout, header in the tab and `musicPlaylistShelfRenderer` rows in `secondaryContents`.
+    func testRecordedCommunityPlaylistPageParsesEveryAudioRow() throws {
+        let root = try recordedPage("youtube-playlist-browse-bollywood-party")
+        let id = "VLPLCIh8-uf9gCfBR8HwjHjUWgp55gosCk5S"
+        let page = try CatalogParser.browse(root, id: id)
+        XCTAssertEqual(page.title, "Bollywood Party songs")
+        XCTAssertEqual(page.tracks.map(\.id), ["_wMsvhz8YSk", "ATS1d6E-ivs", "2wqXLa3vCk0", "pwKmLIPvEjI", "lshhwnuUUO8"])
+        XCTAssertEqual(page.tracks.map(\.title), ["Subha Hone Na De", "TAINU LEKE", "GALLAN GOODIYAAN", "Badtameez Dil", "Allah Maaf Kare"])
+        XCTAssertEqual(page.tracks.map(\.duration), [289, 274, 297, 253, 231])
+        XCTAssertTrue(page.tracks.allSatisfy { $0.isAudioRecording == true }, "Every row plays an ATV recording")
+        XCTAssertTrue(page.tracks.allSatisfy { $0.artworkURL != nil })
+        XCTAssertTrue(page.tracks.allSatisfy { !$0.credits.isEmpty && $0.credits.allSatisfy { $0.id != nil } },
+                      "Playlist rows link every byline artist")
+        let first = try XCTUnwrap(page.tracks.first)
+        XCTAssertEqual(first.credits.map(\.name), ["Pritam", "Mika Singh", "Shefali Alvares", "Kumaar"])
+        XCTAssertEqual(first.albumTitle, "Desi Boyz")
+        XCTAssertEqual(first.albumID, "MPREb_gsanLGq7mNw")
+        XCTAssertNil(first.playCount, "Playlist rows carry no play column; a duration must not be read as a count")
+        XCTAssertTrue(page.credits.isEmpty, "A playlist header names its owner, not album credits")
+        XCTAssertTrue(page.collections.isEmpty)
+        XCTAssertNil(page.continuation, "The section-level token is not a tracks continuation")
+        XCTAssertNil(page.albumDescription)
+        XCTAssertEqual(CatalogParser.audioCandidateIDs(root), page.tracks.map(\.id),
+                       "Confirmed rows need no get_queue confirmation")
+        XCTAssertTrue(CatalogParser.rowContext(root, id: id).credits.isEmpty)
+    }
+
+    /// Recorded 26 September 2026 from the live playlists search that reproduced R13 item 9: every row is a user
+    /// upload (`MUSIC_VIDEO_TYPE_UGC`) with no credits link, so the audio-only rule emptied the page.
+    func testRecordedUploadOnlyPlaylistKeepsItsVideoEntries() throws {
+        let root = try recordedPage("youtube-playlist-browse-ugc-remixes")
+        let id = "VLPLVet2itwf3Bc-oJjmFAPgMy6rnTv1ZKwU"
+        let page = try CatalogParser.browse(root, id: id)
+        XCTAssertEqual(page.title, "BOLLYWOOD HINDI REMIX ☼ NONSTOP DANCE PARTY DJ MIX ☼ BEST REMIXES OF BOLLYWOOD SONG 2020")
+        XCTAssertEqual(page.tracks.map(\.id), ["bt8V9TpH9FI", "qQe9qBqT7gQ", "THJ3k4odiLs", "29cWy0bhwUo"])
+        XCTAssertEqual(page.tracks.map(\.duration), [3_336, 6_128, 4_017, 2_826], "Hour-long uploads keep their real length")
+        XCTAssertTrue(page.tracks.allSatisfy { $0.isAudioRecording == false }, "Uploads are video entries, never confirmed audio")
+        XCTAssertTrue(page.tracks.allSatisfy { $0.artworkURL?.host == "i.ytimg.com" })
+        XCTAssertEqual(page.tracks.first?.title, "NEW HINDI REMIX MASHUP SONG  \"Remix\" - Mashup - \"Dj Party\" Best HINDI Songs Mashup")
+        XCTAssertEqual(page.tracks.first?.credits, [ArtistCredit(name: "Bollywood Remix Songs - DJ", id: "UCFMk0ShNzNABiT8jJjqgi8Q")],
+                       "The uploader channel is the provider's own byline")
+        XCTAssertTrue(page.tracks.allSatisfy { $0.playCount == nil && $0.albumID == nil })
+        XCTAssertEqual(CatalogParser.browseRowCandidates(root, inheriting: CatalogParser.rowContext(root, id: id)),
+                       page.tracks.map { [$0.id] }, "Without credits links each row can only be itself")
+        XCTAssertTrue(CatalogParser.audioCandidateIDs(root).isEmpty, "The audio-only view still has nothing to confirm")
+        XCTAssertTrue(try CatalogParser.browse(root, id: CatalogFixtures.albumID).tracks.isEmpty,
+                      "The same rows on an album page stay excluded")
+    }
+
+    func testPlaylistPagesKeepVideoEntriesWhileOtherPagesStayAudioOnly() throws {
+        let rows = CatalogPlaylistFixtures.mixedRows()
+        let root = try CatalogFixtures.json(CatalogFixtures.browse(rows))
+        let playlist = try CatalogParser.browse(root, id: CatalogPlaylistFixtures.playlistID)
+        XCTAssertEqual(playlist.tracks.map(\.id), [CatalogFixtures.hindiID, "ogBQ3VymYbk", CatalogPlaylistFixtures.uploadID, CatalogPlaylistFixtures.clipID],
+                       "Podcast-typed and greyed-out rows stay out; audio, videos and uploads keep the owner's order")
+        XCTAssertEqual(playlist.tracks.map(\.isAudioRecording), [true, false, false, false])
+        XCTAssertEqual(playlist.tracks.map(\.duration), [262, 231, 3_336, 268])
+        XCTAssertEqual(playlist.tracks[2].credits, [ArtistCredit(name: "Bollywood Remix Songs - DJ", id: CatalogPlaylistFixtures.channelID)])
+        XCTAssertTrue(playlist.tracks.allSatisfy { $0.artworkURL != nil })
+        let context = CatalogParser.rowContext(root, id: CatalogPlaylistFixtures.playlistID)
+        XCTAssertTrue(context.keepsVideoRows)
+        XCTAssertNil(context.albumID)
+        XCTAssertEqual(CatalogParser.browseRowCandidates(root, inheriting: context),
+                       [[CatalogFixtures.hindiID], ["ogBQ3VymYbk"], [CatalogPlaylistFixtures.uploadID], ["NJAv_7lHUIU", CatalogPlaylistFixtures.clipID]],
+                       "A credits-linked album recording is tried before the row's own video entry")
+
+        for id in [CatalogFixtures.albumID, CatalogFixtures.arijitID, "MPADfixtureArtistPage"] {
+            let page = try CatalogParser.browse(root, id: id)
+            XCTAssertEqual(page.tracks.map(\.id), [CatalogFixtures.hindiID], "\(id): explicit video rows are not album or artist songs")
+            XCTAssertFalse(CatalogParser.rowContext(root, id: id).keepsVideoRows, id)
+        }
+        XCTAssertEqual(CatalogParser.audioCandidateIDs(root), [CatalogFixtures.hindiID, "NJAv_7lHUIU"],
+                       "The audio-only candidate order is unchanged: confirmed rows plus credits links")
+        let search = try CatalogParser.search(CatalogFixtures.json(CatalogFixtures.search(rows)), filter: .songs)
+        XCTAssertEqual(search.tracks.map(\.id), [CatalogFixtures.hindiID], "Songs search results keep album audio only")
+        let queue = try CatalogParser.queue(CatalogFixtures.json(CatalogFixtures.queue([
+            CatalogFixtures.radioTrack(id: "ogBQ3VymYbk", title: "Kabhi Kabhi", artist: "Vishal", type: "MUSIC_VIDEO_TYPE_OMV"),
+        ])), inheriting: context)
+        XCTAssertEqual(queue.map(\.isAudioRecording), [false], "get_queue metadata for a video entry cannot confirm it as audio")
+    }
+
+    func testPlaylistContinuationPagesKeepVideoEntriesAndAlbumContinuationsDoNot() throws {
+        let next = try CatalogFixtures.json(["onResponseReceivedActions": [["appendContinuationItemsAction": ["continuationItems": [
+            CatalogPlaylistFixtures.row(id: CatalogPlaylistFixtures.uploadID, title: "Upload", type: "MUSIC_VIDEO_TYPE_UGC",
+                                        byline: CatalogPlaylistFixtures.channelByline()),
+        ]]]]])
+        let playlistContext = CatalogParser.rowContext(next, id: CatalogPlaylistFixtures.playlistID,
+                                                       inheriting: CatalogParser.rowContext(next, id: CatalogPlaylistFixtures.playlistID))
+        XCTAssertEqual(try CatalogParser.browse(next, id: CatalogPlaylistFixtures.playlistID, inheriting: playlistContext).tracks.map(\.isAudioRecording), [false])
+        let albumContext = CatalogParser.rowContext(next, id: CatalogFixtures.albumID)
+        XCTAssertTrue(try CatalogParser.browse(next, id: CatalogFixtures.albumID, inheriting: albumContext).tracks.isEmpty)
     }
 
     func testContinuationInsideCommandExecutorDoesNotInvokeOtherCommands() throws {
@@ -556,5 +650,12 @@ final class CatalogParsingTests: XCTestCase {
 
     private func parseChart(_ object: [String: Any]) throws -> ChartSnapshot {
         try CatalogChartParser.parseSongChart(CatalogFixtures.json(object), language: .hindi, region: "in", fetchedAt: Date())
+    }
+
+    private func recordedPage(_ file: String) throws -> CatalogJSON {
+        let bundle = Bundle(for: Self.self)
+        let url = try XCTUnwrap(bundle.url(forResource: file, withExtension: "json")
+            ?? bundle.url(forResource: file, withExtension: "json", subdirectory: "Fixtures"))
+        return try CatalogJSON.decode(Data(contentsOf: url))
     }
 }

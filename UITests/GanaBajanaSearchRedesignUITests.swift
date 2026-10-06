@@ -5,32 +5,33 @@ import XCTest
 final class GanaBajanaSearchRedesignUITests: XCTestCase {
     override func setUpWithError() throws { continueAfterFailure = false }
 
-    func testBlankSearchStartsWithLiveLibraryShortcutsWithoutFiltersOrStaticSuggestions() throws {
+    func testBlankSearchStartsWithRadioPlaylistsAndRecentsWithoutLibraryCardsFiltersOrStaticSuggestions() throws {
         let ui = makeDriver()
         try launch(ui)
         try selectTab("search", ui: ui)
         try ui.requireHittable(ui.app.textFields["search.field"])
         XCTAssertFalse(ui.app.keyboards.firstMatch.exists, "The first Search tap should leave the keyboard closed")
-        try assertTarget(ui.app.buttons["search.library.likes"], ui: ui)
-        try assertTarget(ui.app.buttons["search.library.cached"], ui: ui)
-        XCTAssertTrue(ui.app.buttons["search.library.likes"].label.contains("5 songs"))
+        let radio = ui.app.buttons["search.radio.open"]
+        try assertTarget(radio, ui: ui)
+        // R13 item 3: liked, cached and library shortcuts belong to the Library tab now.
+        for id in ["search.library.likes", "search.library.cached", "search.library.open"] {
+            XCTAssertFalse(ui.app.buttons[id].exists, "\(id) must not return to the Search start screen")
+        }
         let playlist = searchPlaylist(ui)
         try ui.reveal(playlist)
         XCTAssertTrue(playlist.label.contains(AppUIFixture.seededPlaylist))
         XCTAssertTrue(playlist.label.contains("Playlist"))
-        XCTAssertGreaterThan(playlist.frame.minY, ui.app.buttons["search.library.likes"].frame.minY)
-        try ui.reveal(ui.app.buttons["search.library.open"])
-        try assertTarget(ui.app.buttons["search.library.open"], ui: ui)
-        try ui.reveal(ui.app.buttons["search.radio.open"])
-        try assertTarget(ui.app.buttons["search.radio.open"], ui: ui)
+        XCTAssertGreaterThan(playlist.frame.minY, radio.frame.maxY - 1, "Radio leads, then the playlists")
         try ui.reveal(ui.app.staticTexts["search.recents.empty"])
+        XCTAssertGreaterThan(ui.app.staticTexts["search.recents.empty"].frame.minY, playlist.frame.minY)
         assertNoFilters(ui)
         XCTAssertFalse(ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.suggestion.")).firstMatch.exists)
-        XCTAssertFalse(ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "search.station.")).firstMatch.exists)
+        XCTAssertFalse(ui.element("search.radio.content").exists)
+        XCTAssertFalse(ui.app.searchFields["Songs or artists"].exists)
         XCTAssertFalse(ui.app.staticTexts["Start somewhere good"].exists)
         XCTAssertFalse(ui.app.staticTexts["Find somewhere good"].exists)
         XCTAssertFalse(ui.app.staticTexts["Recent searches"].exists)
-        ui.capture("library-led-blank-search")
+        ui.capture("radio-led-blank-search")
     }
 
     func testAllResultKindsPersistIndependentlyAndRemovalAndClearSurviveRelaunch() throws {
@@ -101,7 +102,7 @@ final class GanaBajanaSearchRedesignUITests: XCTestCase {
         try selectTab("search", ui: ui)
         try ui.reveal(ui.app.staticTexts["search.recents.empty"])
         XCTAssertEqual(recentButtons(ui).count, 0)
-        XCTAssertTrue(ui.app.buttons["search.library.likes"].label.contains("5 songs"))
+        XCTAssertTrue(ui.app.buttons["search.radio.open"].exists)
         XCTAssertTrue(searchPlaylist(ui).exists)
     }
 
@@ -233,18 +234,18 @@ final class GanaBajanaSearchRedesignUITests: XCTestCase {
         XCTAssertEqual(results.allElementsBoundByIndex.map(\.identifier), expectedIDs)
     }
 
-    func testFindMusicFromEmptyLikedShortcutReturnsToBlankSearch() throws {
+    func testFindMusicFromEmptyLikedSongsReturnsToBlankSearch() throws {
         let ui = makeDriver()
         try launch(ui)
-        try selectTab("search", ui: ui)
-        try ui.tap(ui.app.buttons["search.library.likes"])
-        try ui.wait("The Search shortcut must open liked songs") { ui.app.navigationBars["Liked songs"].exists }
+        try selectTab("library", ui: ui)
+        try ui.tap(ui.app.buttons["library.likes"])
+        try ui.wait("The Library card must open liked songs") { ui.app.navigationBars["Liked Songs"].exists }
         for id in [AppUIFixture.shapeOfYou, AppUIFixture.blindingLights, AppUIFixture.agarTumSaathHo,
                    AppUIFixture.kesariya, AppUIFixture.tumHiHo] {
             let options = ui.app.buttons["track.options.\(id)"]
             try ui.reveal(options)
             try ui.tap(options)
-            try ui.tap(ui.app.buttons["Remove from liked songs"])
+            try ui.tap(ui.app.buttons["Remove from Liked Songs"])
             try ui.wait("Removing a like must remove that recording from this page") {
                 !ui.app.buttons["track.play.\(id)"].exists
             }
@@ -252,14 +253,15 @@ final class GanaBajanaSearchRedesignUITests: XCTestCase {
         let findMusic = ui.app.buttons["library.likes.findMusic"]
         try ui.reveal(findMusic)
         XCTAssertEqual(ui.app.staticTexts["library.likes.count"].label, "0 songs")
-        ui.capture("search-empty-liked-shortcut-find-music")
+        ui.capture("library-empty-liked-songs-find-music")
         try ui.tap(findMusic)
         try ui.requireHittable(ui.app.textFields["search.field"])
-        XCTAssertFalse(ui.app.navigationBars["Liked songs"].exists)
+        XCTAssertFalse(ui.app.navigationBars["Liked Songs"].exists)
         assertEmptyQuery(ui)
         assertNoFilters(ui)
         XCTAssertFalse(ui.app.keyboards.firstMatch.exists)
-        XCTAssertTrue(ui.app.buttons["search.library.likes"].label.contains("0 songs"))
+        XCTAssertTrue(ui.app.buttons["search.radio.open"].exists)
+        XCTAssertFalse(ui.app.buttons["search.library.likes"].exists)
         XCTAssertEqual(recentButtons(ui).count, 0)
         ui.capture("search-root-after-empty-likes-find-music")
     }
@@ -274,11 +276,11 @@ final class GanaBajanaSearchRedesignUITests: XCTestCase {
         try ui.reveal(ui.app.buttons["library.playlist.addSongs"])
         try ui.tap(ui.app.buttons["library.playlist.addSongs"])
         try ui.wait("Add songs must open from the Search playlist shortcut") {
-            ui.app.navigationBars["Add songs"].exists && ui.app.buttons["library.playlist.addDone"].exists
+            ui.app.navigationBars["Add Songs"].exists && ui.app.buttons["library.playlist.addDone"].exists
         }
         try ui.tap(ui.app.buttons["library.playlist.searchMusic"])
         try ui.requireHittable(ui.app.textFields["search.field"])
-        XCTAssertFalse(ui.app.navigationBars["Add songs"].exists)
+        XCTAssertFalse(ui.app.navigationBars["Add Songs"].exists)
         XCTAssertFalse(ui.app.navigationBars[AppUIFixture.seededPlaylist].exists)
         XCTAssertFalse(ui.app.buttons["library.playlist.addDone"].exists)
         assertEmptyQuery(ui)
@@ -294,11 +296,13 @@ final class GanaBajanaSearchRedesignUITests: XCTestCase {
         let ui = makeDriver()
         try launch(ui)
         try selectTab("search", ui: ui)
+        // Liked songs opens from its Library card; the playlist keeps its Search shortcut.
         let shortcuts = [
-            (id: "search.library.likes", scope: "library.likes", title: "Liked songs"),
-            (id: searchPlaylist(ui).identifier, scope: "library.playlist", title: AppUIFixture.seededPlaylist)
+            (id: "library.likes", tab: "library", scope: "library.likes", title: "Liked Songs"),
+            (id: searchPlaylist(ui).identifier, tab: "search", scope: "library.playlist", title: AppUIFixture.seededPlaylist)
         ]
         for shortcut in shortcuts {
+            try selectTab(shortcut.tab, ui: ui)
             try ui.reveal(ui.app.buttons[shortcut.id])
             try ui.tap(ui.app.buttons[shortcut.id])
             try ui.wait("The library shortcut must open its own page") { ui.app.navigationBars[shortcut.title].exists }
@@ -321,28 +325,23 @@ final class GanaBajanaSearchRedesignUITests: XCTestCase {
             try ui.wait("Cancel must dismiss local search and its keyboard") {
                 !field.exists && !ui.app.keyboards.firstMatch.exists
             }
-            try backToSearch(ui)
+            if shortcut.tab == "search" {
+                try backToSearch(ui)
+            } else {
+                try ui.tap(ui.app.navigationBars[shortcut.title].buttons.firstMatch)
+                try ui.wait("Back must return to the Library root") { !ui.app.navigationBars[shortcut.title].exists }
+                try selectTab("search", ui: ui)
+            }
             assertEmptyQuery(ui)
             assertNoFilters(ui)
         }
         XCTAssertEqual(recentButtons(ui).count, 0)
     }
 
-    func testLibraryShortcutsShowLiveEditsAndYourLibraryResetsItsNavigation() throws {
+    func testPlaylistShortcutsShowLiveEditsAndSurviveRelaunch() throws {
         let ui = makeDriver()
         try launch(ui)
         try selectTab("search", ui: ui)
-        let likes = ui.app.buttons["search.library.likes"]
-        try ui.tap(likes)
-        try ui.wait("The shortcut must open the live liked-song page") { ui.app.navigationBars["Liked songs"].exists }
-        try ui.reveal(ui.app.buttons["track.options.\(AppUIFixture.tumHiHo)"])
-        try ui.tap(ui.app.buttons["track.options.\(AppUIFixture.tumHiHo)"])
-        try ui.tap(ui.app.buttons["Remove from liked songs"])
-        try ui.reveal(ui.app.staticTexts["library.likes.count"], direction: .down)
-        XCTAssertEqual(ui.app.staticTexts["library.likes.count"].label, "4 songs")
-        try backToSearch(ui)
-        XCTAssertTrue(likes.label.contains("4 songs"))
-
         let playlist = searchPlaylist(ui)
         try ui.reveal(playlist)
         let shortcutID = playlist.identifier
@@ -360,63 +359,66 @@ final class GanaBajanaSearchRedesignUITests: XCTestCase {
         try backToSearch(ui)
         try ui.reveal(ui.app.buttons[shortcutID])
         XCTAssertTrue(ui.app.buttons[shortcutID].label.contains("Renamed from Search"))
-
-        try selectTab("library", ui: ui)
-        try ui.tap(ui.app.buttons["library.likes"])
-        try ui.wait("The Library tab must have a pushed destination before reset") { ui.app.navigationBars["Liked songs"].exists }
-        try selectTab("search", ui: ui)
-        try ui.reveal(ui.app.buttons["search.library.open"])
-        try ui.tap(ui.app.buttons["search.library.open"])
-        try ui.wait("Your library must select Library and return to its root") {
-            ui.element("library.screen").exists && ui.app.buttons["library.createPlaylist"].exists
-                && !ui.app.navigationBars["Liked songs"].exists
-        }
         XCTAssertFalse(ui.app.keyboards.firstMatch.exists)
+
         try launch(ui, reset: false)
         try selectTab("search", ui: ui)
         try ui.reveal(ui.app.buttons[shortcutID])
         XCTAssertTrue(ui.app.buttons[shortcutID].label.contains("Renamed from Search"))
-        XCTAssertTrue(likes.label.contains("4 songs"))
         XCTAssertEqual(recentButtons(ui).count, 0, "Library navigation is separate from opened catalog results")
     }
 
-    func testSearchReselectPopsLocalLikedPlaylistCachedAndRadioPages() throws {
+    func testSearchReselectPopsLocalPlaylistAndRadioPages() throws {
         let ui = makeDriver()
         try launch(ui)
         try selectTab("search", ui: ui)
         let playlistID = searchPlaylist(ui).identifier
-        for id in ["search.library.likes", playlistID, "search.library.cached", "search.radio.open"] {
+        for id in [playlistID, "search.radio.open"] {
             let shortcut = ui.app.buttons[id]
             try ui.reveal(shortcut)
             try ui.tap(shortcut)
             try ui.wait("A shortcut must leave the Search root") {
                 !ui.app.textFields["search.field"].exists && ui.app.navigationBars.firstMatch.exists
             }
+            if id == "search.radio.open" {
+                try ui.requireHittable(ui.app.searchFields["Songs or artists"])
+                try assertTarget(ui.app.buttons["radio.search.type"], ui: ui)
+                XCTAssertTrue(ui.app.navigationBars["Radio"].exists)
+                XCTAssertFalse(ui.app.buttons["player.close"].exists)
+            }
             try selectTab("search", ui: ui)
-            try expectFocusedSearchAtTop(ui, firstID: "search.library.likes")
+            try expectFocusedSearchAtTop(ui, firstID: "search.radio.open")
+            XCTAssertFalse(ui.app.searchFields["Songs or artists"].exists)
             assertEmptyQuery(ui)
             try dismissKeyboard(ui)
             XCTAssertFalse(ui.app.buttons["search.dismissKeyboard"].exists, "The consumed request must not refocus after Done")
         }
     }
 
-    func testOfflineSearchShowsCachedShortcutAndDeduplicatedLocalTitleArtistAndAlbumMatches() throws {
+    func testOfflineSearchRoutesCachedSongsThroughTheBannerAndDeduplicatesLocalMatches() throws {
         let ui = makeDriver()
         try launch(ui, arguments: ["--offline-fixture", "--cached-songs-fixture"])
         try selectTab("search", ui: ui)
         try ui.requireHittable(ui.element("search.offline"))
         XCTAssertTrue(ui.element("search.offline").label.contains("You’re offline"))
-        try ui.reveal(ui.app.buttons["search.library.cached"])
-        try ui.tap(ui.app.buttons["search.library.cached"])
-        try ui.wait("The cached shortcut must open local cache contents") { ui.app.navigationBars["Cached songs"].exists }
-        let cachedSong = ui.app.buttons["cachedSongs.play.\(AppUIFixture.tumHiHo)"]
+        XCTAssertFalse(ui.app.buttons["search.library.cached"].exists, "Cached songs is a Library entry now")
+        let banner = ui.app.buttons["offline.onThisDevice"]
+        try ui.requireHittable(banner)
+        try ui.tap(banner)
+        try ui.wait("The banner must open the Library's On this device page") {
+            ui.app.navigationBars["On This Device"].exists && ui.app.buttons["tab.library"].firstMatch.isSelected
+        }
+        XCTAssertTrue(ui.element("offline.status").exists)
+        XCTAssertFalse(banner.exists, "No banner action while that page is open")
+        let cachedSong = ui.app.buttons["onThisDevice.row.\(AppUIFixture.tumHiHo)"]
         try ui.reveal(cachedSong)
         try ui.tap(cachedSong)
         try ui.wait("The real cached fixture must play without a connection", timeout: 20) {
             let mini = ui.app.buttons["miniPlayer.open"]
             return mini.exists && mini.label.contains("Tum Hi Ho") && (mini.value as? String)?.hasPrefix("Playing") == true
         }
-        try backToSearch(ui)
+        try selectTab("search", ui: ui)
+        try ui.requireHittable(ui.app.textFields["search.field"])
         let cases = [(query: "TÚM", count: 2), (query: "aRIJÍT", count: 3), (query: "tÁMÁSHA", count: 1)]
         for item in cases {
             try replaceQuery(item.query, ui: ui)
@@ -427,21 +429,23 @@ final class GanaBajanaSearchRedesignUITests: XCTestCase {
             XCTAssertFalse(ui.element("search.progress").exists)
             XCTAssertFalse(ui.app.buttons["search.retry"].exists)
             XCTAssertFalse(ui.app.staticTexts["Search couldn't finish"].exists)
-            XCTAssertTrue(ui.app.buttons["search.library.cached"].exists)
+            XCTAssertFalse(ui.app.buttons["search.library.cached"].exists)
+            XCTAssertFalse(ui.app.buttons["search.library.open"].exists)
+            XCTAssertTrue(banner.exists, "Offline results rely on the banner for the Cached songs route")
         }
         try replaceQuery("No saved recording matches this", ui: ui)
         try ui.reveal(ui.element("search.offline.empty"))
         XCTAssertFalse(ui.app.buttons["search.retry"].exists)
         try clearQuery(ui)
-        try ui.reveal(ui.app.buttons["search.library.likes"])
-        ui.capture("offline-local-search-and-cache-shortcut")
+        try ui.reveal(ui.app.buttons["search.radio.open"])
+        ui.capture("offline-local-search-with-banner-route")
     }
 
     func testLargeDynamicTypeKeepsSearchLibraryAndRecentControlsReachableOnPhoneAndIPad() throws {
         let ui = makeDriver()
         try launch(ui, arguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         try selectTab("search", ui: ui)
-        for id in ["search.library.likes", "search.library.cached", "search.radio.open"] {
+        for id in ["search.radio.open", searchPlaylist(ui).identifier] {
             try ui.reveal(ui.app.buttons[id], maxSwipes: 20)
             try assertTarget(ui.app.buttons[id], ui: ui)
         }

@@ -11,15 +11,16 @@ final class CompanionProtocolTests: XCTestCase {
         let playlist = "playlist:\(UUID().uuidString)"
         let actions: [CompanionAction] = [
             .snapshot, .browse("root"), .browse(playlist), .play, .pause, .next, .previous, .seek(12.75),
-            .setFavorite(true), .setFavorite(false), .setShuffle(true), .setShuffle(false),
-            .setRepeatMode(.off), .setRepeatMode(.all), .setRepeatMode(.one),
+            .setFavorite(true), .setFavorite(false), .setSuperLiked(true), .setSuperLiked(false),
+            .setShuffle(true), .setShuffle(false), .setRepeatMode(.off), .setRepeatMode(.all), .setRepeatMode(.one),
             .playItem(location: "queue", itemID: "item:2", revision: "content-revision"),
         ]
         for action in actions {
             let request = CompanionRequest(action: action, expectedTrackID: "recording-id")
             let decoded = try CompanionWire.decode(CompanionRequest.self, from: CompanionWire.encode(request))
             XCTAssertEqual(decoded, request)
-            XCTAssertEqual(decoded.version, 1)
+            XCTAssertEqual(decoded.version, CompanionWire.version)
+            XCTAssertEqual(decoded.version, 2)
         }
         let first = CompanionRequest(action: .snapshot)
         let second = CompanionRequest(action: .snapshot)
@@ -27,21 +28,55 @@ final class CompanionProtocolTests: XCTestCase {
         XCTAssertNil(first.expectedTrackID)
     }
 
-    func testVersionOneFixturesKeepSynthesizedEnumWireShape() throws {
+    func testVersionTwoFixturesKeepSynthesizedEnumWireShape() throws {
         let id = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
         let seek = Data("""
-        {"version":1,"id":"\(id.uuidString)","action":{"seek":{"_0":42.25}},"expectedTrackID":"song"}
+        {"version":2,"id":"\(id.uuidString)","action":{"seek":{"_0":42.25}},"expectedTrackID":"song"}
         """.utf8)
         XCTAssertEqual(try CompanionWire.decode(CompanionRequest.self, from: seek),
                        CompanionRequest(id: id, action: .seek(42.25), expectedTrackID: "song"))
+        let superLike = Data("""
+        {"version":2,"id":"\(id.uuidString)","action":{"setSuperLiked":{"_0":true}},"expectedTrackID":"song"}
+        """.utf8)
+        XCTAssertEqual(try CompanionWire.decode(CompanionRequest.self, from: superLike),
+                       CompanionRequest(id: id, action: .setSuperLiked(true), expectedTrackID: "song"))
         let selection = CompanionRequest(id: id, action: .playItem(location: "favorites", itemID: "item:0", revision: "rev"))
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: CompanionWire.encode(selection)) as? [String: Any])
+        XCTAssertEqual(object["version"] as? Int, 2)
         let action = try XCTUnwrap(object["action"] as? [String: Any])
         let arguments = try XCTUnwrap(action["playItem"] as? [String: String])
         XCTAssertEqual(arguments, ["location": "favorites", "itemID": "item:0", "revision": "rev"])
+        let demotion = CompanionRequest(id: id, action: .setSuperLiked(false))
+        let demotionObject = try XCTUnwrap(JSONSerialization.jsonObject(with: CompanionWire.encode(demotion)) as? [String: Any])
+        XCTAssertEqual(demotionObject["version"] as? Int, 2)
+        let demotionAction = try XCTUnwrap(demotionObject["action"] as? [String: Any])
+        XCTAssertEqual(demotionAction.keys.sorted(), ["setSuperLiked"])
+        XCTAssertEqual(demotionAction["setSuperLiked"] as? [String: Bool], ["_0": false])
         for mode in [CompanionRepeatMode.off, .all, .one] {
             XCTAssertEqual(String(decoding: try CompanionWire.encode(mode), as: UTF8.self), "\"\(mode.rawValue)\"")
         }
+    }
+
+    func testVersionOneRequestsAreUnsupportedWhileVersionTwoIsSent() throws {
+        let id = UUID().uuidString
+        for action in [#"{"play":{}}"#, #"{"setFavorite":{"_0":true}}"#, #"{"setSuperLiked":{"_0":true}}"#, #"{"snapshot":{}}"#] {
+            for version in [0, 1, 3] {
+                let data = Data("{\"version\":\(version),\"id\":\"\(id)\",\"action\":\(action)}".utf8)
+                XCTAssertThrowsError(try CompanionWire.decode(CompanionRequest.self, from: data), "\(version) \(action)") { error in
+                    XCTAssertEqual(error as? CompanionWireError, .unsupportedVersion, "\(version) \(action)")
+                }
+            }
+        }
+        for version in [0, 1, 3] {
+            XCTAssertThrowsError(try CompanionRequest(version: version, action: .play).validate()) { error in
+                XCTAssertEqual(error as? CompanionWireError, .unsupportedVersion)
+            }
+        }
+        XCTAssertEqual(CompanionRequest(action: .setSuperLiked(true)).version, 2)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: CompanionWire.encode(CompanionRequest(action: .play))) as? [String: Any])
+        XCTAssertEqual(object["version"] as? Int, 2)
+        XCTAssertEqual(CompanionWireError.unsupportedVersion.errorDescription,
+                       "Update Velvet Thorn on your iPhone and Apple Watch to use these controls.")
     }
 
     func testResponseAndSnapshotCanRoundTripOffTheMainActor() async throws {
@@ -75,27 +110,33 @@ final class CompanionProtocolTests: XCTestCase {
             #"{"seek":{}}"#, #"{"seek":{"_0":"12"}}"#, #"{"seek":{"_0":"NaN"}}"#,
             #"{"seek":{"_0":-1}}"#, #"{"seek":{"_0":12,"other":42}}"#,
             #"{"setFavorite":{"_0":1}}"#, #"{"setRepeatMode":{"_0":"forever"}}"#,
+            #"{"setSuperLiked":{}}"#, #"{"setSuperLiked":{"_0":1}}"#, #"{"setSuperLiked":{"_0":"true"}}"#,
+            #"{"setSuperLiked":{"_0":null}}"#, #"{"setSuperLiked":{"_0":true,"_1":false}}"#,
+            #"{"setSuperLiked":{"value":true}}"#, #"{"setSuperLiked":true}"#, #"{"setSuperLiked":{"_0":true},"setFavorite":{"_0":true}}"#,
             #"{"playItem":{"location":"queue","itemID":"item:0"}}"#,
         ]
         for action in invalidActions {
-            let data = Data("{\"version\":1,\"id\":\"\(id)\",\"action\":\(action)}".utf8)
-            XCTAssertThrowsError(try CompanionWire.decode(CompanionRequest.self, from: data), action)
+            let data = Data("{\"version\":2,\"id\":\"\(id)\",\"action\":\(action)}".utf8)
+            XCTAssertThrowsError(try CompanionWire.decode(CompanionRequest.self, from: data), action) { error in
+                XCTAssertNotEqual(error as? CompanionWireError, .unsupportedVersion, "The action, not the version, must fail: \(action)")
+            }
         }
         let invalidEnvelopes = [
             "{\"id\":\"\(id)\",\"action\":{\"play\":{}}}",
-            #"{"version":1,"action":{"play":{}}}"#,
-            #"{"version":1,"id":"invalid","action":{"play":{}}}"#,
-            "{\"version\":1,\"id\":\"\(id)\",\"action\":{\"play\":{}},\"extra\":true}",
-            "{\"version\":1,\"id\":\"\(id)\",\"action\":{\"play\":{}},\"expectedTrackID\":\"\"}",
+            #"{"version":2,"action":{"play":{}}}"#,
+            #"{"version":2,"id":"invalid","action":{"play":{}}}"#,
+            #"{"version":"2","id":"\#(id)","action":{"play":{}}}"#,
+            "{\"version\":2,\"id\":\"\(id)\",\"action\":{\"play\":{}},\"extra\":true}",
+            "{\"version\":2,\"id\":\"\(id)\",\"action\":{\"play\":{}},\"expectedTrackID\":\"\"}",
         ]
         for envelope in invalidEnvelopes {
-            XCTAssertThrowsError(try CompanionWire.decode(CompanionRequest.self, from: Data(envelope.utf8)))
+            XCTAssertThrowsError(try CompanionWire.decode(CompanionRequest.self, from: Data(envelope.utf8)), envelope)
         }
     }
 
     func testValidationRejectsUnknownVersionsLocationsAndUnboundedIdentifiers() throws {
         let badRequests: [CompanionRequest] = [
-            .init(version: 0, action: .play), .init(version: 2, action: .pause),
+            .init(version: 0, action: .play), .init(version: 1, action: .pause), .init(version: 3, action: .pause),
             .init(action: .browse("")), .init(action: .browse("ROOT")), .init(action: .browse("search")),
             .init(action: .browse("playlist:not-a-uuid")), .init(action: .browse("https://example.com")),
             .init(action: .browse("root/../queue")), .init(action: .browse(String(repeating: "x", count: 70_000))),
@@ -210,17 +251,18 @@ final class CompanionProtocolTests: XCTestCase {
         XCTAssertNotEqual(request, CompanionRequest(id: request.id, action: request.action, expectedTrackID: request.expectedTrackID))
     }
 
-    func testLegacyPayloadsDefaultExecutionLeaseAndLibraryErrorToNil() throws {
+    func testPayloadsWithoutOptionalKeysDefaultExecutionLeaseAndLibraryErrorToNil() throws {
         let id = UUID().uuidString
-        let legacyRequest = Data("{\"version\":1,\"id\":\"\(id)\",\"action\":{\"snapshot\":{}}}".utf8)
-        let request = try CompanionWire.decode(CompanionRequest.self, from: legacyRequest)
+        let minimalRequest = Data("{\"version\":2,\"id\":\"\(id)\",\"action\":{\"snapshot\":{}}}".utf8)
+        let request = try CompanionWire.decode(CompanionRequest.self, from: minimalRequest)
         XCTAssertNil(request.executionLease)
+        XCTAssertNil(request.expectedTrackID)
         XCTAssertNil(CompanionRequest(action: .play).executionLease)
 
-        let legacyResponse = Data("""
+        let minimalResponse = Data("""
         {"id":"\(id)","accepted":true,"snapshot":{"sessionID":"\(id)","sequence":1,"updatedAt":0}}
         """.utf8)
-        let response = try CompanionWire.decode(CompanionResponse.self, from: legacyResponse)
+        let response = try CompanionWire.decode(CompanionResponse.self, from: minimalResponse)
         XCTAssertNil(response.executionLease)
         XCTAssertNil(response.snapshot.libraryError)
         XCTAssertNil(response.snapshot.nowPlaying)
@@ -235,12 +277,14 @@ final class CompanionProtocolTests: XCTestCase {
             "{\"id\":\"\(id)\",\"sessionID\":7}", "{\"id\":\"\(id)\",\"sessionID\":\"\(id)\",\"expiresAt\":0}",
         ]
         for lease in invalidLeases {
-            let data = Data("{\"version\":1,\"id\":\"\(id)\",\"action\":{\"next\":{}},\"executionLease\":\(lease)}".utf8)
-            XCTAssertThrowsError(try CompanionWire.decode(CompanionRequest.self, from: data))
+            let data = Data("{\"version\":2,\"id\":\"\(id)\",\"action\":{\"next\":{}},\"executionLease\":\(lease)}".utf8)
+            XCTAssertThrowsError(try CompanionWire.decode(CompanionRequest.self, from: data), lease) { error in
+                XCTAssertNotEqual(error as? CompanionWireError, .unsupportedVersion, lease)
+            }
         }
         let largeID = String(repeating: "x", count: CompanionWire.maximumMessageBytes)
         let oversized = Data("""
-        {"version":1,"id":"\(id)","action":{"next":{}},"executionLease":{"id":"\(largeID)","sessionID":"\(id)"}}
+        {"version":2,"id":"\(id)","action":{"next":{}},"executionLease":{"id":"\(largeID)","sessionID":"\(id)"}}
         """.utf8)
         XCTAssertThrowsError(try CompanionWire.decode(CompanionRequest.self, from: oversized)) { error in
             XCTAssertEqual(error as? CompanionWireError, .oversizedMessage)
@@ -265,10 +309,93 @@ final class CompanionProtocolTests: XCTestCase {
         XCTAssertThrowsError(try CompanionWire.decode(CompanionSnapshot.self, from: JSONSerialization.data(withJSONObject: object)))
     }
 
+    func testSnapshotSuperLikeKeyIsRequiredAlwaysEncodedAndNeverTrueWithoutAFavorite() throws {
+        let superLiked = makeNowPlaying(favorite: true, superLiked: true)
+        XCTAssertTrue(superLiked.isSuperLiked)
+        XCTAssertEqual(try CompanionWire.decode(CompanionNowPlaying.self, from: CompanionWire.encode(superLiked)), superLiked)
+        for (favorite, tier) in [(false, false), (true, false), (true, true)] {
+            let value = makeNowPlaying(favorite: favorite, superLiked: tier)
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: CompanionWire.encode(value)) as? [String: Any])
+            XCTAssertEqual(object["isFavorite"] as? Bool, favorite)
+            XCTAssertEqual(object["isSuperLiked"] as? Bool, tier, "The tier is encoded even when false")
+            XCTAssertEqual(try CompanionWire.decode(CompanionNowPlaying.self, from: JSONSerialization.data(withJSONObject: object)), value)
+        }
+
+        XCTAssertFalse(makeNowPlaying(favorite: false, superLiked: true).isSuperLiked, "A super like is a subset of favorites")
+        XCTAssertEqual(makeNowPlaying(favorite: false, superLiked: true), makeNowPlaying(favorite: false, superLiked: false))
+        XCTAssertFalse(CompanionNowPlaying(trackID: "recording-id", title: "Song", artist: "Artist", position: 0, duration: 0,
+                                           isPlaying: false, isLoading: false, isFavorite: false, shuffleEnabled: false,
+                                           repeatMode: .off).isSuperLiked, "The tier defaults to false")
+
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: CompanionWire.encode(superLiked)) as? [String: Any])
+        object["isFavorite"] = false
+        let normalised = try CompanionWire.decode(CompanionNowPlaying.self, from: JSONSerialization.data(withJSONObject: object))
+        XCTAssertFalse(normalised.isFavorite)
+        XCTAssertFalse(normalised.isSuperLiked, "A wire payload cannot claim a super like on an unliked song")
+
+        object = try XCTUnwrap(JSONSerialization.jsonObject(with: CompanionWire.encode(superLiked)) as? [String: Any])
+        object.removeValue(forKey: "isSuperLiked")
+        XCTAssertThrowsError(try CompanionWire.decode(CompanionNowPlaying.self, from: JSONSerialization.data(withJSONObject: object)),
+                             "A version 1 snapshot without the tier is not a version 2 snapshot")
+        for invalid: Any in [1, "true", NSNull(), [true]] {
+            object["isSuperLiked"] = invalid
+            XCTAssertThrowsError(try CompanionWire.decode(CompanionNowPlaying.self, from: JSONSerialization.data(withJSONObject: object)),
+                                 "\(invalid)")
+        }
+
+        let snapshot = CompanionSnapshot(sessionID: UUID(), sequence: 3, updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                                         nowPlaying: superLiked)
+        let decoded = try CompanionWire.decode(CompanionSnapshot.self, from: CompanionWire.encode(snapshot))
+        XCTAssertEqual(decoded, snapshot)
+        XCTAssertEqual(decoded.nowPlaying?.isSuperLiked, true)
+        XCTAssertNotEqual(snapshot, CompanionSnapshot(sessionID: snapshot.sessionID, sequence: 3, updatedAt: snapshot.updatedAt,
+                                                      nowPlaying: makeNowPlaying(favorite: true, superLiked: false)),
+                          "The tier participates in snapshot equality")
+    }
+
+    func testSnapshotAccentRoundTripsEveryCaseAndIsOmittedWhenNil() throws {
+        XCTAssertEqual(CompanionAccent.allCases.map(\.rawValue), ["coral", "mint", "ocean", "violet", "amber", "rose", "teal"])
+        XCTAssertEqual(CompanionAccent.fallback, .coral)
+        for accent in CompanionAccent.allCases {
+            let snapshot = CompanionSnapshot(sessionID: UUID(), sequence: 4, updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                                             nowPlaying: makeNowPlaying(), accent: accent)
+            let data = try CompanionWire.encode(snapshot)
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            XCTAssertEqual(object["accent"] as? String, accent.rawValue)
+            XCTAssertEqual(try CompanionWire.decode(CompanionSnapshot.self, from: data), snapshot)
+            let response = CompanionResponse(id: UUID(), accepted: true, snapshot: snapshot)
+            XCTAssertEqual(try CompanionWire.decode(CompanionResponse.self, from: CompanionWire.encode(response)).snapshot.accent, accent)
+        }
+        let plain = CompanionSnapshot(sessionID: UUID(), sequence: 1, updatedAt: Date(), nowPlaying: nil)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: CompanionWire.encode(plain)) as? [String: Any])
+        XCTAssertNil(object["accent"])
+        XCTAssertNotEqual(plain, CompanionSnapshot(sessionID: plain.sessionID, sequence: 1, updatedAt: plain.updatedAt,
+                                                   nowPlaying: nil, accent: .coral), "The accent participates in equality")
+    }
+
+    func testMissingUnknownOrMistypedAccentDecodesToNilWithoutLosingTheSnapshot() throws {
+        let id = UUID().uuidString
+        let missing = Data("{\"sessionID\":\"\(id)\",\"sequence\":1,\"updatedAt\":0}".utf8)
+        XCTAssertNil(try CompanionWire.decode(CompanionSnapshot.self, from: missing).accent)
+
+        let snapshot = CompanionSnapshot(sessionID: UUID(), sequence: 2, updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                                         nowPlaying: makeNowPlaying(), libraryError: "Library unavailable", accent: .teal)
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: CompanionWire.encode(snapshot)) as? [String: Any])
+        for invalid: Any in ["lime", "Coral", "", 3, true, NSNull(), ["coral"], ["value": "coral"]] {
+            object["accent"] = invalid
+            let decoded = try CompanionWire.decode(CompanionSnapshot.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertNil(decoded.accent, "\(invalid)")
+            XCTAssertEqual(decoded.nowPlaying, snapshot.nowPlaying, "\(invalid)")
+            XCTAssertEqual(decoded.libraryError, snapshot.libraryError, "\(invalid)")
+            XCTAssertEqual(decoded.sequence, snapshot.sequence, "\(invalid)")
+        }
+    }
+
     private func makeNowPlaying(title: String = "Song", artist: String = "Artist", position: Double = 12,
-                                duration: Double = 240, error: String? = nil) -> CompanionNowPlaying {
+                                duration: Double = 240, favorite: Bool = true, superLiked: Bool = false,
+                                error: String? = nil) -> CompanionNowPlaying {
         CompanionNowPlaying(trackID: "recording-id", title: title, artist: artist, position: position, duration: duration,
-                            isPlaying: false, isLoading: true, isFavorite: true, shuffleEnabled: true,
+                            isPlaying: false, isLoading: true, isFavorite: favorite, isSuperLiked: superLiked, shuffleEnabled: true,
                             repeatMode: .all, errorMessage: error)
     }
 }

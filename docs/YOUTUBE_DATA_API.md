@@ -1,6 +1,6 @@
 # YouTube recording metadata
 
-Breezy uses the official YouTube Data API for recording audio-language tags and missing durations. `MusicAppModel` shares one `YouTubeDataAPI` actor between language checks, lyrics preparation and MusicBrainz lookup preparation. It does not use the API's search quota or request playback streams.
+Velvet Thorn uses the official YouTube Data API for recording audio-language tags and missing durations. `MusicAppModel` shares one `YouTubeDataAPI` actor between language checks, lyrics preparation and MusicBrainz lookup preparation. It does not use the API's search quota or request playback streams.
 
 ## Language precedence
 
@@ -21,8 +21,8 @@ The composite lyrics provider gives optional preparation at most one second insi
 | Item | Bound or behavior |
 | --- | --- |
 | Endpoint | `GET https://www.googleapis.com/youtube/v3/videos`, exact recording ID |
-| Selected fields | `items(id,snippet(defaultAudioLanguage),contentDetails(duration))` |
-| Authentication | App-restricted project key in `X-Goog-Api-Key`; `X-Ios-Bundle-Identifier` identifies Breezy |
+| Selected fields | `items(id,snippet(defaultAudioLanguage,description,channelTitle,publishedAt),contentDetails(duration),statistics(viewCount))`; parts `snippet,contentDetails,statistics` (one quota unit). The snippet/statistics additions feed Song details ([SONG_DETAILS.md](SONG_DETAILS.md)); `metadata(for:refresh:)` with `refresh` skips one cache read and recaches |
+| Authentication | App-restricted project key in `X-Goog-Api-Key`; `X-Ios-Bundle-Identifier` identifies Velvet Thorn |
 | Session | Ephemeral, no cookie/credential storage or URL cache; redirects refused before forwarding credentials |
 | Request | Two seconds, 256 KiB enforced while receiving, no automatic retry |
 | Memory cache | At most 256 recording entries; metadata 12 hours, missing recordings 15 minutes |

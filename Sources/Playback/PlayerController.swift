@@ -3,11 +3,72 @@ import Foundation
 import Observation
 import OSLog
 
+/// Constant-space startup accounting; automatic attempts share the original monotonic request time.
+struct PlaybackStartupTiming {
+    enum Stage { case setup, resolution, readyBuffer }
+    let requestedAt: ContinuousClock.Instant
+    private var stageStartedAt: ContinuousClock.Instant
+    private var stage: Stage = .setup
+    private(set) var attempts = 0
+    private(set) var setup: Duration = .zero
+    private(set) var resolution: Duration = .zero
+    private(set) var readyBuffer: Duration = .zero
+    private(set) var path: PlaybackStartTrace.Path?
+    /// Whether the successful attempt's item reused a preloaded asset.
+    var usedPreload = false
+    init(at now: ContinuousClock.Instant = .now) {
+        requestedAt = now
+        stageStartedAt = now
+    }
+
+    mutating func beginAttempt(at now: ContinuousClock.Instant = .now) {
+        advance(to: .setup, at: now)
+        attempts = min(attempts + 1, 255)
+        path = nil
+    }
+
+    mutating func beginResolution(at now: ContinuousClock.Instant = .now) {
+        advance(to: .resolution, at: now)
+    }
+
+    mutating func resolved(path: PlaybackStartTrace.Path?, at now: ContinuousClock.Instant = .now) {
+        self.path = path
+        advance(to: .readyBuffer, at: now)
+    }
+
+    mutating func sample(at now: ContinuousClock.Instant = .now) -> Int {
+        advance(to: stage, at: now)
+        return Int(requestedAt.duration(to: now) / .milliseconds(1))
+    }
+
+    private mutating func advance(to next: Stage, at now: ContinuousClock.Instant) {
+        let elapsed = stageStartedAt.duration(to: now)
+        switch stage {
+        case .setup: setup += elapsed
+        case .resolution: resolution += elapsed
+        case .readyBuffer: readyBuffer += elapsed
+        }
+        stage = next
+        stageStartedAt = now
+    }
+}
+
 @Observable
 @MainActor
 final class PlayerController {
-    var currentTrack: Track? { ordering.current }
+    var currentTrack: Track? { isLiveRadio ? nil : ordering.current }
+    private(set) var liveStation: LiveRadioStation?
+    var isLiveRadio: Bool { liveStation != nil }
+    var isWaitingForLiveRadioRetry: Bool { isLiveRadio && liveRetryTask != nil }
+    var hasPlaybackSelection: Bool { isLiveRadio || currentTrack != nil }
+    var displayTitle: String? { liveStation?.name ?? currentTrack?.title }
+    var displaySubtitle: String? {
+        liveStation.map { $0.subtitle.isEmpty ? "Live Radio" : "Live Radio · \($0.subtitle)" } ?? currentTrack?.artistName
+    }
+    // Live artwork uses the radio transport rather than the song artwork loader's provider rewrites.
+    var displayArtworkURL: URL? { isLiveRadio ? nil : currentTrack?.artworkURL }
     var queue: [Track] { ordering.tracks }
+    var queueEntries: [PlaybackQueue.Entry] { ordering.entries }
     var currentIndex: Int { ordering.index }
     var shuffleEnabled: Bool { ordering.shuffled }
     private(set) var shuffleStyle: ShuffleStyle = .random
@@ -28,9 +89,12 @@ final class PlayerController {
         return count
     }
     private(set) var sourceAudioQuality: SourceAudioQuality?
+    private(set) var playbackSource: MusicSource?
+    @ObservationIgnored private var extractionPlaybackGeneration: UInt64?
+    @ObservationIgnored var onFreshExtractionPlayed: (@MainActor (UInt64) -> Void)?
     private(set) var isNetworkOffline = false
     var canReloadAudioQuality: Bool {
-        resolver is YouTubeStreamResolver && currentTrack != nil && !isLoading
+        resolver is any PlaybackConfigurableResolving && currentTrack != nil && !isLoading
             && !isNetworkOffline && !isUpdatingAudioCacheLimit && !cachePipeline.isClearingStorage
     }
     /// True when the current track has a complete local copy: the playing item itself, or one recovery can switch to.
@@ -50,31 +114,52 @@ final class PlayerController {
     private(set) var autoplayTrackIDs: Set<String> = []
     /// An explicitly chosen radio keeps going independently of the general queue Autoplay preference.
     private(set) var isRadioSession = false
+    @ObservationIgnored private var radioRefillAhead = 0
+    private(set) var generatedRadioEntryIDs: Set<UUID> = []
+    /// Pruned recording identities remain available to recommendation exclusions, oldest first.
+    private(set) var radioRecentTracks: [Track] = []
+    @ObservationIgnored private var selectedRadioEntryIDs: [UUID] = []
+    private static let radioPreviousEntryLimit = 40
+    private static let radioRecentTrackLimit = 128
     // Deferred external selections must not overtake a newer native or companion transport command.
     @ObservationIgnored private(set) var controlRevision: UInt64 = 0
 
     /// Acknowledges durable saves or intentionally disabled history; false keeps the delta queued for retry.
     var onListeningProgress: (@MainActor (Track, UUID, Date, TimeInterval) -> Bool)?
+    @ObservationIgnored var onListeningCheckpoint: (@MainActor (PlaybackListeningCheckpoint) async -> Bool)?
+    /// Recovery must see newer resume intent even before its asynchronous persistence task starts.
+    @ObservationIgnored var onSnapshotIntentChanged: (@MainActor (PlaybackSnapshot) -> Void)?
     /// Nil history is disabled/unavailable; an empty array is enabled without saved sessions.
     @ObservationIgnored var shuffleHistoryProvider: (() -> [ListeningEvent]?)?
     var onSnapshotChanged: (@MainActor (PlaybackSnapshot) -> Void)?
     var onTrackStarted: (@MainActor (Track) -> Void)?
+    /// One signal per music session that ends with credited audio; docs/LISTENING_DISCOVERY.md owns the rules.
+    @ObservationIgnored var onListeningSignal: (@MainActor (ListeningSignal) -> Void)?
     /// Asked for continuation tracks when the last entry in play order starts and Autoplay is on.
     var onQueueExhausted: (@MainActor (Track) async -> [Track])?
     /// Asked once more when an ordinary queue has actually ended and the earlier answer added nothing. That earlier
     /// response is likely still cached, so implementations should ask for fresh results; nil falls back to `onQueueExhausted`.
     var onQueueEnded: (@MainActor (Track) async -> [Track])?
+    var onSleepTimerFired: (@MainActor () -> Void)?
 
     var crossfadeState: PlaybackCrossfadeState? { transition?.state }
     var standbyTrack: Track? { deck.track }
     var isStandbyReady: Bool { deck.isReady }
     var hasStandbyPlayer: Bool { deck.player != nil }
+    /// True only if a receiver took over the item URL, which `PlaybackAudioRoute.makePlayer()` forbids.
+    var isExternalPlaybackActive: Bool { player.isExternalPlaybackActive }
+    var activePlayerAllowsExternalPlayback: Bool { player.allowsExternalPlayback }
+    var activePlayerIdentity: ObjectIdentifier { ObjectIdentifier(player) }
+    var standbyPlayerAllowsExternalPlayback: Bool? { deck.player?.allowsExternalPlayback }
     var standbyStreamURL: URL? { deck.streamURL }
     /// The URL the playing item was created from, for diagnostics; nil while nothing is installed.
     private(set) var currentStreamURL: URL?
     var isPreparing: Bool { preparing }
 
-    private var ordering = PlaybackQueue()
+    private var ordering = PlaybackQueue() {
+        // A per-song equalizer follows the current recording; unchanged settings leave every tap alone.
+        didSet { if oldValue.current?.id != ordering.current?.id { refreshEqualizer() } }
+    }
     private var cachedNextEntryID: UUID?
     private var offlineAvailability: Set<String>?
     @ObservationIgnored private var inventoryEpoch = UUID()
@@ -83,10 +168,22 @@ final class PlayerController {
     @ObservationIgnored private var offlineAdvanceTask: Task<Void, Never>?
     @ObservationIgnored private var pendingOfflineAdvance: (id: UUID, generation: UInt64, entry: UUID?, automatic: Bool, resume: Bool)?
     @ObservationIgnored private var standbyNetworkGeneration: UUID?
-    @ObservationIgnored private let resolver: any StreamResolving
-    @ObservationIgnored private var player = AVPlayer()
+    @ObservationIgnored let resolver: any StreamResolving
+    @ObservationIgnored private var player = PlaybackAudioRoute.makePlayer()
+    @ObservationIgnored private let liveRadioResolver: any LiveRadioResolving
+    @ObservationIgnored private var savedMusicSnapshot: PlaybackSnapshot?
+    @ObservationIgnored private var liveAsset: AVURLAsset?
+    @ObservationIgnored private var liveRetryTask: Task<Void, Never>?
+    @ObservationIgnored private var liveSamplePosition: TimeInterval?
     @ObservationIgnored private let deck: StandbyDeck
     @ObservationIgnored private let cachePipeline: PlaybackCachePipeline
+    /// Ready-to-play assets for the queue's next songs and browsing candidates; see `PlaybackPreloader`.
+    @ObservationIgnored let preloader: PlaybackPreloader
+    /// The listener has stayed with the current song long enough that its successor earns a complete download.
+    @ObservationIgnored private var nextDownloadSettled = false
+    /// Playback position, capped at half the song, after which the next song downloads completely.
+    @ObservationIgnored var nextDownloadSettleSeconds: TimeInterval = 30
+    @ObservationIgnored private let equalizer = EqualizerTapInstaller()
     @ObservationIgnored private var cacheStorageTask: Task<AudioCache.Usage?, Error>?
     @ObservationIgnored private var cacheStorageGeneration = UUID()
     @ObservationIgnored private var cacheLimitGeneration = UUID()
@@ -126,10 +223,23 @@ final class PlayerController {
     @ObservationIgnored private var streamLoudnessDb: Double?
     @ObservationIgnored private var pendingPosition: TimeInterval = 0
     @ObservationIgnored private var recoveryAttempts = 0
+    /// When the current live connection became ready; a minute of playback refunds the retry budget, so one
+    /// flaky stall per hour never ends a long session, while a stream that fails on every connect still stops.
+    @ObservationIgnored private var liveReadyUptime: TimeInterval?
+    static let liveRetryRefundSeconds: TimeInterval = 60
     @ObservationIgnored private var interruption = PlaybackInterruption()
     @ObservationIgnored private var listening = PlaybackListeningClock()
     @ObservationIgnored private var pendingListening: PlaybackListeningBuffer
     @ObservationIgnored private var isFlushingListening = false
+    @ObservationIgnored private var listeningDeliveryTask: Task<Void, Never>?
+    @ObservationIgnored private var listeningDeliveryGeneration = UUID()
+    @ObservationIgnored private var checkpointIntentRevision: UInt64 = 0
+    @ObservationIgnored private var savedCheckpointIntentRevision: UInt64 = 0
+    @ObservationIgnored private var privacySnapshotDeliveryPending = false
+    @ObservationIgnored private var pendingCheckpointRecent: RecentListen?
+    @ObservationIgnored private var checkpointIntentPosition: TimeInterval?
+    @ObservationIgnored private var checkpointIntentControlRevision: UInt64?
+    @ObservationIgnored private var checkpointIntentSessionID: UUID?
     @ObservationIgnored private var sessionID = UUID()
     @ObservationIgnored private var sessionStartedAt: Date?
     @ObservationIgnored private var trackStartDelivered = false
@@ -137,17 +247,45 @@ final class PlayerController {
     @ObservationIgnored private var lastAdvanceUptime: TimeInterval = 0
     @ObservationIgnored private var lastCheckpointUptime: TimeInterval = 0
     @ObservationIgnored private var lastSeekUptime: TimeInterval = -1
+    /// Only `seek(to:)`: SponsorBlock jumps and recovery seeks must not turn a natural end into a skip.
+    @ObservationIgnored private var lastUserSeekUptime: TimeInterval = -.infinity
+    @ObservationIgnored private var signalSession = ListeningSignalSession()
+    @ObservationIgnored private var recentSkips = ListeningSignalSkipWindow()
+    /// Occurrences a generated mix supplied; songs the listener adds later stay chosen.
+    @ObservationIgnored private var generatedMixEntryIDs: Set<UUID> = []
+    /// SponsorBlock jumps made during this play of the current song; the More sheet shows it when nonzero.
+    private(set) var sponsorBlockSkipCount = 0
+    var sponsorBlockSegments: [SponsorBlockSegment] { segmentSkipper.segments }
+    /// Replaceable so fixtures and tests answer lookups locally; the live client is created on first use.
+    @ObservationIgnored lazy var sponsorBlockProvider: any SponsorBlockSegmentProviding = SponsorBlockClient()
+    @ObservationIgnored private var sponsorBlockEnabled = false
+    @ObservationIgnored private var sponsorBlockPending = false
+    @ObservationIgnored private var sponsorBlockTask: Task<Void, Never>?
+    @ObservationIgnored private var sponsorBlockToken = UUID()
+    @ObservationIgnored private var segmentSkipper = SegmentSkipper()
+    @ObservationIgnored private var startupTiming: PlaybackStartupTiming?
+    /// "path=<path> ms=<n>" of the latest `playback_start`; the fast-start fixture UI reads it.
+    private(set) var lastPlaybackStart: String?
+    private static var firstStartEmitted = false
     @ObservationIgnored private let log = Logger(subsystem: "com.agraabhi.ganabajana", category: "Playback")
 
     init(resolver: any StreamResolving = YouTubeStreamResolver(), standbyPreroll: StandbyDeck.Preroll? = nil,
-         listeningCheckpointLimit: Int = PlaybackListeningBuffer.defaultMaximumSessions) {
+         listeningCheckpointLimit: Int = PlaybackListeningBuffer.defaultMaximumSessions,
+         liveRadioResolver: any LiveRadioResolving = LiveRadioStreamResolver(),
+         preloader: PlaybackPreloader? = nil) {
         self.resolver = resolver
+        self.liveRadioResolver = liveRadioResolver
         deck = StandbyDeck(resolver: resolver, preroll: standbyPreroll)
         cachePipeline = PlaybackCachePipeline(resolver: resolver)
+        self.preloader = preloader ?? PlaybackPreloader(resolver: resolver)
         pendingListening = PlaybackListeningBuffer(maximumSessions: listeningCheckpointLimit)
         observeActivePlayer()
         system = PlaybackSystemControls(owner: self)
         deck.onChange = { [weak self] in self?.standbyChanged() }
+        deck.onConfigureAudio = { [weak self] item, gain in
+            self?.equalizer.setNormalizationGain(gain, for: item)
+        }
+        deck.normalizeVolume = settings.normalizeVolume
         cachePipeline.onNextCached = { [weak self] target, stream in self?.nextTrackCached(target, stream: stream) }
         cachePipeline.onCurrentCached = { [weak self] track, _ in self?.currentTrackCached(track) }
         cachePipeline.retainedTrackIDs = { [weak self] in self?.storageRetainedTrackIDs ?? [] }
@@ -161,6 +299,8 @@ final class PlayerController {
     }
 
     isolated deinit {
+        liveRetryTask?.cancel()
+        liveAsset?.cancelLoading()
         resolutionTask?.cancel()
         settingsTask?.cancel()
         networkConfigurationTask?.cancel()
@@ -169,10 +309,12 @@ final class PlayerController {
         cacheHistoryTask?.cancel()
         prefetchTask?.cancel()
         autoplayTask?.cancel()
+        sponsorBlockTask?.cancel()
         monitorTask?.cancel()
         readinessTask?.cancel()
         seekTimeoutTask?.cancel()
         sleepTask?.cancel()
+        listeningDeliveryTask?.cancel()
         cachePipeline.cancel()
         cacheStorageTask?.cancel()
         itemObservation?.invalidate()
@@ -186,27 +328,66 @@ final class PlayerController {
         system?.tearDown()
     }
 
-    func play(_ tracks: [Track], startingAt index: Int = 0, isRadio: Bool = false, shuffle: Bool? = nil) {
+    func play(_ tracks: [Track], startingAt index: Int = 0, isRadio: Bool = false, shuffle: Bool? = nil,
+              origin: ListeningSignal.Origin = .chosen) {
         controlRevision &+= 1
         let shuffled = shuffle ?? shuffleEnabled
-        guard retireSelection() else { return }
+        // Tapping the playing song again restarts it; only a different song replaces it.
+        let replaces = !tracks.isEmpty && tracks[min(max(0, index), tracks.count - 1)].id != currentTrack?.id
+        guard retireSelection(signal: replaces && wantsPlayback && !interruption.active ? .skipped : nil) else { return }
         autoplayTrackIDs = []
         isRadioSession = isRadio && !tracks.isEmpty
+        resetSeedRadioRetention()
         var nextOrder = PlaybackQueue()
         nextOrder.replace(tracks, startingAt: index, shuffled: shuffled) { makeShuffleOrder($0) }
         ordering = nextOrder
+        generatedMixEntryIDs = origin == .generated ? Set(nextOrder.entries.map(\.id)) : []
         if shuffle == false { logShuffleOrder() }
         selectCurrent(autoplay: true)
     }
 
-    func playShuffled(_ tracks: [Track]) {
+    /// Starts a fresh retention session without replacing the installed player item or any queue occurrence.
+    /// Existing entries are preserved; only subsequent radio appends acquire this session's provenance.
+    @discardableResult
+    func configureSeedRadio(keeping trackID: String) -> Bool {
+        guard !isLiveRadio, currentTrack?.id == trackID else { return false }
+        cancelAutoplayRequest()
+        resetSeedRadioRetention()
+        isRadioSession = true
+        radioRefillAhead = 3
+        repeatMode = .off
+        publishSnapshot()
+        return true
+    }
+
+    /// A tuning change retires old recommendations without changing playback or user queue entries.
+    func refreshSeedRadioRequests() {
+        guard isRadioSession, radioRefillAhead > 0 else { return }
+        cancelAutoplayRequest()
+    }
+
+    /// Queue navigation reuses occurrences and radio provenance rather than starting a replacement session.
+    @discardableResult
+    func selectQueueTrack(at index: Int) -> Bool {
+        guard !isLiveRadio, ordering.entries.indices.contains(index) else { return false }
         controlRevision &+= 1
-        guard retireSelection() else { return }
+        let skips = wantsPlayback && !interruption.active && ordering.entries[index].id != ordering.selectedID
+        guard retireSelection(signal: skips ? .skipped : nil) else { return false }
+        ordering.select(at: index)
+        selectCurrent(autoplay: true)
+        return true
+    }
+
+    func playShuffled(_ tracks: [Track], origin: ListeningSignal.Origin = .chosen) {
+        controlRevision &+= 1
+        guard retireSelection(signal: !tracks.isEmpty && wantsPlayback && !interruption.active ? .skipped : nil) else { return }
         autoplayTrackIDs = []
         isRadioSession = false
+        resetSeedRadioRetention()
         var nextOrder = PlaybackQueue()
         nextOrder.replaceShuffled(tracks) { makeShuffleOrder($0) }
         ordering = nextOrder
+        generatedMixEntryIDs = origin == .generated ? Set(nextOrder.entries.map(\.id)) : []
         selectCurrent(autoplay: true)
     }
 
@@ -214,10 +395,165 @@ final class PlayerController {
         controlRevision &+= 1
         guard retireSelection() else { return }
         autoplayTrackIDs = []
+        generatedMixEntryIDs = []
         isRadioSession = false
+        resetSeedRadioRetention()
         ordering.restore(snapshot)
         repeatMode = snapshot.repeatMode
         selectCurrent(autoplay: false, at: PlaybackTiming.position(snapshot.position))
+    }
+
+    // MARK: - Live public radio
+
+    @discardableResult
+    func playLiveRadio(_ station: LiveRadioStation) -> Bool {
+        guard station.isValid, !isNetworkOffline else { return false }
+        pause()
+        let saved = musicResumeSnapshot
+        guard retireSelection() else { return false }
+        savedMusicSnapshot = saved
+        liveStation = station
+        controlRevision &+= 1
+        cancelPrefetch()
+        deck.invalidate()
+        clearSponsorBlockSegments()
+        isRadioSession = false
+        autoplayTrackIDs = []
+        resetSeedRadioRetention()
+        standbyEligible = false
+        trackStartDelivered = false
+        sessionStartedAt = nil
+        position = 0
+        pendingPosition = 0
+        duration = 0
+        resolvedViewCount = nil
+        sourceAudioQuality = nil
+        playbackSource = nil
+        extractionPlaybackGeneration = nil
+        isCurrentTrackCached = false
+        cachedNextEntryID = nil
+        ended = false
+        recoveryAttempts = 0
+        wantsPlayback = true
+        refreshEqualizer()
+        log.info("event=live_radio_mode mode=live")
+        beginLiveConnecting()
+        return true
+    }
+
+    /// Returning to music reinstates its occurrence and position paused, never the station URL.
+    func stopLiveRadio() {
+        guard isLiveRadio else { return }
+        let saved = musicResumeSnapshot
+        restore(saved)
+        log.info("event=live_radio_mode mode=music")
+    }
+
+    func stopPlayback() {
+        if isLiveRadio { stopLiveRadio() } else { pause() }
+    }
+
+    private func beginLiveConnecting() {
+        guard let station = liveStation, wantsPlayback, !interruption.active else { return }
+        guard !isNetworkOffline else { fail(LiveRadioError.unavailable.localizedDescription); return }
+        invalidatePipeline()
+        let token = generation
+        errorMessage = nil
+        isLoading = true
+        system?.beginTransition()
+        publishNowPlaying()
+        let resolver = liveRadioResolver
+        resolutionTask = Task { @MainActor [weak self] in
+            do {
+                let resolved = try await PlaybackDeadline.run(seconds: 15) { try await resolver.resolve(station) }
+                try Task.checkCancellation()
+                guard let self, self.generation == token, self.liveStation?.id == station.id,
+                      self.wantsPlayback, !self.interruption.active else { return }
+                guard resolved.station.id == station.id, resolved.station.isValid,
+                      LiveRadioURLPolicy.permits(resolved.streamingURL) else {
+                    LiveRadioDiagnostics.record(.resolvedURL, .rejected)
+                    throw LiveRadioError.invalidStation
+                }
+                LiveRadioDiagnostics.record(.resolvedURL, .passed)
+                let asset = AVURLAsset(url: resolved.streamingURL, options: [AVURLAssetHTTPCookiesKey: [HTTPCookie]()])
+                self.liveAsset = asset
+                try await PlaybackDeadline.run(seconds: 15) {
+                    try await withTaskCancellationHandler {
+                        try await LiveRadioNativeValidation.validate(asset, connection: resolved)
+                    } onCancel: { asset.cancelLoading() }
+                }
+                try Task.checkCancellation()
+                guard self.generation == token, self.liveStation?.id == station.id,
+                      self.wantsPlayback, !self.interruption.active else { return }
+                self.resolutionTask = nil
+                self.liveStation = resolved.station
+                self.currentStreamURL = resolved.streamingURL
+                let item = AVPlayerItem(asset: asset)
+                item.preferredForwardBufferDuration = 5
+                self.preparing = true
+                self.player.replaceCurrentItem(with: item)
+                self.itemObservation = item.observe(\.status, options: [.initial, .new]) { @Sendable [weak self] _, _ in
+                    Task { @MainActor [weak self] in self?.itemStatusChanged(generation: token) }
+                }
+                self.observeItem(item, generation: token)
+                self.readinessTask = Task { @MainActor [weak self] in
+                    do { try await Task.sleep(for: .seconds(20)) } catch { return }
+                    guard let self, self.generation == token, self.preparing else { return }
+                    self.recoverLivePlayback()
+                }
+            } catch {
+                guard !Task.isCancelled, let self, self.generation == token, self.liveStation?.id == station.id else { return }
+                self.resolutionTask = nil
+                if case LiveRadioError.invalidStation = error { self.fail(LiveRadioError.invalidStation.localizedDescription) }
+                else { self.recoverLivePlayback() }
+            }
+        }
+    }
+
+    private func liveItemStatusChanged(_ item: AVPlayerItem, generation token: UInt64) {
+        guard generation == token, isLiveRadio else { return }
+        switch item.status {
+        case .readyToPlay:
+            guard preparing else { return }
+            preparing = false
+            readinessTask?.cancel()
+            readinessTask = nil
+            guard wantsPlayback, !interruption.active else { return }
+            do { try system?.activateSession() }
+            catch { fail("Audio is unavailable right now. Please try again."); return }
+            lastAdvanceUptime = ProcessInfo.processInfo.systemUptime
+            liveReadyUptime = lastAdvanceUptime
+            player.play()
+            log.info("event=live_radio_connection outcome=ready attempt=\(self.recoveryAttempts + 1)")
+        case .failed: recoverLivePlayback()
+        case .unknown: break
+        @unknown default: fail(LiveRadioError.invalidStation.localizedDescription)
+        }
+        refreshActivity()
+    }
+
+    private func recoverLivePlayback() {
+        guard isLiveRadio, wantsPlayback, !interruption.active else { return }
+        liveReadyUptime = nil
+        guard recoveryAttempts < 2, !isNetworkOffline else {
+            log.notice("event=live_radio_connection outcome=exhausted")
+            fail(LiveRadioError.unavailable.localizedDescription)
+            return
+        }
+        recoveryAttempts += 1
+        invalidatePipeline()
+        let token = generation
+        let delay = recoveryAttempts
+        isLoading = true
+        system?.beginTransition()
+        log.notice("event=live_radio_connection outcome=retry attempt=\(self.recoveryAttempts + 1)")
+        liveRetryTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            guard let self, self.generation == token, self.isLiveRadio, self.wantsPlayback, !self.interruption.active else { return }
+            self.liveRetryTask = nil
+            self.beginLiveConnecting()
+        }
+        publishNowPlaying()
     }
 
     /// Idempotent. A crossfade already in flight finishes with the values it started with.
@@ -242,11 +578,12 @@ final class PlayerController {
         retireOfflineNavigation()
         flushListeningProgress()
         wantsPlayback = false
+        startupTiming = nil
         interruption.cancelResume()
         cancelAutoplayRequest()
         endTransition()
         player.pause()
-        if resolutionTask != nil || preparing {
+        if isLiveRadio || resolutionTask != nil || preparing {
             invalidatePipeline()
         }
         listening.discontinuity()
@@ -258,21 +595,26 @@ final class PlayerController {
         publishNowPlaying()
     }
 
-    func next() {
+    /// Pass false for a skip that already carries a stronger judgement, such as a dislike, so it is not counted twice.
+    func next(recordsSignal: Bool = true) {
         controlRevision &+= 1
         guard currentTrack != nil else { return }
-        if isNetworkOffline { beginOfflineAdvance(automatic: false); return }
+        let skip: ListeningSignal.Ending? = recordsSignal && wantsPlayback && !interruption.active ? .skipped : nil
+        if isNetworkOffline { beginOfflineAdvance(automatic: false, signal: skip); return }
         retireOfflineNavigation()
         let autoplay = wantsPlayback
         var nextOrder = ordering
         guard nextOrder.advance(repeatMode: repeatMode, automatic: false) else { pause(); return }
-        if autoplay, settings.crossfadeSeconds > 0, transition == nil, !interruption.active,
+        // The gapless deck already holds the next entry ready to play; taking it makes a skip as fast as a track end.
+        if autoplay, transition == nil, !interruption.active,
            let entry = nextOrder.selectedID, entry != ordering.selectedID,
            let prepared = deck.take(entryID: entry, transitionAt: Date()) {
-            activateStandby(prepared, order: nextOrder, blend: min(settings.crossfadeSeconds, 3))
+            log.debug("event=manual_next path=standby")
+            activateStandby(prepared, order: nextOrder, blend: settings.crossfadeSeconds > 0 ? min(settings.crossfadeSeconds, 3) : 0,
+                            signal: skip)
             return
         }
-        guard retireSelection() else { return }
+        guard retireSelection(signal: skip) else { return }
         ordering = nextOrder
         selectCurrent(autoplay: autoplay)
     }
@@ -299,7 +641,11 @@ final class PlayerController {
         if ended {
             cancelAutoplayRequest()
             startListeningSession()
+            segmentSkipper.restart()
         }
+        // A listener-chosen position is never skipped away from right after the seek.
+        segmentSkipper.noteManualSeek(uptime: ProcessInfo.processInfo.systemUptime)
+        lastUserSeekUptime = ProcessInfo.processInfo.systemUptime
         let target = PlaybackTiming.position(seconds, duration: player.currentItem == nil ? nil : duration)
         position = target
         pendingPosition = target
@@ -314,24 +660,35 @@ final class PlayerController {
 
     func retry(preferBestAudio: Bool = false) {
         controlRevision &+= 1
+        if isLiveRadio {
+            guard !interruption.active else { return }
+            recoveryAttempts = 0
+            wantsPlayback = true
+            beginLiveConnecting()
+            return
+        }
         guard currentTrack != nil else { return }
         let resumeAt = ended ? 0 : position
         if ended {
             flushListeningProgress()
             guard listening.pending == 0 else { return }
             startListeningSession()
+            segmentSkipper.restart()
         }
         recoveryAttempts = 0
         wantsPlayback = true
+        startupTiming = nil
         beginResolving(forceRefresh: true, at: resumeAt, preferBestAudio: preferBestAudio)
     }
 
     func toggleShuffle() {
+        guard !isLiveRadio else { return }
         controlRevision &+= 1
         retireOfflineNavigation()
         var nextOrder = ordering
         nextOrder.toggleShuffle { makeShuffleOrder($0) }
         ordering = nextOrder
+        pruneSeedRadioHistory()
         if !shuffleEnabled { logShuffleOrder() }
         publishSnapshot()
         publishNowPlaying()
@@ -360,6 +717,7 @@ final class PlayerController {
     }
 
     func cycleRepeatMode() {
+        guard !isLiveRadio else { return }
         controlRevision &+= 1
         retireOfflineNavigation()
         repeatMode = repeatMode.next
@@ -369,6 +727,7 @@ final class PlayerController {
     }
 
     func enqueue(_ track: Track, next: Bool = false) {
+        guard !isLiveRadio else { return }
         controlRevision &+= 1
         retireOfflineNavigation()
         let wasEmpty = queue.isEmpty
@@ -382,6 +741,7 @@ final class PlayerController {
     /// Appends Autoplay continuation tracks, skipping anything already queued. After the queue has ended, a manual
     /// continuation also moves on to the first new song: the listener asked for more music, not a replay of the last one.
     func appendAutoplay(_ tracks: [Track]) {
+        guard !isLiveRadio else { return }
         defer { finishAutoplayWait() }
         let atEnd = ended && !wantsPlayback && awaitingAutoplay == nil && repeatMode == .off && nextAutomaticOrder() == nil
         guard insertAutoplay(tracks), atEnd, let next = nextAutomaticOrder() else { return }
@@ -395,14 +755,24 @@ final class PlayerController {
     /// True when at least one track joined the queue.
     @discardableResult
     private func insertAutoplay(_ tracks: [Track]) -> Bool {
+        guard !isLiveRadio else { return false }
         var known = Set(queue.map(\.id))
+        if radioRefillAhead > 0 { known.formUnion(radioRecentTracks.map(\.id)) }
         let additions = tracks.filter { known.insert($0.id).inserted }
-        guard !additions.isEmpty else { return false }
+        let pruned = pruneSeedRadioHistory()
+        guard !additions.isEmpty else {
+            if pruned { publishSnapshot(); publishNowPlaying() }
+            return false
+        }
         retireOfflineNavigation()
         let wasEmpty = queue.isEmpty
-        for track in additions { ordering.enqueue(track, next: false) }
+        for track in additions {
+            let entryID = ordering.enqueue(track, next: false)
+            if radioRefillAhead > 0 { generatedRadioEntryIDs.insert(entryID) }
+        }
         autoplayTrackIDs.formUnion(additions.map(\.id))
         if wasEmpty { selectCurrent(autoplay: false) }
+        pruneSeedRadioHistory()
         log.info("event=autoplay_appended count=\(additions.count)")
         publishSnapshot()
         publishNowPlaying()
@@ -411,6 +781,7 @@ final class PlayerController {
     }
 
     func removeFromQueue(at index: Int) {
+        guard !isLiveRadio else { return }
         controlRevision &+= 1
         guard queue.indices.contains(index) else { return }
         retireOfflineNavigation()
@@ -419,22 +790,25 @@ final class PlayerController {
         if removesCurrent, !retireSelection() { return }
         ordering.remove(at: index)
         if removesCurrent { selectCurrent(autoplay: autoplay) }
+        else { pruneSeedRadioHistory() }
         publishSnapshot()
         publishNowPlaying()
         refreshQueuePreparation()
     }
 
     func moveQueue(from offsets: IndexSet, to destination: Int) {
+        guard !isLiveRadio else { return }
         controlRevision &+= 1
         retireOfflineNavigation()
         ordering.move(from: offsets, to: destination)
+        pruneSeedRadioHistory()
         publishSnapshot()
         publishNowPlaying()
         refreshQueuePreparation()
     }
 
     func prefetch(_ tracks: [Track]) {
-        guard !isNetworkOffline, !cachePipeline.isClearingStorage else { return }
+        guard !isLiveRadio, !isNetworkOffline, !cachePipeline.isClearingStorage else { return }
         var seen = Set<String>()
         let selected = Array(tracks.filter { $0.isAudioRecording != false && seen.insert($0.id).inserted }.prefix(2))
         let ids = selected.map(\.id)
@@ -455,12 +829,33 @@ final class PlayerController {
         }
     }
 
-    private func prefetchNextQueuedTrack() {
-        guard isPlaying else { return }
-        var upcoming = ordering
-        if upcoming.advance(repeatMode: repeatMode, automatic: true), let track = upcoming.current,
-           track.id != currentTrack?.id { prefetch([track]) }
-        else { prefetch([]) }
+    /// Songs a Next tap or the end of this one would start, in play order. Repeat One still lets Next move on.
+    func upcomingTracks(limit: Int) -> [Track] {
+        guard limit > 0, !isLiveRadio else { return [] }
+        var probe = ordering
+        var seen: Set<String> = currentTrack.map { [$0.id] } ?? []
+        var result: [Track] = []
+        var steps = 0
+        while result.count < limit, steps < probe.entries.count,
+              probe.advance(repeatMode: repeatMode == .one ? .off : repeatMode, automatic: false) {
+            steps += 1
+            guard let track = probe.current, seen.insert(track.id).inserted else { continue }
+            result.append(track)
+        }
+        return result
+    }
+
+    /// New preload work waits for the selected song's first audio and for playing intent, so a restored paused queue
+    /// spends nothing and a quick skip never competes with the song the listener just chose.
+    private func refreshPreloads() {
+        guard preloader.isAvailable else { return }
+        guard !isLiveRadio, !isNetworkOffline, currentTrack != nil else {
+            preloader.update(queue: [], queueAllowed: false, holding: false)
+            return
+        }
+        let playing = wantsPlayback && !interruption.active
+        preloader.update(queue: upcomingTracks(limit: PlaybackPreloader.queueDepth), queueAllowed: playing,
+                         holding: playing && !trackStartDelivered)
     }
 
     func setSleepTimer(minutes: Int?) {
@@ -481,22 +876,34 @@ final class PlayerController {
         defer { isFlushingListening = false }
         samplePlayback()
         lastCheckpointUptime = ProcessInfo.processInfo.systemUptime
+        var hasNewRecent = false
         if listening.pending > 0, !pendingListening.canRecord(sessionID: sessionID) {
             deliverListeningCheckpoints()
         }
         if listening.pending > 0, let track = currentTrack, let startedAt = sessionStartedAt {
             let checkpoint = ListeningEvent(id: sessionID, track: track, startedAt: startedAt, listenedSeconds: listening.pending)
-            guard pendingListening.append(checkpoint) else {
+            guard enqueueListeningCheckpoint(checkpoint) else {
                 failListeningCapacity()
                 return
             }
             _ = listening.drain()
+            if onListeningCheckpoint != nil {
+                pendingCheckpointRecent = RecentListen(track: track, playedAt: Date(), position: position)
+                hasNewRecent = true
+            }
         }
         deliverListeningCheckpoints()
-        publishSnapshot()
+        if onListeningCheckpoint == nil || hasNewRecent || checkpointIntentPosition != position
+            || checkpointIntentControlRevision != controlRevision || checkpointIntentSessionID != sessionID {
+            publishSnapshot()
+        }
     }
 
     private func deliverListeningCheckpoints() {
+        if onListeningCheckpoint != nil {
+            startListeningCheckpointDelivery()
+            return
+        }
         while let checkpoint = pendingListening.checkpoints.first {
             guard onListeningProgress?(checkpoint.track, checkpoint.id, checkpoint.startedAt, checkpoint.listenedSeconds) == true else { break }
             pendingListening.acknowledge(checkpoint)
@@ -504,14 +911,102 @@ final class PlayerController {
     }
 
     func discardPendingListening() {
+        listeningDeliveryGeneration = UUID()
+        listeningDeliveryTask?.cancel()
+        pendingCheckpointRecent = nil
+        // Privacy retires listening, not an unsaved resume intent.
+        privacySnapshotDeliveryPending = listeningDeliveryTask != nil || checkpointIntentRevision != savedCheckpointIntentRevision
         pendingListening.discard()
         listening = PlaybackListeningClock()
         sessionID = UUID()
         sessionStartedAt = nil
+        // Seconds from before the boundary never reach a signal; the boundary itself records nothing.
+        signalSession = ListeningSignalSession()
         lastCheckpointUptime = ProcessInfo.processInfo.systemUptime
         // History boundaries reset recording identity, not the audible track's once-only start notification.
         samplePlayback()
         if errorMessage == Self.listeningCapacityMessage { errorMessage = nil }
+        if privacySnapshotDeliveryPending { startListeningCheckpointDelivery() }
+    }
+
+    @discardableResult
+    func enqueueListeningCheckpoint(_ checkpoint: ListeningEvent) -> Bool {
+        pendingListening.append(checkpoint)
+    }
+
+    var pendingListeningCheckpoints: [ListeningEvent] { pendingListening.checkpoints }
+    var isDeliveringListeningCheckpoint: Bool { listeningDeliveryTask != nil }
+
+    func isCurrentListeningCheckpointIntent(_ checkpoint: PlaybackListeningCheckpoint) -> Bool {
+        isCurrentListeningCheckpointGeneration(checkpoint) && checkpoint.intentRevision == checkpointIntentRevision
+            && checkpoint.controlRevision == controlRevision
+    }
+
+    func isCurrentListeningCheckpointGeneration(_ checkpoint: PlaybackListeningCheckpoint) -> Bool {
+        checkpoint.deliveryGeneration == listeningDeliveryGeneration
+    }
+
+    /// Includes a privacy boundary's replacement snapshot save without sampling the clock or manufacturing another delta.
+    func waitForListeningCheckpointDelivery() async {
+        while let delivery = listeningDeliveryTask {
+            await delivery.value
+            if Task.isCancelled { return }
+        }
+    }
+
+    func handleListeningCheckpointExpiration() {
+        log.notice("event=listening_checkpoint_expired")
+        listeningDeliveryTask?.cancel()
+        system?.endListeningCheckpoint()
+    }
+
+    private func startListeningCheckpointDelivery() {
+        guard listeningDeliveryTask == nil, onListeningCheckpoint != nil else { return }
+        guard !pendingListening.checkpoints.isEmpty || pendingCheckpointRecent != nil
+                || checkpointIntentRevision != savedCheckpointIntentRevision else {
+            privacySnapshotDeliveryPending = false
+            return
+        }
+        let startsWithSnapshotOnly = privacySnapshotDeliveryPending
+        // A failed recovery waits for the ordinary retry path instead of starting another task from cleanup.
+        privacySnapshotDeliveryPending = false
+        let generation = listeningDeliveryGeneration
+        system?.beginListeningCheckpoint()
+        listeningDeliveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var snapshotOnly = startsWithSnapshotOnly
+            defer {
+                self.listeningDeliveryTask = nil
+                self.system?.endListeningCheckpoint()
+                if self.privacySnapshotDeliveryPending { self.startListeningCheckpointDelivery() }
+            }
+            // Repeated ticks coalesce into the latest intent; a failed drain waits for the next flush rather than spinning.
+            for _ in 0..<3 {
+                guard !Task.isCancelled, generation == self.listeningDeliveryGeneration,
+                      let deliver = self.onListeningCheckpoint else { return }
+                guard !self.pendingListening.checkpoints.isEmpty
+                    || self.pendingCheckpointRecent != nil
+                    || self.checkpointIntentRevision != self.savedCheckpointIntentRevision else { return }
+                let checkpoint = PlaybackListeningCheckpoint(
+                    events: snapshotOnly ? [] : Array(self.pendingListening.checkpoints.prefix(PlaybackListeningBuffer.defaultMaximumSessions)),
+                    recent: snapshotOnly ? nil : self.pendingCheckpointRecent,
+                    snapshot: self.musicResumeSnapshot,
+                    intentRevision: self.checkpointIntentRevision, controlRevision: self.controlRevision, deliveryGeneration: generation)
+                let began = ContinuousClock.now
+                let acknowledged = await deliver(checkpoint)
+                let outcome = acknowledged ? "acknowledged" : (Task.isCancelled ? "cancelled" : "rejected")
+                self.log.info("event=listening_checkpoint_delivery outcome=\(outcome, privacy: .public) snapshot_only=\(snapshotOnly) sessions=\(checkpoint.events.count) duration_ms=\(began.duration(to: .now) / .milliseconds(1))")
+                guard generation == self.listeningDeliveryGeneration else { return }
+                // Cancellation can arrive after the disk commit; a durable acknowledgement must still consume its exact deltas.
+                guard acknowledged else { return }
+                for event in checkpoint.events { self.pendingListening.acknowledge(event) }
+                if self.isCurrentListeningCheckpointIntent(checkpoint) {
+                    self.savedCheckpointIntentRevision = checkpoint.intentRevision
+                    if snapshotOnly { snapshotOnly = false }
+                    else { self.pendingCheckpointRecent = nil }
+                }
+            }
+        }
     }
 
     private static let listeningCapacityMessage = "Listening history couldn’t be saved. Playback is paused to keep unsaved listening time. Free some storage or turn off listening history, then try again."
@@ -532,7 +1027,7 @@ final class PlayerController {
     }
 
     func setRemoteFallbackEnabled(_ enabled: Bool) {
-        guard let youtube = resolver as? YouTubeStreamResolver else { return }
+        guard let youtube = resolver as? any PlaybackConfigurableResolving else { return }
         let previous = settingsTask
         settingsTask = Task {
             await previous?.value
@@ -541,6 +1036,61 @@ final class PlayerController {
         if resolutionTask != nil {
             beginResolving(forceRefresh: true, at: position)
         }
+    }
+
+    /// The current song keeps its stream; the ceiling applies from the next resolution on.
+    func setAudioQualityPreference(_ preference: AudioQualityPreference) {
+        guard let youtube = resolver as? any PlaybackConfigurableResolving else { return }
+        preloader.reset()
+        let previous = settingsTask
+        settingsTask = Task {
+            await previous?.value
+            await youtube.setAudioQualityPreference(preference)
+        }
+    }
+
+    /// Idempotent. Every installed tap, on the live and the standby item, ramps to the new curve; playback continues.
+    /// `settings` is the global choice; a per-song override for the current recording wins while it plays.
+    func setEqualizer(_ settings: EqualizerSettings) {
+        globalEqualizer = settings
+        refreshEqualizer()
+    }
+
+    /// Re-picks the current song's override or the global setting; the installer ignores an unchanged value.
+    func refreshEqualizer() {
+        let override = currentTrack.flatMap { equalizerSongOverride?($0.id) }
+        isEqualizerSongOverrideActive = override != nil
+        equalizer.update(override ?? globalEqualizer)
+    }
+
+    /// Looks up a per-song equalizer by recording id; nil for songs that follow the global setting.
+    @ObservationIgnored var equalizerSongOverride: (@MainActor (String) -> EqualizerSettings?)?
+    @ObservationIgnored private var globalEqualizer = EqualizerSettings()
+    private(set) var isEqualizerSongOverrideActive = false
+
+    var equalizerSettings: EqualizerSettings { equalizer.settings }
+    var equalizerStatus: EqualizerTapInstaller.Status { equalizer.status }
+
+    /// Level of whichever tapped item is rendering; read by the React to Music backdrop, never observed.
+    var levelMeter: PlaybackLevelMeter { equalizer.levelMeter }
+
+    /// Requested only while a visible player shows React to Music, so its taps and gapless priming cost
+    /// exist only then. Active and standby items registered meanwhile take a tap unless known live.
+    func setLevelMetering(_ requested: Bool) {
+        equalizer.setMetering(requested)
+    }
+
+    /// Polled at the backdrop's frame rate; unavailable on HLS, live and unsupported PCM items.
+    var levelMeterAvailability: EqualizerTapInstaller.MeterAvailability {
+        player.currentItem.map(equalizer.meterAvailability(for:)) ?? .unavailable
+    }
+
+    /// Idempotent. Off forgets the current song's segments and skip count and cancels a pending lookup.
+    func setSponsorBlockSkipping(_ enabled: Bool) {
+        guard enabled != sponsorBlockEnabled else { return }
+        sponsorBlockEnabled = enabled
+        log.info("event=sponsorblock_setting enabled=\(enabled ? 1 : 0)")
+        if enabled { refreshSponsorBlockSegments() } else { clearSponsorBlockSegments() }
     }
 
     func setNetworkOffline(_ offline: Bool) {
@@ -556,12 +1106,16 @@ final class PlayerController {
         let previous = networkConfigurationTask
         let configuration = Task { @MainActor [weak self, resolver] in
             await previous?.value
-            if let youtube = resolver as? YouTubeStreamResolver { await youtube.setNetworkOffline(offline) }
+            if let youtube = resolver as? any PlaybackConfigurableResolving { await youtube.setNetworkOffline(offline) }
             guard !Task.isCancelled, let self, self.networkGeneration == networkToken else { return }
             self.cachePipeline.setNetworkOffline(offline)
             if !offline { self.resumeConnectivityWork() }
         }
         networkConfigurationTask = configuration
+        if isLiveRadio {
+            if offline { fail(LiveRadioError.unavailable.localizedDescription) }
+            return
+        }
         guard offline else { return }
         cancelPrefetch()
         cancelAutoplayRequest()
@@ -616,9 +1170,18 @@ final class PlayerController {
 
     func resumePlayback() {
         controlRevision &+= 1
+        if isLiveRadio {
+            guard !interruption.active else { return }
+            if wantsPlayback && (resolutionTask != nil || preparing || isPlaying || liveRetryTask != nil) { return }
+            recoveryAttempts = 0
+            wantsPlayback = true
+            beginLiveConnecting()
+            return
+        }
         guard currentTrack != nil, !interruption.active else { return }
         if awaitingAutoplay != nil { return }
         retireOfflineNavigation()
+        if !wantsPlayback { startupTiming = nil }
         wantsPlayback = true
         errorMessage = nil
         if ended {
@@ -637,8 +1200,10 @@ final class PlayerController {
 
     func handleInterruption(began: Bool, shouldResume: Bool = false) {
         if began {
+            startupTiming = nil
             retireOfflineNavigation()
             flushListeningProgress()
+            if isLiveRadio { invalidatePipeline() }
             interruption.begin(wantsPlayback: wantsPlayback, generation: generation)
             cancelAutoplayRequest()
             endTransition()
@@ -668,12 +1233,15 @@ final class PlayerController {
         let savedPosition = position
         invalidatePipeline()
         deck.reset()
-        player = AVPlayer()
+        player = PlaybackAudioRoute.makePlayer()
         observeActivePlayer()
         system?.configureSession()
         log.notice("event=media_services_reset")
         wantsPlayback = resume
-        if resume { beginResolving(forceRefresh: true, at: savedPosition) }
+        if resume {
+            if isLiveRadio { beginLiveConnecting() }
+            else { beginResolving(forceRefresh: true, at: savedPosition) }
+        }
         publishNowPlaying()
     }
 
@@ -685,7 +1253,7 @@ final class PlayerController {
 
     func handleBackgroundTransitionExpired() {
         guard wantsPlayback || awaitingAutoplay != nil, isLoading else { return }
-        fail("Audio could not finish loading in the background. Open Breezy and try again.")
+        fail("Audio could not finish loading in the background. Open Velvet Thorn and try again.")
     }
 
     func expireSleepTimer(expected: Date, now: Date) {
@@ -694,22 +1262,56 @@ final class PlayerController {
         sleepTask?.cancel()
         sleepTask = nil
         log.info("event=sleep_timer_expired")
+        onSleepTimerFired?()
         pause()
     }
 
     func publishNowPlaying() {
+        if let station = liveStation {
+            system?.updateLive(station: station, playing: isPlaying)
+            return
+        }
         system?.update(track: currentTrack, position: position, duration: duration,
                        playing: isPlaying, index: currentIndex, count: queue.count)
     }
 
     private func publishSnapshot() {
-        onSnapshotChanged?(ordering.snapshot(position: position, repeatMode: repeatMode))
+        if onListeningCheckpoint != nil {
+            checkpointIntentRevision &+= 1
+            checkpointIntentPosition = position
+            checkpointIntentControlRevision = controlRevision
+            checkpointIntentSessionID = sessionID
+            onSnapshotIntentChanged?(musicResumeSnapshot)
+            startListeningCheckpointDelivery()
+            return
+        }
+        onSnapshotChanged?(musicResumeSnapshot)
     }
 
-    private func retireSelection() -> Bool {
+    private var musicResumeSnapshot: PlaybackSnapshot {
+        savedMusicSnapshot ?? ordering.snapshot(position: position, repeatMode: repeatMode)
+    }
+
+    /// The music session another device would continue, including original order the public queue hides.
+    var handoffSnapshot: PlaybackSnapshot { musicResumeSnapshot }
+
+    /// `position` moves on the 500 ms tick; a handover reads the item's clock so the next device starts on the beat.
+    var handoffPosition: TimeInterval {
+        guard !isLiveRadio, !seeking, player.currentItem?.status == .readyToPlay else { return position }
+        let actual = player.currentTime().seconds
+        guard actual.isFinite, actual >= 0 else { return position }
+        return PlaybackTiming.position(actual, duration: duration)
+    }
+
+    private func retireSelection(signal: ListeningSignal.Ending? = nil) -> Bool {
         flushListeningProgress()
         guard listening.pending == 0 else { return false }
+        if let signal { emitListeningSignal(signal) }
+        startupTiming = nil
         invalidatePipeline()
+        liveStation = nil
+        savedMusicSnapshot = nil
+        refreshEqualizer()
         cachePipeline.cancel()
         wantsPlayback = false
         interruption.cancelResume()
@@ -718,12 +1320,15 @@ final class PlayerController {
     }
 
     private func selectCurrent(autoplay: Bool, at position: TimeInterval = 0) {
+        startupTiming = autoplay && currentTrack != nil ? PlaybackStartupTiming() : nil
         startListeningSession()
         recoveryAttempts = 0
         ended = false
         errorMessage = nil
         resolvedViewCount = nil
         sourceAudioQuality = nil
+        playbackSource = nil
+        extractionPlaybackGeneration = nil
         isCurrentTrackCached = false
         cachedNextEntryID = nil
         cachePipeline.cancel()
@@ -736,17 +1341,59 @@ final class PlayerController {
         if wantsPlayback { beginResolving(forceRefresh: false, at: position) }
         else { system?.deactivateSession(); refreshOfflineAvailability() }
         refreshStandby()
+        beginSponsorBlockPlay()
     }
 
     private func startListeningSession(id: UUID = UUID()) {
+        if let entryID = ordering.selectedID, generatedRadioEntryIDs.contains(entryID) {
+            selectedRadioEntryIDs.removeAll { $0 == entryID }
+            selectedRadioEntryIDs.append(entryID)
+        }
+        pruneSeedRadioHistory()
+        pendingCheckpointRecent = nil
         listening = PlaybackListeningClock()
         sessionID = id
         sessionStartedAt = nil
+        signalSession = ListeningSignalSession()
         trackStartDelivered = false
         standbyEligible = false
+        nextDownloadSettled = false
+    }
+
+    /// Callers flush first, so the session's credited seconds are final; the selection has not changed yet.
+    private func emitListeningSignal(_ ending: ListeningSignal.Ending) {
+        guard !isLiveRadio, let track = currentTrack, signalSession.close() else { return }
+        // A skip before any audio still counts towards flicking through, even though it records no signal.
+        let rapid = ending == .skipped && recentSkips.record(at: ProcessInfo.processInfo.systemUptime)
+        guard signalSession.seconds > 0, let onListeningSignal else { return }
+        let known = PlaybackTiming.validDuration(duration) ?? PlaybackTiming.validDuration(track.duration)
+        onListeningSignal(ListeningSignal(trackID: track.id, title: track.title, artists: track.artists, endedAt: Date(),
+                                          listenedSeconds: signalSession.seconds, duration: known, ending: ending,
+                                          origin: listeningSignalOrigin, rapid: rapid))
+    }
+
+    /// A radio session is generated throughout; a mix keeps its provenance only on the occurrences it supplied.
+    private var listeningSignalOrigin: ListeningSignal.Origin {
+        guard let entry = ordering.selectedID, let track = ordering.current else { return .chosen }
+        let generated = isRadioSession || generatedRadioEntryIDs.contains(entry) || generatedMixEntryIDs.contains(entry)
+            || autoplayTrackIDs.contains(track.id)
+        return generated ? .generated : .chosen
+    }
+
+    /// A scrub to the end is a skip unless half the song was heard, and records nothing while paused.
+    private func naturalListeningEnding() -> ListeningSignal.Ending? {
+        guard repeatMode != .one, ProcessInfo.processInfo.systemUptime - lastUserSeekUptime <= 2 else { return .completed }
+        if let known = PlaybackTiming.validDuration(duration) ?? PlaybackTiming.validDuration(currentTrack?.duration),
+           signalSession.seconds >= known / 2 { return .completed }
+        return wantsPlayback && !interruption.active ? .skipped : nil
     }
 
     private func invalidatePipeline() {
+        liveRetryTask?.cancel()
+        liveRetryTask = nil
+        liveAsset?.cancelLoading()
+        liveAsset = nil
+        liveSamplePosition = nil
         retireOfflineNavigation()
         system?.endTransition()
         cancelAutoplayRequest()
@@ -769,6 +1416,8 @@ final class PlayerController {
         player.replaceCurrentItem(with: nil)
         currentStreamURL = nil
         sourceAudioQuality = nil
+        playbackSource = nil
+        extractionPlaybackGeneration = nil
         streamExpiresAt = nil
         streamLoudnessDb = nil
         refreshNormalizationGain(applyToPlayer: true)
@@ -782,6 +1431,10 @@ final class PlayerController {
     private func beginResolving(forceRefresh: Bool, at position: TimeInterval, discardingCachedFile discard: Bool = false,
                                 preferBestAudio: Bool = false) {
         guard let track = currentTrack else { return }
+        if wantsPlayback {
+            if startupTiming == nil { startupTiming = PlaybackStartupTiming() }
+            startupTiming?.beginAttempt()
+        } else { startupTiming = nil }
         let discardedURL = discard ? currentStreamURL : nil
         flushListeningProgress()
         guard listening.pending == 0, ensureListeningCapacity(for: sessionID) else { return }
@@ -806,15 +1459,21 @@ final class PlayerController {
                 await retention?.value
                 if discard { await pipeline.discard(track, url: discardedURL) }
                 try Task.checkCancellation()
+                guard self?.generation == token, self?.ordering.selectedID == entry else { return }
+                self?.startupTiming?.beginResolution()
                 var stream = try await PlaybackDeadline.run(seconds: 75) {
-                    if preferBestAudio, let youtube = resolver as? YouTubeStreamResolver {
+                    if preferBestAudio, let youtube = resolver as? any PlaybackConfigurableResolving {
                         return try await youtube.refreshQuality(track: track)
                     }
                     return try await resolver.resolve(track: track, forceRefresh: forceRefresh)
                 }
+                try Task.checkCancellation()
+                guard self?.generation == token, self?.ordering.selectedID == entry else { return }
+                let path = PlaybackStartTrace.startPath(for: track.id)
                 stream = try await PlaybackStreamLoading.loadMissingLocalDuration(in: stream)
                 try Task.checkCancellation()
                 guard let self, self.generation == token, self.ordering.selectedID == entry else { return }
+                self.startupTiming?.resolved(path: path)
                 self.resolutionTask = nil
                 self.install(stream, track: track, generation: token)
             } catch {
@@ -835,15 +1494,20 @@ final class PlayerController {
         streamLoudnessDb = stream.loudnessDb
         resolvedViewCount = stream.viewCount.flatMap { $0 >= 0 ? $0 : nil }
         sourceAudioQuality = stream.quality
+        playbackSource = stream.playbackSource
+        extractionPlaybackGeneration = stream.url.isFileURL ? nil : stream.extractionGeneration
         isCurrentTrackCached = cachePipeline.isCachedStream(stream)
         currentStreamURL = stream.url
-        refreshNormalizationGain(applyToPlayer: true)
         position = PlaybackTiming.position(pendingPosition, duration: duration)
         pendingPosition = position
-        let item = PlaybackStreamLoading.makeItem(url: stream.url, duration: duration)
+        let (item, usesPreload) = PlaybackStreamLoading.makeItem(stream: stream, trackID: track.id, duration: duration)
+        startupTiming?.usedPreload = usesPreload
+        equalizer.setNormalizationGain(PlaybackNormalization.gain(loudnessDb: stream.loudnessDb,
+            enabled: settings.normalizeVolume), for: item, allowsGainUp: !isLiveRadio)
         preparing = true
         lastAdvanceUptime = ProcessInfo.processInfo.systemUptime
         player.replaceCurrentItem(with: item)
+        refreshNormalizationGain(applyToPlayer: true)
         itemObservation = item.observe(\.status, options: [.initial, .new]) { @Sendable [weak self] _, _ in
             Task { @MainActor [weak self] in self?.itemStatusChanged(generation: token) }
         }
@@ -860,6 +1524,7 @@ final class PlayerController {
 
     private func itemStatusChanged(generation token: UInt64) {
         guard generation == token, let item = player.currentItem else { return }
+        if isLiveRadio { liveItemStatusChanged(item, generation: token); return }
         switch item.status {
         case .readyToPlay:
             guard preparing else { return }
@@ -874,6 +1539,31 @@ final class PlayerController {
         @unknown default: fail("This audio format could not be played.")
         }
         refreshActivity()
+    }
+
+    /// Selection to the first playing sample, per resolution path, so slow starts can be attributed; `firstPlay` marks the
+    /// process's first. A pause before audio drops the measurement rather than counting the paused time.
+    private func logPlaybackStart() {
+        guard var timing = startupTiming else { return }
+        startupTiming = nil
+        let ms = timing.sample()
+        let path = timing.path?.rawValue ?? "unknown"
+        let setupMS = Int(timing.setup / .milliseconds(1))
+        let resolutionMS = Int(timing.resolution / .milliseconds(1))
+        let readyBufferMS = Int(timing.readyBuffer / .milliseconds(1))
+        lastPlaybackStart = "path=\(path) ms=\(ms)"
+        log.info("event=playback_start path=\(path, privacy: .public) codec=\(self.sourceAudioQuality?.codec == .opus ? "opus" : "aac", privacy: .public) ms=\(ms) attempts=\(timing.attempts) setup_ms=\(setupMS) resolution_ms=\(resolutionMS) ready_buffer_ms=\(readyBufferMS) cached=\(self.isCurrentTrackCached ? 1 : 0) preload=\(timing.usedPreload ? 1 : 0) firstPlay=\(Self.firstStartEmitted ? 0 : 1)")
+        Self.firstStartEmitted = true
+    }
+
+    private func logStartupAttempt(outcome: String) {
+        guard var timing = startupTiming else { return }
+        let ms = timing.sample()
+        let setupMS = Int(timing.setup / .milliseconds(1))
+        let resolutionMS = Int(timing.resolution / .milliseconds(1))
+        let readyBufferMS = Int(timing.readyBuffer / .milliseconds(1))
+        let path = timing.path?.rawValue ?? "unknown"
+        log.info("event=playback_start_attempt outcome=\(outcome, privacy: .public) path=\(path, privacy: .public) ms=\(ms) attempts=\(timing.attempts) setup_ms=\(setupMS) resolution_ms=\(resolutionMS) ready_buffer_ms=\(readyBufferMS)")
     }
 
     private func performSeek(to target: TimeInterval, generation token: UInt64) {
@@ -923,6 +1613,7 @@ final class PlayerController {
         player.play()
         samplePlayback()
         refreshStandby()
+        if sponsorBlockPending { refreshSponsorBlockSegments() }
     }
 
     private func observeActivePlayer() {
@@ -960,15 +1651,18 @@ final class PlayerController {
     }
 
     private func finishedItem() {
+        if isLiveRadio { recoverLivePlayback(); return }
         guard !ended, !seeking, pendingOfflineAdvance == nil else { return }
         let continuePlaying = wantsPlayback && !interruption.active
-        if continuePlaying, isNetworkOffline { beginOfflineAdvance(automatic: true); return }
+        let signal = naturalListeningEnding()
+        if continuePlaying, isNetworkOffline { beginOfflineAdvance(automatic: true, signal: signal); return }
         if continuePlaying, let next = nextAutomaticOrder(), let prepared = deck.take(entryID: next.entry, transitionAt: Date()) {
-            activateStandby(prepared, order: next.order, blend: 0)
+            activateStandby(prepared, order: next.order, blend: 0, signal: signal)
             return
         }
         ended = true
         flushListeningProgress()
+        if let signal { emitListeningSignal(signal) }
         var nextOrder = ordering
         if continuePlaying && nextOrder.advance(repeatMode: repeatMode, automatic: true) {
             guard retireSelection() else { return }
@@ -998,6 +1692,7 @@ final class PlayerController {
     }
 
     private func recoverPlayback(reason: String) {
+        if isLiveRadio { recoverLivePlayback(); return }
         guard currentTrack != nil else { return }
         flushListeningProgress()
         guard wantsPlayback, !interruption.active, recoveryAttempts < 2 else {
@@ -1008,6 +1703,7 @@ final class PlayerController {
         // A local copy that will not load or play is corrupt as far as the player is concerned; it must not be retried.
         let discardCachedFile = currentItemIsCachedFile && Self.fileFailureReasons.contains(reason)
         log.notice("event=stream_refresh reason=\(reason, privacy: .public) attempt=\(self.recoveryAttempts) discardCache=\(discardCachedFile)")
+        logStartupAttempt(outcome: "retry")
         beginResolving(forceRefresh: true, at: seeking ? pendingPosition : position, discardingCachedFile: discardCachedFile)
     }
 
@@ -1019,6 +1715,8 @@ final class PlayerController {
     }
 
     private func fail(_ message: String) {
+        logStartupAttempt(outcome: "failed")
+        startupTiming = nil
         flushListeningProgress()
         invalidatePipeline()
         wantsPlayback = false
@@ -1032,11 +1730,24 @@ final class PlayerController {
     }
 
     private func samplePlayback() {
+        if isLiveRadio {
+            let advancing = wantsPlayback && !interruption.active && !preparing
+                && player.timeControlStatus == .playing && player.rate > 0
+            let sample = player.currentTime().seconds
+            if advancing, sample.isFinite, liveSamplePosition == nil || sample > (liveSamplePosition ?? 0) {
+                lastAdvanceUptime = ProcessInfo.processInfo.systemUptime
+                liveSamplePosition = sample
+                system?.endTransition()
+            }
+            isPlaying = advancing
+            return
+        }
         guard player.currentItem != nil, !seeking, !preparing else { return }
         let actualPosition = player.currentTime().seconds
         guard actualPosition.isFinite, actualPosition >= 0 else { return }
         let uptime = ProcessInfo.processInfo.systemUptime
         let advancing = wantsPlayback && !interruption.active && player.timeControlStatus == .playing && player.rate > 0
+        if advancing, startupTiming != nil { logPlaybackStart() }
         let delta = listening.sample(position: actualPosition, uptime: uptime, advancing: advancing)
         position = PlaybackTiming.position(actualPosition, duration: duration)
         pendingPosition = position
@@ -1044,6 +1755,7 @@ final class PlayerController {
             lastAdvanceUptime = uptime
             system?.endTransition()
             if sessionStartedAt == nil { sessionStartedAt = Date().addingTimeInterval(-delta) }
+            signalSession.credit(delta)
         }
         isPlaying = advancing && (delta > 0 || (isPlaying && uptime - lastAdvanceUptime < 1))
         if delta > 0, !trackStartDelivered, let track = currentTrack {
@@ -1051,6 +1763,10 @@ final class PlayerController {
             standbyEligible = true
             log.info("event=track_started")
             onTrackStarted?(track)
+            if onListeningCheckpoint != nil {
+                pendingCheckpointRecent = RecentListen(track: track, playedAt: Date(), position: position)
+                publishSnapshot()
+            }
             refreshStandby()
         }
     }
@@ -1058,20 +1774,43 @@ final class PlayerController {
     private func refreshActivity() {
         isLoading = !interruption.active && errorMessage == nil
             && (awaitingAutoplay != nil || (wantsPlayback
-                && (pendingOfflineAdvance != nil || resolutionTask != nil || preparing || seeking || player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                && (pendingOfflineAdvance != nil || liveRetryTask != nil || resolutionTask != nil || preparing || seeking || player.timeControlStatus == .waitingToPlayAtSpecifiedRate
                     || (player.currentItem != nil && !isPlaying && !ended))))
         if !wantsPlayback || interruption.active || player.timeControlStatus != .playing { isPlaying = false }
         publishNowPlaying()
     }
 
     private func tick() {
+        equalizer.reportMetrics()
         if let deadline = sleepUntil, Date() >= deadline { expireSleepTimer(expected: deadline, now: Date()) }
-        if currentTrack != nil {
+        if isLiveRadio {
             samplePlayback()
             refreshActivity()
+            let uptime = ProcessInfo.processInfo.systemUptime
+            if recoveryAttempts > 0, isPlaying, let ready = liveReadyUptime, uptime - ready >= Self.liveRetryRefundSeconds {
+                recoveryAttempts = 0
+                log.info("event=live_radio_connection outcome=retry_budget_refunded")
+            }
+            if wantsPlayback, !interruption.active, !preparing, resolutionTask == nil, liveRetryTask == nil,
+               player.currentItem != nil, uptime - lastAdvanceUptime >= 20 { recoverLivePlayback() }
+            if uptime - lastCheckpointUptime >= 5, !pendingListening.checkpoints.isEmpty
+                || checkpointIntentRevision != savedCheckpointIntentRevision { flushListeningProgress() }
+            return
+        }
+        if currentTrack != nil {
+            let previousPosition = position
+            samplePlayback()
+            refreshActivity()
+            if isPlaying, !seeking, position > previousPosition, let stamp = extractionPlaybackGeneration {
+                extractionPlaybackGeneration = nil
+                onFreshExtractionPlayed?(stamp)
+            }
+            settleNextDownloadIfNeeded()
+            refreshPreloads()
         }
         let uptime = ProcessInfo.processInfo.systemUptime
-        if uptime - lastCheckpointUptime >= 5 && (wantsPlayback || listening.pending > 0 || !pendingListening.checkpoints.isEmpty) {
+        if uptime - lastCheckpointUptime >= 5 && (wantsPlayback || listening.pending > 0 || !pendingListening.checkpoints.isEmpty
+            || (onListeningCheckpoint != nil && (checkpointIntentRevision != savedCheckpointIntentRevision || pendingCheckpointRecent != nil))) {
             flushListeningProgress()
         }
         guard currentTrack != nil else { return }
@@ -1082,18 +1821,85 @@ final class PlayerController {
             recoverPlayback(reason: "expired")
         } else if uptime - lastAdvanceUptime >= 20 {
             recoverPlayback(reason: "stalled")
+        } else {
+            applySegmentSkip(uptime: uptime)
         }
+    }
+
+    // MARK: - SponsorBlock
+
+    /// A new play of the selected entry: fresh skip state, then a lookup for YouTube songs when the setting is on.
+    private func beginSponsorBlockPlay() {
+        segmentSkipper = SegmentSkipper()
+        sponsorBlockSkipCount = 0
+        refreshSponsorBlockSegments()
+    }
+
+    private func clearSponsorBlockSegments() {
+        sponsorBlockTask?.cancel()
+        sponsorBlockTask = nil
+        sponsorBlockPending = false
+        segmentSkipper = SegmentSkipper()
+        sponsorBlockSkipCount = 0
+    }
+
+    /// Looks up the current song's segments without holding playback. A paused restore or a browsed queue sends
+    /// nothing: the lookup waits until the song actually plays, and known-offline playback never asks.
+    private func refreshSponsorBlockSegments() {
+        sponsorBlockTask?.cancel()
+        sponsorBlockTask = nil
+        sponsorBlockPending = false
+        guard sponsorBlockEnabled, let track = currentTrack, track.source == .youTubeMusic,
+              let videoID = CatalogText.videoID(track.providerID) else { return }
+        guard wantsPlayback, !isNetworkOffline else { sponsorBlockPending = true; return }
+        let entry = ordering.selectedID
+        let token = UUID()
+        sponsorBlockToken = token
+        let provider = sponsorBlockProvider
+        let duration = PlaybackTiming.validDuration(track.duration)
+        sponsorBlockTask = Task { @MainActor [weak self] in
+            let segments = try? await provider.segments(forVideoID: videoID, duration: duration)
+            guard !Task.isCancelled, let self, self.sponsorBlockToken == token, self.ordering.selectedID == entry else { return }
+            self.sponsorBlockTask = nil
+            self.segmentSkipper.install(segments ?? [])
+            self.log.info("event=sponsorblock_segments status=\(segments == nil ? "failed" : "ok", privacy: .public) segments=\(segments?.count ?? 0)")
+        }
+    }
+
+    /// Jumps the live item past a segment through the ordinary seek path, so the clock treats it as a seek and the
+    /// generation checks still guard the callbacks. A blend in progress and the standby deck are left alone.
+    private func applySegmentSkip(uptime: TimeInterval) {
+        guard isPlaying, transition == nil, pendingOfflineAdvance == nil, player.currentItem?.status == .readyToPlay,
+              let segment = segmentSkipper.skipTarget(at: position, uptime: uptime) else { return }
+        sponsorBlockSkipCount = segmentSkipper.skippedCount
+        log.info("event=sponsorblock_skip category=\(segment.category.logValue, privacy: .public) skipped=1")
+        flushListeningProgress()
+        guard listening.pending == 0 else { return }
+        let target = PlaybackTiming.position(segment.end, duration: duration)
+        position = target
+        pendingPosition = target
+        listening.discontinuity()
+        performSeek(to: target, generation: generation)
+        publishSnapshot()
+        publishNowPlaying()
     }
 
     // MARK: - Transitions
 
     private func refreshNormalizationGain(applyToPlayer: Bool) {
         normalizationGain = PlaybackNormalization.gain(loudnessDb: streamLoudnessDb, enabled: settings.normalizeVolume)
-        if applyToPlayer { player.volume = Float(normalizationGain) }
+        deck.normalizeVolume = settings.normalizeVolume
+        if applyToPlayer {
+            if let item = player.currentItem {
+                equalizer.setNormalizationGain(normalizationGain, for: item, allowsGainUp: !isLiveRadio)
+            }
+            player.volume = Float(min(1, normalizationGain))
+        }
     }
 
     /// Nil when the automatic advance stays on the current entry (repeat one) or the queue is exhausted.
     private func nextAutomaticOrder() -> (entry: UUID, order: PlaybackQueue)? {
+        guard !isLiveRadio else { return nil }
         var order = ordering
         if isNetworkOffline {
             guard let available = offlineAvailability,
@@ -1118,6 +1924,8 @@ final class PlayerController {
     /// Keeps the standby deck equal to the real next entry: invalidates a stale one and prepares the current one
     /// once this track has started. Without any blending feature the older warmup path applies instead.
     private func refreshStandby() {
+        refreshPreloads()
+        guard !isLiveRadio else { deck.invalidate(); return }
         guard pendingOfflineAdvance == nil else { return }
         requestAutoplayIfNeeded()
         let next = nextAutomaticOrder()
@@ -1138,7 +1946,7 @@ final class PlayerController {
             deck.invalidate()
         }
         defer { scheduleBoundary() }
-        guard wantsStandby else { prefetchNextQueuedTrack(); return }
+        guard wantsStandby else { return }
         guard let next, let track = next.order.current, deck.entryID == nil, standbyEligible,
               wantsPlayback, !interruption.active, errorMessage == nil else { return }
         let configuration = settingsTask
@@ -1210,7 +2018,7 @@ final class PlayerController {
     }
 
     /// Explicit Next uses the same cached-only traversal while retaining its paused/playing intent.
-    private func beginOfflineAdvance(automatic: Bool) {
+    private func beginOfflineAdvance(automatic: Bool, signal: ListeningSignal.Ending? = nil) {
         guard currentTrack != nil else { return }
         guard !interruption.active else { pause(); return }
         let resume = wantsPlayback && !interruption.active
@@ -1228,7 +2036,10 @@ final class PlayerController {
         isPlaying = false
         if automatic, duration > 0 { position = duration; pendingPosition = duration }
         var probe = ordering
-        guard probe.advance(repeatMode: repeatMode, automatic: automatic) else { pause(); return }
+        let advances = probe.advance(repeatMode: repeatMode, automatic: automatic)
+        // Like the online path, a natural end always counts, while Next at the end of the queue only pauses.
+        if let signal, advances || automatic { emitListeningSignal(signal) }
+        guard advances else { pause(); return }
         let id = UUID()
         let token = generation
         let entry = ordering.selectedID
@@ -1364,6 +2175,7 @@ final class PlayerController {
     }
 
     private func cancelPrefetch() {
+        preloader.update(queue: [], queueAllowed: false, holding: false)
         prefetchTask?.cancel()
         prefetchTask = nil
         prefetchIDs = []
@@ -1414,8 +2226,24 @@ final class PlayerController {
     private func syncCacheDownloads(next: (entry: UUID, order: PlaybackQueue)?) {
         guard cachePipeline.isAvailable, trackStartDelivered, wantsPlayback, !ended, errorMessage == nil, !interruption.active,
               let current = currentTrack else { return }
-        let target = next.flatMap { step in step.order.current.map { PlaybackCachePipeline.Target(track: $0, entryID: step.entry) } }
+        // A quick skip should cost only the next song's preparation; its complete file waits until this one settles.
+        let target = nextDownloadSettled
+            ? next.flatMap { step in step.order.current.map { PlaybackCachePipeline.Target(track: $0, entryID: step.entry) } }
+            : nil
         cachePipeline.sync(current: current, next: target)
+    }
+
+    /// `settleSeconds` (30 by default), or half of a shorter song.
+    static func nextDownloadSettlePosition(duration: TimeInterval, settleSeconds: TimeInterval) -> TimeInterval {
+        duration > 0 ? min(settleSeconds, duration / 2) : settleSeconds
+    }
+
+    private func settleNextDownloadIfNeeded() {
+        guard !nextDownloadSettled, trackStartDelivered, isPlaying,
+              position >= Self.nextDownloadSettlePosition(duration: duration, settleSeconds: nextDownloadSettleSeconds) else { return }
+        nextDownloadSettled = true
+        log.debug("event=next_download_settled")
+        refreshStandby()
     }
 
     /// Short tracks would never qualify under a fixed 20 s rule, so the margin shrinks with the track.
@@ -1435,6 +2263,8 @@ final class PlayerController {
     }
 
     private func standbyChanged() {
+        // The deck reports right after it installs an item, so the standby tap is in place before preroll.
+        if let item = deck.player?.currentItem { equalizer.attach(to: item) }
         if deck.didFail, !isNetworkOffline, standbyNetworkGeneration != networkGeneration {
             deck.invalidate()
             refreshStandby()
@@ -1478,12 +2308,14 @@ final class PlayerController {
         guard blend > 0, remaining.isFinite, remaining > 0.25, remaining <= blend + 0.5,
               ProcessInfo.processInfo.systemUptime - lastSeekUptime >= 1,
               let next = nextAutomaticOrder(), let prepared = deck.take(entryID: next.entry, transitionAt: Date()) else { return }
-        activateStandby(prepared, order: next.order, blend: min(blend, remaining))
+        // The blend ends the session early, which still counts as hearing the song through.
+        activateStandby(prepared, order: next.order, blend: min(blend, remaining), signal: naturalListeningEnding())
     }
 
     /// Makes the prepared standby the current track. The outgoing player keeps playing only for the blend;
     /// its item callbacks are rejected by the generation bump.
-    private func activateStandby(_ prepared: StandbyDeck.Prepared, order: PlaybackQueue, blend: TimeInterval) {
+    private func activateStandby(_ prepared: StandbyDeck.Prepared, order: PlaybackQueue, blend: TimeInterval,
+                                 signal: ListeningSignal.Ending? = nil) {
         retireOfflineNavigation()
         flushListeningProgress()
         let incomingSession = UUID()
@@ -1492,6 +2324,8 @@ final class PlayerController {
             deck.reclaim(prepared.player)
             return
         }
+        if let signal { emitListeningSignal(signal) }
+        startupTiming = nil
         endTransition()
         system?.endTransition()
         cancelAutoplayRequest()
@@ -1523,6 +2357,8 @@ final class PlayerController {
         streamLoudnessDb = prepared.stream.loudnessDb
         resolvedViewCount = prepared.stream.viewCount.flatMap { $0 >= 0 ? $0 : nil }
         sourceAudioQuality = prepared.stream.quality
+        playbackSource = prepared.stream.playbackSource
+        extractionPlaybackGeneration = prepared.stream.url.isFileURL ? nil : prepared.stream.extractionGeneration
         isCurrentTrackCached = cachePipeline.isCachedStream(prepared.stream)
         currentStreamURL = prepared.stream.url
         cachedNextEntryID = nil
@@ -1544,7 +2380,7 @@ final class PlayerController {
         isLoading = false
         if blend > 0 {
             let crossfade = PlaybackCrossfade(outgoing: outgoing, incoming: player, duration: blend,
-                                              outgoingGain: outgoingGain, incomingGain: Float(normalizationGain))
+                                              outgoingGain: outgoingGain, incomingGain: Float(min(1, normalizationGain)))
             transition = crossfade
             player.playImmediately(atRate: 1)
             crossfade.start { [weak self] in self?.endTransition() }
@@ -1558,6 +2394,7 @@ final class PlayerController {
         publishSnapshot()
         publishNowPlaying()
         refreshStandby()
+        beginSponsorBlockPlay()
     }
 
     private func endTransition() {
@@ -1572,12 +2409,51 @@ final class PlayerController {
 
     // MARK: - Autoplay
 
+    private func resetSeedRadioRetention() {
+        radioRefillAhead = 0
+        generatedRadioEntryIDs.removeAll()
+        selectedRadioEntryIDs.removeAll()
+        radioRecentTracks.removeAll()
+    }
+
+    @discardableResult
+    private func pruneSeedRadioHistory() -> Bool {
+        guard radioRefillAhead > 0 else { return false }
+        generatedRadioEntryIDs.formIntersection(ordering.entries.map(\.id))
+        selectedRadioEntryIDs.removeAll { !generatedRadioEntryIDs.contains($0) }
+        // Array position is not play history: shuffle and queue jumps can put unheard entries behind selection.
+        let previousIDs = Set(ordering.entries.prefix(ordering.index).map(\.id))
+        let previousSelected = selectedRadioEntryIDs.filter { previousIDs.contains($0) }
+        let expired = Array(previousSelected.prefix(max(0, previousSelected.count - Self.radioPreviousEntryLimit)))
+        guard !expired.isEmpty else { return false }
+        var nextOrder = ordering
+        let removed = nextOrder.removePreviousEntries(withIDs: Set(expired))
+        let removedTracks = Dictionary(uniqueKeysWithValues: removed.map { ($0.id, $0.track) })
+        for id in expired {
+            guard let track = removedTracks[id] else { continue }
+            radioRecentTracks.removeAll { $0.id == track.id }
+            radioRecentTracks.append(track)
+        }
+        radioRecentTracks = Array(radioRecentTracks.suffix(Self.radioRecentTrackLimit))
+        let removedIDs = Set(removed.map(\.id))
+        generatedRadioEntryIDs.subtract(removedIDs)
+        selectedRadioEntryIDs.removeAll { removedIDs.contains($0) }
+        ordering = nextOrder
+        autoplayTrackIDs.formIntersection(queue.map(\.id))
+        log.info("event=seed_radio_pruned count=\(removed.count) recent_count=\(self.radioRecentTracks.count)")
+        return !removed.isEmpty
+    }
+
     private func requestAutoplayIfNeeded() {
         guard !isNetworkOffline, settings.autoplay || isRadioSession, repeatMode == .off, wantsPlayback, !interruption.active, standbyEligible,
               let track = currentTrack, let entry = ordering.selectedID, autoplayRequestedEntry != entry,
               onQueueExhausted != nil else { return }
         var probe = ordering
-        guard !probe.advance(repeatMode: .off, automatic: true) else { return }
+        var upcoming = 0
+        while upcoming <= (isRadioSession ? radioRefillAhead : 0), probe.advance(repeatMode: .off, automatic: true) {
+            upcoming += 1
+        }
+        guard upcoming <= (isRadioSession ? radioRefillAhead : 0) else { return }
         requestAutoplay(track, entry: entry, final: false)
     }
 

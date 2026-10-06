@@ -3,6 +3,7 @@ import JavaScriptCore
 import XCTest
 @testable import YouTubeKit
 
+@available(iOS 13.0, watchOS 6.0, tvOS 13.0, macOS 10.15, *)
 final class SignatureSolverDiagnosticTests: XCTestCase {
     private let challenge = "private-challenge-sentinel"
     private let signedMaterial = "signed-media-sentinel"

@@ -1,0 +1,52 @@
+{
+ "count": "20",
+ "status": 1,
+ "eof": 0,
+ "entities": [
+  {
+   "language": "Hindi",
+   "seokey": "pritam",
+   "name": "Pritam",
+   "artwork": "https://a10.gaanacdn.com/images/artists/68/11468/crop_175x175_11468.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/artists/zLp36PvbrG/Lp36AR0KrG/size_m_1716815534.jpg",
+   "entity_id": "11468",
+   "entity_type": "AR",
+   "artwork_medium": "https://a10.gaanacdn.com/images/artists/68/11468/crop_480x480_11468.jpg",
+   "favorite_count": 2355703,
+   "songs": "7206",
+   "entity_info": [
+    {
+     "key": "albums_count",
+     "value": 2703
+    },
+    {
+     "key": "songs_count",
+     "value": 7206
+    }
+   ]
+  },
+  {
+   "language": "Hindi,Kannada",
+   "seokey": "shreya-ghoshal",
+   "name": "Shreya Ghoshal",
+   "artwork": "https://a10.gaanacdn.com/images/artists/4/4/crop_175x175_4.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/artists/10q3Z1K52r/10q3Z1K52r/size_m_1717411303.jpg",
+   "entity_id": "4",
+   "entity_type": "AR",
+   "artwork_medium": "https://a10.gaanacdn.com/images/artists/4/4/crop_480x480_4.jpg",
+   "favorite_count": 2952606,
+   "songs": "10407",
+   "entity_info": [
+    {
+     "key": "albums_count",
+     "value": 5022
+    },
+    {
+     "key": "songs_count",
+     "value": 10407
+    }
+   ]
+  }
+ ],
+ "user_token_status": "0"
+}

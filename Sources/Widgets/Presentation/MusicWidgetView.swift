@@ -71,7 +71,7 @@ struct MusicWidgetView: View {
                         .accessibilityElement(children: .ignore)
                         .contentShape(.accessibility, Rectangle())
                         .accessibilityLabel(presentation.smallAccessibilityLabel)
-                        .accessibilityHint(presentation.emptyState != nil || kind == .mixes ? "Open in Breezy" : "Opens Breezy and plays this song")
+                        .accessibilityHint(presentation.emptyState != nil || kind == .mixes ? "Open in Velvet Thorn" : "Opens Velvet Thorn and plays this song")
                         .accessibilityAddTraits(.isLink)
                         .accessibilityIdentifier("widget.small.\(kind.rawValue)")
                         #if DEBUG
@@ -89,7 +89,7 @@ struct MusicWidgetView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(presentation.heading). \(state.title). \(state.message)")
-            .accessibilityHint("Open in Breezy")
+            .accessibilityHint("Open in Velvet Thorn")
             .accessibilityIdentifier("widget.empty.\(kind.rawValue)")
         } else if kind == .mixes {
             mixContent(layout)
@@ -183,7 +183,7 @@ struct MusicWidgetView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Play \(track.title), \(track.artistName)\(track.isExplicit ? ". Explicit" : "")")
-                    .accessibilityHint("Open and play in Breezy")
+                    .accessibilityHint("Open and play in Velvet Thorn")
                     .accessibilityIdentifier("widget.track.\(kind.rawValue).\(track.id)")
                     .privacySensitive()
                 }
@@ -198,7 +198,7 @@ struct MusicWidgetView: View {
                     if !layout.isAccessibilitySize {
                         HStack(spacing: 3) {
                             Image(systemName: "leaf.fill").font(.system(size: 8))
-                            Text("Breezy").font(.system(size: 10, weight: .medium, design: .rounded))
+                            Text("Velvet Thorn").font(.system(size: 10, weight: .medium, design: .rounded))
                         }
                         .foregroundStyle(secondary)
                         .accessibilityHidden(true)
@@ -227,7 +227,7 @@ struct MusicWidgetView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Open \(presentation.heading)")
         .accessibilityValue(presentation.countText ?? "")
-        .accessibilityHint("Browse in Breezy")
+        .accessibilityHint("Browse in Velvet Thorn")
         .accessibilityIdentifier("widget.open.\(kind.rawValue)")
         .privacySensitive(presentation.countText != nil)
     }
@@ -258,7 +258,7 @@ struct MusicWidgetView: View {
     }
 
     private func mixCaption(_ layout: MusicWidgetLayout) -> some View {
-        Text(presentation.countText ?? "Saved in Breezy")
+        Text(presentation.countText ?? "Saved in Velvet Thorn")
             .font(.system(size: layout.captionPointSize))
             .foregroundStyle(secondary)
             .lineLimit(1)
@@ -284,7 +284,7 @@ struct MusicWidgetView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Play \(mixKind.widgetTitle)")
-            .accessibilityHint("Open and play this saved mix in Breezy")
+            .accessibilityHint("Open and play this saved mix in Velvet Thorn")
             .accessibilityIdentifier("widget.mix.play")
         }
     }
@@ -316,7 +316,7 @@ struct MusicWidgetView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             HStack(spacing: 4) {
-                Text("Open Breezy")
+                Text("Open Velvet Thorn")
                 Image(systemName: "arrow.up.right").accessibilityHidden(true)
             }
             .font(.system(size: layout.captionPointSize, weight: .semibold))

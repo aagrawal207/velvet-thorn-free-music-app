@@ -1,3 +1,5 @@
+// The Catalyst SDK's StoreKitTest names these session APIs differently; native StoreKit is covered on iOS.
+#if !targetEnvironment(macCatalyst)
 import StoreKit
 import StoreKitTest
 import XCTest
@@ -48,7 +50,7 @@ final class TipJarStoreKitTests: XCTestCase {
             await tips.loadProducts()
             let product = try XCTUnwrap(tips.products.first)
             for expectedCount in 1...2 {
-                await tips.purchase(product)
+                try await purchaseWithinDeadline(tips, product)
                 XCTAssertEqual(tips.state, .thanked)
                 XCTAssertEqual(library.tipCount, expectedCount)
                 XCTAssertEqual(LibraryStore(directory: directory).tipCount, expectedCount)
@@ -86,7 +88,7 @@ final class TipJarStoreKitTests: XCTestCase {
             let tips = TipJarService(library: library)
             await tips.loadProducts()
             let product = try XCTUnwrap(tips.products.first)
-            await tips.purchase(product)
+            try await purchaseWithinDeadline(tips, product)
             XCTAssertEqual(tips.state, .pending)
             XCTAssertEqual(tips.tipCount, 0)
             let pending = try XCTUnwrap(session.allTransactions().first { $0.pendingAskToBuyConfirmation })
@@ -115,7 +117,7 @@ final class TipJarStoreKitTests: XCTestCase {
             XCTAssertNil(tips.loadError)
             let product = try XCTUnwrap(tips.products.first)
             try await session.setSimulatedError(.generic(.userCancelled), forAPI: .purchase)
-            await tips.purchase(product)
+            try await purchaseWithinDeadline(tips, product)
             XCTAssertEqual(tips.state, .idle)
             XCTAssertEqual(tips.tipCount, 0)
             XCTAssertTrue(tips.canPurchase)
@@ -128,7 +130,7 @@ final class TipJarStoreKitTests: XCTestCase {
             await tips.loadProducts()
             let product = try XCTUnwrap(tips.products.first)
             try await session.setSimulatedError(.verification(.invalidSignature), forAPI: .verification)
-            await tips.purchase(product)
+            try await purchaseWithinDeadline(tips, product)
             guard case .failed = tips.state else { return XCTFail("An unverified StoreKit purchase must not be thanked") }
             XCTAssertEqual(tips.tipCount, 0)
             let unfinished = await unfinishedIDs()
@@ -149,7 +151,7 @@ final class TipJarStoreKitTests: XCTestCase {
             let product = try XCTUnwrap(tips.products.first)
             let url = directory.appendingPathComponent(LibraryPersistence.fileName)
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            await tips.purchase(product)
+            try await purchaseWithinDeadline(tips, product)
             guard case .failed = tips.state else { return XCTFail("A failed write must not finish or thank the purchase") }
             XCTAssertEqual(tips.tipCount, 0)
             let unfinished = await unfinishedIDs()
@@ -183,6 +185,24 @@ final class TipJarStoreKitTests: XCTestCase {
         try await body(session, LibraryStore(directory: directory), directory)
     }
 
+    /// A StoreKit test session that failed to take over shows the real sign-in sheet, and `purchase` would wait
+    /// for a person forever; the deadline turns that into a failure the run can report.
+    private func purchaseWithinDeadline(_ tips: TipJarService, _ product: Product) async throws {
+        var finished = false
+        let purchase = Task { @MainActor in
+            await tips.purchase(product)
+            finished = true
+        }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(30))
+        while !finished {
+            guard ContinuousClock.now < deadline else {
+                purchase.cancel()
+                throw AppModelTestFailure.timedOut("StoreKit purchase; the test session did not suppress dialogs")
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     private func unfinishedIDs() async -> Set<UInt64> {
         var ids: Set<UInt64> = []
         // Unverified records must also remain visible to tests that intentionally fail verification.
@@ -198,3 +218,4 @@ final class TipJarStoreKitTests: XCTestCase {
         }
     }
 }
+#endif

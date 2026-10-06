@@ -1,0 +1,65 @@
+{
+ "topFacet": "Mix",
+ "gr": [
+  {
+   "ty": "Album",
+   "topSc": 1414,
+   "va": "1",
+   "stxt": "Albums",
+   "gd": [
+    {
+     "iid": "6066219",
+     "id": 6066219,
+     "ti": "Aashiqui 2 (Cine Audio)",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/Bp1bAnK029/1bAyjzRjb0/size_m.jpg",
+     "sti": "Palak Muchhal,Shraddha Kapoor,Arijit Singh",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "aashiqui-2-cine-audio",
+     "ty": "Album",
+     "language": "Hindi",
+     "alist": "[Palak Muchhal,Shraddha Kapoor,Arijit Singh]",
+     "pw": 0
+    },
+    {
+     "iid": "92317",
+     "id": 92317,
+     "ti": "Aashiqui 2",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+     "sti": "Palak Muchhal,Arijit Singh,Mustafa Zahid",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "aashiqui-2",
+     "ty": "Album",
+     "language": "Hindi",
+     "alist": "[Palak Muchhal,Arijit Singh,Mustafa Zahid]",
+     "pw": 0
+    },
+    {
+     "iid": "150312",
+     "id": 150312,
+     "ti": "Aashiqui 2",
+     "aw": "https://a10.gaanacdn.com/gn_img/albums/BZgWoOW2d9/ZgWoQwPrK2/size_m_1712905435.jpg",
+     "sti": "Palak Muchhal,Arijit Singh,K.K.",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "bollywood-recall-mahesh-bhatt",
+     "ty": "Album",
+     "language": "Hindi",
+     "alist": "[Palak Muchhal,Arijit Singh,K.K.]",
+     "pw": 0
+    }
+   ]
+  }
+ ],
+ "srId": "trimmed",
+ "algo": "NEWSEARCH",
+ "action": 0,
+ "q": "aashiqui 2",
+ "originalQuery": "aashiqui 2",
+ "abFlag": 26,
+ "tabs": []
+}

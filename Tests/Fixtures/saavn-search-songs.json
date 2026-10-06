@@ -1,0 +1,202 @@
+{
+ "total": 2118,
+ "start": 1,
+ "results": [
+  {
+   "id": "aRZbUYD7",
+   "title": "Tum Hi Ho",
+   "subtitle": "Mithoon, Arijit Singh - Aashiqui 2",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/song/tum-hi-ho/EToxUyFpcwQ",
+   "image": "https://c.saavncdn.com/430/Aashiqui-2-Hindi-2013-150x150.jpg",
+   "language": "hindi",
+   "year": "2013",
+   "play_count": "372864820",
+   "explicit_content": "0",
+   "more_info": {
+    "music": "Mithoon",
+    "album_id": "1139549",
+    "album": "Aashiqui 2",
+    "320kbps": "true",
+    "duration": "262",
+    "has_lyrics": "true",
+    "lyrics_id": "",
+    "label": "T-Series",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyRofh8YQPTqjR2tIxTYXqGEQHgqnNfsetouo4rsD0s4RZKObWAyHrEhw7tS9a8Gtq",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "459320",
+       "name": "Arijit Singh",
+       "role": "primary_artists",
+       "type": "artist"
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "music",
+       "type": "artist"
+      },
+      {
+       "id": "459320",
+       "name": "Arijit Singh",
+       "role": "singer",
+       "type": "artist"
+      },
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "lyricist",
+       "type": "artist"
+      },
+      {
+       "id": "669125",
+       "name": "Aditya Roy Kapur",
+       "role": "starring",
+       "type": "artist"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "Bt07_OpM",
+   "title": "Tum Hi Ho (From &quot;Aashiqui 2&quot;)",
+   "subtitle": "Arijit Singh, Mithoon - Best Of Arijit Singh - Collection Of Romantic Songs",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/song/tum-hi-ho-from-aashiqui-2/MhxbBit-R34",
+   "image": "https://c.saavncdn.com/840/Best-Of-Arijit-Singh-Collection-Of-Romantic-Songs-Hindi-2025-20251203161112-150x150.jpg",
+   "language": "hindi",
+   "year": "2025",
+   "play_count": "372866185",
+   "explicit_content": "0",
+   "more_info": {
+    "music": "Mithoon",
+    "album_id": "70314193",
+    "album": "Best Of Arijit Singh - Collection Of Romantic Songs",
+    "320kbps": "true",
+    "duration": "261",
+    "has_lyrics": "false",
+    "label": "T-Series",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyjwXWKqpYuaq36O3W/7tll6V5lRpBTXQnzQKcyIJEJgI2lGFVxcjhGhw7tS9a8Gtq",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "459320",
+       "name": "Arijit Singh",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "primary_artists",
+       "type": "artist"
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "music",
+       "type": "artist"
+      },
+      {
+       "id": "459320",
+       "name": "Arijit Singh",
+       "role": "singer",
+       "type": "artist"
+      },
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "singer",
+       "type": "artist"
+      },
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "lyricist",
+       "type": "artist"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "yXCLyL-9",
+   "title": "Tum Hi Ho (From &quot;Aashiqui 2&quot;)",
+   "subtitle": "Mithoon, Arijit Singh - World Music Day - Best Of Bollywood Hits",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/song/tum-hi-ho-from-aashiqui-2/CTAofQ18Ggo",
+   "image": "https://c.saavncdn.com/179/World-Music-Day-Best-Of-Bollywood-Hits-Hindi-2026-20260622111029-150x150.jpg",
+   "language": "hindi",
+   "year": "2026",
+   "play_count": "372866185",
+   "explicit_content": "0",
+   "more_info": {
+    "music": "Mithoon",
+    "album_id": "77211919",
+    "album": "World Music Day - Best Of Bollywood Hits",
+    "320kbps": "true",
+    "duration": "261",
+    "has_lyrics": "false",
+    "label": "T-Series",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyfYG2pMKFiOrKJFVJUSG2Y5J21vkXcpDtAJs93mxXk8CKbc9p1uTqbRw7tS9a8Gtq",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "459320",
+       "name": "Arijit Singh",
+       "role": "primary_artists",
+       "type": "artist"
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "music",
+       "type": "artist"
+      },
+      {
+       "id": "1586081",
+       "name": "Jyotica Tangri",
+       "role": "singer",
+       "type": "artist"
+      },
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "lyricist",
+       "type": "artist"
+      },
+      {
+       "id": "475175",
+       "name": "Nawazuddin Siddiqui",
+       "role": "starring",
+       "type": "artist"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

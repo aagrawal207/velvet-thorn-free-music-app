@@ -30,7 +30,10 @@ final class ListeningLanguageDiscovery {
     }
 
     // Corrections and verified metadata stay with their authoritative inputs, ahead of this derived evidence.
-    private(set) var results: [LyricsRequestKey: ArtistSongLanguageResult] = [:]
+    private(set) var results: [LyricsRequestKey: ArtistSongLanguageResult] = [:] {
+        didSet { if results != oldValue { resultsRevision &+= 1 } }
+    }
+    private(set) var resultsRevision: UInt64 = 0
     private(set) var isChecking = false
     private(set) var hasPendingChecks = false
     private(set) var hadFailures = false

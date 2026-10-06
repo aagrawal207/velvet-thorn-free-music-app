@@ -1,0 +1,138 @@
+{
+ "count": "254",
+ "status": 1,
+ "eof": 0,
+ "entities": [
+  {
+   "language": "Hindi",
+   "seokey": "gehra-hua-from-dhurandhar",
+   "name": "Gehra Hua (From \"Dhurandhar\")",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/BZgWoQOK2d/gWo91jQPK2/size_m_1764912801.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/BZgWoQOK2d/gWo91jQPK2/size_m_1764912801.jpg",
+   "entity_id": "13879256",
+   "entity_type": "AL",
+   "artwork_medium": "https://a10.gaanacdn.com/gn_img/albums/BZgWoQOK2d/gWo91jQPK2/size_l_1764912801.jpg",
+   "favorite_count": 0,
+   "premium_content": "0",
+   "entity_info": [
+    {
+     "key": "primaryartist",
+     "value": [
+      {
+       "artist_id": "1295950",
+       "name": "Shashwat Sachdev",
+       "seokey": "shashwat-sachdev"
+      }
+     ]
+    },
+    {
+     "key": "parental_warning",
+     "value": 0
+    },
+    {
+     "key": "al_play_ct",
+     "value": "5M+"
+    },
+    {
+     "key": "rest_lev",
+     "value": "0"
+    },
+    {
+     "key": "vendor_rest_lev",
+     "value": "0"
+    }
+   ]
+  },
+  {
+   "language": "Hindi",
+   "seokey": "aashiqui-2",
+   "name": "Aashiqui 2",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+   "entity_id": "92317",
+   "entity_type": "AL",
+   "artwork_medium": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_l_1712905431.jpg",
+   "favorite_count": 0,
+   "premium_content": "0",
+   "entity_info": [
+    {
+     "key": "primaryartist",
+     "value": [
+      {
+       "artist_id": "27",
+       "name": "Mithoon",
+       "seokey": "mithoon"
+      },
+      {
+       "artist_id": "111896",
+       "name": "Jeet Gannguli",
+       "seokey": "jeet-gannguli"
+      },
+      {
+       "artist_id": "47564",
+       "name": "Ankit Tiwari",
+       "seokey": "ankit-tiwari"
+      }
+     ]
+    },
+    {
+     "key": "parental_warning",
+     "value": 0
+    },
+    {
+     "key": "al_play_ct",
+     "value": "483M+"
+    },
+    {
+     "key": "rest_lev",
+     "value": "0"
+    },
+    {
+     "key": "vendor_rest_lev",
+     "value": "0"
+    }
+   ]
+  },
+  {
+   "language": "Hindi",
+   "seokey": "bhediya-original-motion-picture-soundtrack",
+   "name": "Bhediya (Original Motion Picture Soundtrack)",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/a7LWBzWzXA/LWBkVVA4bz/size_m_1686735322.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/a7LWBzWzXA/LWBkVVA4bz/size_m_1686735322.jpg",
+   "entity_id": "7233109",
+   "entity_type": "AL",
+   "artwork_medium": "https://a10.gaanacdn.com/gn_img/albums/a7LWBzWzXA/LWBkVVA4bz/size_l_1686735322.jpg",
+   "favorite_count": 0,
+   "premium_content": "0",
+   "entity_info": [
+    {
+     "key": "primaryartist",
+     "value": [
+      {
+       "artist_id": "86611",
+       "name": "Sachin-Jigar",
+       "seokey": "sachin-jigar-1"
+      }
+     ]
+    },
+    {
+     "key": "parental_warning",
+     "value": 0
+    },
+    {
+     "key": "al_play_ct",
+     "value": "8M+"
+    },
+    {
+     "key": "rest_lev",
+     "value": "0"
+    },
+    {
+     "key": "vendor_rest_lev",
+     "value": "0"
+    }
+   ]
+  }
+ ],
+ "user_token_status": "0"
+}

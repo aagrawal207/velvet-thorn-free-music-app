@@ -352,7 +352,7 @@ final class ListeningLanguageRecommendationTests: XCTestCase {
         XCTAssertTrue(profile.isColdStart)
         let sections = try await engine(catalog).languageDiscovery(profile: profile, languageProfile: .init())
         XCTAssertEqual(Set(sections.map(\.id)), ["discovery.language.hi", "discovery.language.en"])
-        XCTAssertTrue(sections.allSatisfy { $0.subtitle == "A starting point while Breezy learns your listening" })
+        XCTAssertTrue(sections.allSatisfy { $0.subtitle == "A starting point while Velvet Thorn learns your listening" })
         XCTAssertTrue(sections.flatMap(\.tracks).allSatisfy { $0.language == nil })
         let requests = await catalog.searchRequests
         let radios = await catalog.radioRequests
@@ -480,7 +480,7 @@ final class ListeningLanguageRecommendationTests: XCTestCase {
         case .discoverWeekly:
             result = try await engine(catalog).discoverWeekly(profile: profile, languages: scope, periodKey: period,
                                                               languageProfile: languageProfile)
-        case .dailyMix:
+        case .dailyMix, .dailyMix2, .dailyMix3:
             result = try await engine(catalog).dailyMix(profile: profile, languages: scope, periodKey: period,
                                                        languageProfile: languageProfile)
         }

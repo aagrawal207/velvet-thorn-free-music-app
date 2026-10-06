@@ -3,8 +3,11 @@ import Foundation
 struct LibraryDocument: Codable, Sendable {
     var version = LibraryPersistence.currentVersion
     var favorites: [Track] = []
+    /// Super liked recordings, a subset of `favorites` kept in `favorites` order; a super like is still a like.
+    var superLikedIDs: [String] = []
     var playlists: [UserPlaylist] = []
     var events: [ListeningEvent] = []
+    var lifetimeListening = LifetimeListeningRollup()
     var recentlyPlayed: [RecentListen] = []
     var recentSearches: [String] = []
     var recentSearchSelections: [SearchSelection] = []
@@ -28,7 +31,7 @@ struct LibraryDocument: Codable, Sendable {
         case followedArtists, releases, mixes, disliked, recentSearches, recentSearchSelections
         case tipTransactions, recordingLanguageOverrides
         case listeningHistoryEpoch, pendingReleaseNotificationIDs
-        case syncState
+        case syncState, lifetimeListening, superLikedIDs
     }
 
     // Fields added after the first release decode leniently so stores written before them still open.
@@ -36,6 +39,11 @@ struct LibraryDocument: Codable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         version = try values.decode(Int.self, forKey: .version)
         favorites = try values.decode([Track].self, forKey: .favorites)
+        if version >= 5 {
+            superLikedIDs = try values.decodeIfPresent([String].self, forKey: .superLikedIDs) ?? []
+        } else if values.contains(.superLikedIDs) {
+            throw LibraryStorageError.invalidData("super like format version")
+        }
         playlists = try values.decode([UserPlaylist].self, forKey: .playlists)
         events = try values.decode([ListeningEvent].self, forKey: .events)
         recentlyPlayed = try values.decode([RecentListen].self, forKey: .recentlyPlayed)
@@ -53,6 +61,11 @@ struct LibraryDocument: Codable, Sendable {
         listeningHistoryEpoch = try values.decodeIfPresent(UUID.self, forKey: .listeningHistoryEpoch)
         pendingReleaseNotificationIDs = try values.decodeIfPresent([String].self, forKey: .pendingReleaseNotificationIDs) ?? []
         syncState = try values.decodeIfPresent(LibrarySyncState.self, forKey: .syncState)
+        if version >= 4 {
+            lifetimeListening = try values.decode(LifetimeListeningRollup.self, forKey: .lifetimeListening)
+        } else if values.contains(.lifetimeListening) {
+            throw LibraryStorageError.invalidData("lifetime format version")
+        }
     }
 }
 
@@ -68,7 +81,7 @@ enum SearchHistory {
 }
 
 enum LibraryPersistence {
-    static let currentVersion = 3
+    static let currentVersion = 5
     static let fileName = "library.json"
     static let releaseLimit = 60
     // The local file also carries device-only data and the materialized library beside its sync journal.
@@ -76,6 +89,19 @@ enum LibraryPersistence {
 
     struct VersionHeader: Decodable {
         var version: Int
+    }
+
+    // One parse checks the version before any field decoding, with the same errors as a separate header pass.
+    private struct VersionedDocument: Decodable {
+        let version: Int
+        let document: LibraryDocument
+
+        init(from decoder: any Decoder) throws {
+            version = try VersionHeader(from: decoder).version
+            guard version <= LibraryPersistence.currentVersion else { throw LibraryStorageError.newerVersion }
+            guard (1...LibraryPersistence.currentVersion).contains(version) else { throw LibraryStorageError.unsupportedVersion }
+            document = try LibraryDocument(from: decoder)
+        }
     }
 
     static func directory(_ supplied: URL?) throws -> URL {
@@ -110,27 +136,97 @@ enum LibraryPersistence {
         }
     }
 
+    /// Reads bytes with the stamp they were read under; nil when the file changed during the read.
+    static func readStamped(_ url: URL) throws -> (data: Data?, stamp: LibraryFileStamp?) {
+        let before = LibraryFileStamp(url)
+        guard let data = try read(url) else { return (nil, nil) }
+        let after = LibraryFileStamp(url)
+        return (data, before != nil && before == after ? after : nil)
+    }
+
+    enum Fence: String, Sendable {
+        case metadata, content
+    }
+
+    /// Throws `changedOnDisk` unless the file still holds `expected`. Unchanged metadata proves it without a read;
+    /// any metadata difference or an unavailable stamp falls back to the exact byte comparison.
+    static func verify(_ url: URL, expected: Data?, stamp: inout LibraryFileStamp?) throws -> Fence {
+        if let recorded = stamp, LibraryFileStamp(url) == recorded { return .metadata }
+        stamp = nil
+        let current = try readStamped(url)
+        guard current.data == expected else { throw LibraryStorageError.changedOnDisk }
+        stamp = current.stamp
+        return .content
+    }
+
+    /// Atomically installs `data` through a same-directory temporary file. The returned stamp is nil unless the
+    /// installed inode is provably the one written here, so a racing writer can only cost a later content read.
+    static func replace(_ data: Data, at url: URL) throws -> LibraryFileStamp? {
+        guard data.count <= maximumFileBytes else { throw LibraryStorageError.tooLarge }
+        let directory = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let temporary = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        do {
+            #if os(iOS)
+            try data.write(to: temporary, options: [.withoutOverwriting, .completeFileProtectionUntilFirstUserAuthentication])
+            #else
+            try data.write(to: temporary, options: .withoutOverwriting)
+            #endif
+            let written = LibraryFileStamp(temporary)
+            let failure = temporary.withUnsafeFileSystemRepresentation { source -> Int32? in
+                url.withUnsafeFileSystemRepresentation { destination -> Int32? in
+                    guard let source, let destination else { return EINVAL }
+                    return rename(source, destination) == 0 ? nil : errno
+                }
+            }
+            if let failure { throw POSIXError(POSIXErrorCode(rawValue: failure) ?? .EIO) }
+            guard let written, let installed = LibraryFileStamp(url), installed.isSameWrite(as: written) else { return nil }
+            return installed
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+    }
+
     static func decode(_ data: Data, now: Date) throws -> LibraryDocument {
         guard data.count <= maximumFileBytes else { throw LibraryStorageError.tooLarge }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
-        let version = try decoder.decode(VersionHeader.self, from: data).version
-        guard version <= currentVersion else { throw LibraryStorageError.newerVersion }
-        guard (1...currentVersion).contains(version) else { throw LibraryStorageError.unsupportedVersion }
-        var document = try decoder.decode(LibraryDocument.self, from: data)
+        let versioned = try decoder.decode(VersionedDocument.self, from: data)
+        let version = versioned.version
+        var document = versioned.document
         if version < 3, !document.recentSearchSelections.isEmpty {
             throw LibraryStorageError.invalidData("search selection format version")
         }
         // Migration is committed with the next real edit or sync preparation, never over an unvalidated file.
         document.version = currentVersion
         try LibraryValidation.validate(document, now: now)
+        var rawObject: [String: Any]?? = nil
+        func raw() throws -> [String: Any]? {
+            if let rawObject { return rawObject }
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            rawObject = .some(object)
+            return object
+        }
         if !document.recentSearchSelections.isEmpty {
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let payload = object["recentSearchSelections"] else {
+            guard let object = try raw(), let payload = object["recentSearchSelections"] else {
                 throw LibraryStorageError.invalidData("search selection payload")
             }
             try LibraryValidation.validateSearchSelectionPayload(payload, matching: document.recentSearchSelections)
         }
+        if version >= 4 {
+            guard let object = try raw(), let payload = object["lifetimeListening"] else {
+                throw LibraryStorageError.invalidData("lifetime payload")
+            }
+            try LibraryValidation.validateCanonicalPayload(payload, matching: document.lifetimeListening, context: "lifetime payload")
+        }
+        if let state = document.syncState { try LibrarySyncValidation.validate(state, now: now) }
+        for event in document.events { try document.lifetimeListening.include(event) }
+        if var state = document.syncState {
+            try LibraryLifetimeSync.migrateLegacy(&state)
+            document.syncState = state
+        }
+        try document.lifetimeListening.validate()
         try LibrarySyncValidation.validateLocal(document, now: now)
         return document
     }
@@ -146,14 +242,41 @@ enum LibraryPersistence {
         guard data.count <= maximumFileBytes else { throw LibraryStorageError.tooLarge }
         // A stale store must not replace another session's library or an externally recovered file.
         guard try read(url) == expected else { throw LibraryStorageError.changedOnDisk }
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        #if os(iOS)
-        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        #else
-        try data.write(to: url, options: .atomic)
-        #endif
+        _ = try replace(data, at: url)
+    }
+}
+
+/// File identity and change times; ctime cannot be set by other writers, so equal stamps mean untouched bytes.
+struct LibraryFileStamp: Equatable, Sendable {
+    let device: Int64
+    let inode: UInt64
+    let size: Int64
+    let modifiedSeconds: Int
+    let modifiedNanoseconds: Int
+    let changedSeconds: Int
+    let changedNanoseconds: Int
+
+    /// Nil for a missing, non-regular or unreadable entry; callers then compare content.
+    init?(_ url: URL) {
+        var info = stat()
+        let status = url.withUnsafeFileSystemRepresentation { path -> Int32 in
+            guard let path else { return -1 }
+            return lstat(path, &info)
+        }
+        guard status == 0, mode_t(info.st_mode) & mode_t(S_IFMT) == mode_t(S_IFREG) else { return nil }
+        device = Int64(info.st_dev)
+        inode = UInt64(info.st_ino)
+        size = Int64(info.st_size)
+        modifiedSeconds = Int(info.st_mtimespec.tv_sec)
+        modifiedNanoseconds = Int(info.st_mtimespec.tv_nsec)
+        changedSeconds = Int(info.st_ctimespec.tv_sec)
+        changedNanoseconds = Int(info.st_ctimespec.tv_nsec)
+    }
+
+    // Rename may update ctime, so the installed file is matched to the written one without it.
+    func isSameWrite(as written: Self) -> Bool {
+        device == written.device && inode == written.inode && size == written.size
+            && modifiedSeconds == written.modifiedSeconds && modifiedNanoseconds == written.modifiedNanoseconds
     }
 }
 
@@ -169,9 +292,9 @@ enum LibraryStorageError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidDirectory:
-            "Breezy couldn’t open its local storage folder. Your saved library has not been changed."
+            "Velvet Thorn couldn’t open its local storage folder. Your saved library has not been changed."
         case .newerVersion:
-            "This library was saved by a newer version of Breezy. Update the app to open it. Your saved file has been kept."
+            "This library was saved by a newer version of Velvet Thorn. Update the app to open it. Your saved file has been kept."
         case .unsupportedVersion:
             "This library uses an unsupported format. Your saved file has been kept and has not been replaced."
         case .invalidData(let detail):
@@ -181,7 +304,7 @@ enum LibraryStorageError: LocalizedError {
         case .missingFile:
             "The saved library couldn’t be found. Restore the file before reloading it. No replacement file has been created."
         case .tooLarge:
-            "The saved library exceeds Breezy’s safe storage size limit. The original file has been kept."
+            "The saved library exceeds Velvet Thorn’s safe storage size limit. The original file has been kept."
         }
     }
 }
@@ -247,13 +370,17 @@ enum LibraryValidation {
     }
 
     static func validateSearchSelectionPayload<Value: Encodable>(_ raw: Any, matching value: Value) throws {
+        try validateCanonicalPayload(raw, matching: value, context: "search selection payload")
+    }
+
+    static func validateCanonicalPayload<Value: Encodable>(_ raw: Any, matching value: Value, context: String) throws {
         let expected = try JSONSerialization.jsonObject(with: LibrarySyncCodec.encode(value))
         let options: JSONSerialization.WritingOptions = [.sortedKeys, .withoutEscapingSlashes]
         // Unknown metadata must not survive in journal bytes while the typed projection silently discards it.
         guard JSONSerialization.isValidJSONObject(raw),
               try JSONSerialization.data(withJSONObject: raw, options: options)
                 == JSONSerialization.data(withJSONObject: expected, options: options) else {
-            throw LibraryStorageError.invalidData("search selection payload")
+            throw LibraryStorageError.invalidData(context)
         }
     }
 
@@ -308,10 +435,12 @@ enum LibraryValidation {
         guard document.version == LibraryPersistence.currentVersion else {
             throw LibraryStorageError.unsupportedVersion
         }
+        try document.lifetimeListening.validate()
         try validateUniqueTracks(document.favorites)
         guard Set(document.favorites.map(\.id)).isDisjoint(with: document.disliked.map(\.id)) else {
             throw LibraryStorageError.invalidData("conflicting song reactions")
         }
+        try validateSuperLikes(document.superLikedIDs, favorites: document.favorites)
         guard Set(document.playlists.map(\.id)).count == document.playlists.count else {
             throw LibraryStorageError.invalidData("duplicate playlists")
         }
@@ -423,5 +552,16 @@ enum LibraryValidation {
             throw LibraryStorageError.invalidData("duplicate songs")
         }
         try tracks.forEach(validateTrack)
+    }
+
+    /// The ids stay a subset of favorites in favorites order so one favorites array remains the single like list.
+    static func validateSuperLikes(_ ids: [String], favorites: [Track]) throws {
+        let superLiked = Set(ids)
+        guard superLiked.count == ids.count, superLiked.isSubset(of: favorites.map(\.id)) else {
+            throw LibraryStorageError.invalidData("super liked songs")
+        }
+        guard favorites.map(\.id).filter(superLiked.contains) == ids else {
+            throw LibraryStorageError.invalidData("super liked song order")
+        }
     }
 }

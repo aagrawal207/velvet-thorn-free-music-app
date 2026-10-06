@@ -14,8 +14,10 @@ final class WatchCompanionModel {
     private(set) var pageErrors: [String: String] = [:]
     private(set) var contentRevision: UInt64 = 0
     private(set) var isForeground = false
+    private(set) var accent: CompanionAccent
 
     @ObservationIgnored private let client: WatchRequestClient
+    @ObservationIgnored private let accentStore: WatchAccentStore
     @ObservationIgnored private let uptime: @MainActor () -> TimeInterval
     @ObservationIgnored private var started = false
     @ObservationIgnored private var lifecycle = UUID()
@@ -26,9 +28,12 @@ final class WatchCompanionModel {
     @ObservationIgnored private var pageRevisions: [String: UInt64] = [:]
     @ObservationIgnored private var pendingWasDispatched = false
 
-    init(client: WatchRequestClient, uptime: @escaping @MainActor () -> TimeInterval = { WatchClock.now }) {
+    init(client: WatchRequestClient, uptime: @escaping @MainActor () -> TimeInterval = { WatchClock.now },
+         accentStore: WatchAccentStore = WatchAccentStore()) {
         self.client = client
         self.uptime = uptime
+        self.accentStore = accentStore
+        accent = accentStore.load() ?? .fallback
     }
 
     deinit {
@@ -115,7 +120,7 @@ final class WatchCompanionModel {
         } catch {
             guard lifecycle == self.lifecycle, isForeground, refreshID == request.id else { return }
             timeline.invalidate(at: uptime())
-            if !needsReconciliation { notice = "Couldn’t update from iPhone. Open Breezy there, then refresh." }
+            if !needsReconciliation { notice = "Couldn’t update from iPhone. Open Velvet Thorn there, then refresh." }
         }
     }
 
@@ -167,7 +172,7 @@ final class WatchCompanionModel {
         } catch WatchRequestError.unreachable {
             guard lifecycle == self.lifecycle, pendingCommand?.id == request.id else { return false }
             timeline.invalidate(at: uptime())
-            notice = "Open Breezy on iPhone, then refresh."
+            notice = "Open Velvet Thorn on iPhone, then refresh."
             return false
         } catch WatchRequestError.staleContext {
             guard lifecycle == self.lifecycle, pendingCommand?.id == request.id else { return false }
@@ -176,7 +181,7 @@ final class WatchCompanionModel {
             return false
         } catch WatchRequestError.leaseUnavailable {
             guard lifecycle == self.lifecycle, pendingCommand?.id == request.id else { return false }
-            notice = "Couldn’t prepare this action. Update Breezy on iPhone and watch, then refresh."
+            notice = "Couldn’t prepare this action. Update Velvet Thorn on iPhone and watch, then refresh."
             return false
         } catch let error as CompanionWireError {
             guard lifecycle == self.lifecycle, pendingCommand?.id == request.id else { return false }
@@ -198,7 +203,7 @@ final class WatchCompanionModel {
     func loadPage(_ location: String, force: Bool = false) async {
         guard CompanionWire.canonicalLocation(location) != nil, isForeground else { return }
         guard connection.canMessage else {
-            pageErrors[location] = "Open Breezy on iPhone to load your library."
+            pageErrors[location] = "Open Velvet Thorn on iPhone to load your library."
             return
         }
         guard pageRequestIDs[location] == nil else { return }
@@ -244,7 +249,7 @@ final class WatchCompanionModel {
         case .activating: "Connecting to iPhone"
         case .inactive: "Reconnecting to iPhone"
         case .failed: "Connection unavailable"
-        case .ready(_, false, _): "Install Breezy on iPhone"
+        case .ready(_, false, _): "Install Velvet Thorn on iPhone"
         case .ready(_, _, true): "Unlock your iPhone"
         case .ready(false, _, _): "iPhone unavailable"
         case .ready(true, _, _): isCurrent ? "On iPhone" : "Updating from iPhone"
@@ -253,11 +258,11 @@ final class WatchCompanionModel {
 
     var connectionDetail: String {
         switch connection {
-        case .ready(_, false, _): "This watch app controls Breezy on your paired iPhone."
-        case .ready(_, _, true): "Unlock your iPhone after restarting it, then open Breezy."
+        case .ready(_, false, _): "This watch app controls Velvet Thorn on your paired iPhone."
+        case .ready(_, _, true): "Unlock your iPhone after restarting it, then open Velvet Thorn."
         case .ready(false, _, _), .failed, .inactive:
-            "Open Breezy on your paired iPhone and keep it nearby."
-        case .unsupported: "Use Breezy on your iPhone to play music."
+            "Open Velvet Thorn on your paired iPhone and keep it nearby."
+        case .unsupported: "Use Velvet Thorn on your iPhone to play music."
         default: "Your music plays on iPhone. Controls update when it replies."
         }
     }
@@ -277,13 +282,13 @@ final class WatchCompanionModel {
 
     private func receiveContext(_ snapshot: CompanionSnapshot) {
         let previousSession = timeline.snapshot?.sessionID
-        timeline.receive(snapshot, source: .applicationContext, at: uptime())
+        if timeline.receive(snapshot, source: .applicationContext, at: uptime()) { applyAccent(of: snapshot) }
         if previousSession != nil, previousSession != snapshot.sessionID { scheduleRefresh() }
     }
 
     private func accept(_ snapshot: CompanionSnapshot) -> Bool {
         let previousSession = timeline.snapshot?.sessionID
-        timeline.receive(snapshot, source: .reply, at: uptime())
+        if timeline.receive(snapshot, source: .reply, at: uptime()) { applyAccent(of: snapshot) }
         guard timeline.snapshot?.sessionID == snapshot.sessionID, isCurrent else { return false }
         needsReconciliation = false
         if previousSession != snapshot.sessionID {
@@ -292,6 +297,13 @@ final class WatchCompanionModel {
             contentRevision &+= 1
         }
         return true
+    }
+
+    // Only snapshots the timeline accepted may restyle the app, so an older or retired phone process cannot.
+    private func applyAccent(of snapshot: CompanionSnapshot) {
+        guard let incoming = snapshot.accent, incoming != accent else { return }
+        accent = incoming
+        accentStore.save(incoming)
     }
 
     private func markUncertain() {
@@ -313,5 +325,24 @@ final class WatchCompanionModel {
     private func scheduleRefresh() {
         guard isForeground, connection.canMessage else { return }
         refreshTask = Task { [weak self] in await self?.refresh() }
+    }
+}
+
+/// Keeps the last phone accent so a relaunch without the phone does not fall back to the default look.
+struct WatchAccentStore {
+    static let key = "breezy.watch.accent"
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func load() -> CompanionAccent? {
+        defaults.string(forKey: Self.key).flatMap(CompanionAccent.init(rawValue:))
+    }
+
+    func save(_ accent: CompanionAccent) {
+        defaults.set(accent.rawValue, forKey: Self.key)
     }
 }

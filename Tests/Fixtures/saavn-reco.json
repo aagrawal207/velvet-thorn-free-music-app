@@ -1,0 +1,152 @@
+{
+ "aRZbUYD7": [
+  {
+   "id": "Bcy2xpAw",
+   "title": "Phir Mohabbat (From &quot;Murder 2&quot;)",
+   "subtitle": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/hindi/emraan-hashmi-hits/phir-mohabbat-from-murder-2/MgsSAwxAdkQ",
+   "image": "https://c.saavncdn.com/106/Emraan-Hashmi-Hits-Hindi-2026-20260905191028-150x150.webp",
+   "language": "hindi",
+   "year": "2026",
+   "play_count": "121112475",
+   "explicit_content": "0",
+   "more_info": {
+    "music": "Mithoon",
+    "album_id": "80134215",
+    "album": "Emraan Hashmi Hits",
+    "320kbps": "true",
+    "duration": "329",
+    "has_lyrics": "false",
+    "label": "T-Series",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDy1aPy+Mx/NX/zvVq4nC/n3EXs+H1C9mITAJ2wLatOgxczCRHvIbZg+hw7tS9a8Gtq",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "743983",
+       "name": "Mohammed Irfan",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "459320",
+       "name": "Arijit Singh",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "480381",
+       "name": "Saim Bhat",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "669007",
+       "name": "Sayeed Quadri",
+       "role": "primary_artists",
+       "type": "artist"
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "music",
+       "type": "artist"
+      },
+      {
+       "id": "669007",
+       "name": "Sayeed Quadri",
+       "role": "lyricist",
+       "type": "artist"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "5GuGvCWv",
+   "title": "Phir Bhi Tumko Chaahunga",
+   "subtitle": "",
+   "type": "song",
+   "perma_url": "https://www.jiosaavn.com/s/song/hindi/tears-tunes/phir-bhi-tumko-chaahunga/RS8edgJzYEU",
+   "image": "https://c.saavncdn.com/201/Tears-Tunes-Hindi-2026-20260818072253-150x150.webp",
+   "language": "hindi",
+   "year": "2026",
+   "play_count": "254965099",
+   "explicit_content": "0",
+   "more_info": {
+    "music": "Mithoon",
+    "album_id": "79368849",
+    "album": "Tears &amp; Tunes",
+    "320kbps": "true",
+    "duration": "351",
+    "has_lyrics": "false",
+    "label": "Zee Music Company",
+    "encrypted_media_url": "ID2ieOjCrwfgWvL5sXl4B1ImC5QfbsDyzTtBSzLZVlBZ/fXA5zEGI9zQPTu2yOg0RIlXgAMdZtak03nziW/HrRw7tS9a8Gtq",
+    "artistMap": {
+     "primary_artists": [
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "459320",
+       "name": "Arijit Singh",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "697946",
+       "name": "Shashaa Tirupati",
+       "role": "primary_artists",
+       "type": "artist"
+      },
+      {
+       "id": "473441",
+       "name": "Manoj Muntashir",
+       "role": "primary_artists",
+       "type": "artist"
+      }
+     ],
+     "featured_artists": [],
+     "artists": [
+      {
+       "id": "702592",
+       "name": "Mithoon",
+       "role": "music",
+       "type": "artist"
+      },
+      {
+       "id": "473441",
+       "name": "Manoj Muntashir",
+       "role": "lyricist",
+       "type": "artist"
+      },
+      {
+       "id": "477854",
+       "name": "Shraddha Kapoor",
+       "role": "starring",
+       "type": "artist"
+      },
+      {
+       "id": "473371",
+       "name": "Arjun Kapoor",
+       "role": "starring",
+       "type": "artist"
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 
 @MainActor @Observable
 final class ICloudLibrarySync {
@@ -8,6 +9,7 @@ final class ICloudLibrarySync {
     private(set) var statusText = "iCloud sync is off"
     private(set) var lastSyncDate: Date?
     private(set) var errorMessage: String?
+    @ObservationIgnored var onFailureNotification: (@MainActor (String?) -> Void)?
 
     @ObservationIgnored private let library: LibraryStore
     @ObservationIgnored private let transport: any LibrarySyncTransport
@@ -25,12 +27,26 @@ final class ICloudLibrarySync {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var debounceTask: Task<Void, Never>?
     @ObservationIgnored private var timeoutTask: Task<Void, Never>?
-    @ObservationIgnored private var refreshPending = false
+    @ObservationIgnored private var refreshPending: Trigger?
+    @ObservationIgnored private var localChangeGeneration = UUID()
+    @ObservationIgnored private var retryTask: Task<Void, Never>?
+    @ObservationIgnored private var retryDelay: Duration?
+    @ObservationIgnored private var retryCount = 0
+    @ObservationIgnored private var automaticFailure: LibrarySyncFailure?
+    @ObservationIgnored private var nextAutomaticAttempt: TimeInterval?
+    @ObservationIgnored private let uptime: @Sendable () -> TimeInterval
+    @ObservationIgnored private var notifiedFailures: Set<LibrarySyncFailure> = []
+    @ObservationIgnored private var manualOperation = false
+    @ObservationIgnored private let retryDelays: [Duration]
+    @ObservationIgnored private let log = Logger(subsystem: "com.agraabhi.ganabajana", category: "LibrarySync")
+
+    private enum Trigger: String { case activation, localChange, filesChanged, retry, manual }
 
     init(library: LibraryStore, transport: (any LibrarySyncTransport)? = nil,
          configuration: (any LibrarySyncConfigurationPersisting)? = nil,
          now: @escaping @Sendable () -> Date = { Date() }, debounce: Duration = .milliseconds(750),
-         operationTimeout: Duration = .seconds(45)) {
+         operationTimeout: Duration = .seconds(45), retryDelays: [Duration] = [.seconds(5), .seconds(30)],
+         uptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.library = library
         self.transport = transport ?? ICloudDriveLibraryTransport()
         self.configurationStore = configuration ?? LibrarySyncDeviceConfigurationStore(fileURL: library.syncDeviceConfigurationURL)
@@ -38,6 +54,8 @@ final class ICloudLibrarySync {
         self.now = now
         self.debounce = debounce
         self.operationTimeout = operationTimeout
+        self.retryDelays = Array(retryDelays.prefix(2))
+        self.uptime = uptime
         do {
             self.configuration = try configurationStore.load()
             isEnabled = self.configuration.enabled
@@ -45,10 +63,13 @@ final class ICloudLibrarySync {
             if isEnabled { statusText = "Waiting to sync with iCloud" }
         } catch {
             configurationLoadError = error.localizedDescription
-            errorMessage = "Breezy couldn’t read this device’s sync settings. \(error.localizedDescription)"
+            errorMessage = "Velvet Thorn couldn’t read this device’s sync settings. \(error.localizedDescription)"
             statusText = "Sync settings need attention"
         }
-        library.onSyncChange = { [weak self] in self?.refresh() }
+        library.onSyncChange = { [weak self] in
+            self?.localChangeGeneration = UUID()
+            self?.refresh(trigger: .localChange)
+        }
     }
 
     func start() {
@@ -74,6 +95,7 @@ final class ICloudLibrarySync {
             isEnabled = enabled
             allowAccountRebind = enabled
             errorMessage = nil
+            resetFailures()
             statusText = enabled ? "Waiting to sync with iCloud" : "iCloud sync is off. Your library is on this device."
             if enabled {
                 if started { installObservers(); refresh() }
@@ -84,21 +106,33 @@ final class ICloudLibrarySync {
             isEnabled = false
             allowAccountRebind = false
             transport.stopObserving()
-            errorMessage = "Breezy couldn’t save this device’s sync setting. \(error.localizedDescription)"
+            errorMessage = "Velvet Thorn couldn’t save this device’s sync setting. \(error.localizedDescription)"
             statusText = "Sync is paused"
         }
     }
 
     func refresh() {
+        refresh(trigger: .activation)
+    }
+
+    private func refresh(trigger: Trigger) {
         guard started, isEnabled, configurationLoadError == nil else { return }
-        if task != nil { refreshPending = true; return }
+        if task != nil { refreshPending = trigger; return }
+        if trigger == .activation {
+            resetRetryBudget()
+        } else if let automaticFailure {
+            // Checkpoints cannot turn an exhausted retry budget into a perpetual five-second retry loop.
+            guard retryTask == nil, trigger == .filesChanged || (trigger == .localChange && automaticFailure.isTransient),
+                  nextAutomaticAttempt.map({ uptime() >= $0 }) ?? false else { return }
+            resetRetryBudget()
+        }
         debounceTask?.cancel()
         let delay = debounce
         debounceTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
             guard !Task.isCancelled else { return }
             self?.debounceTask = nil
-            _ = self?.beginSync()
+            _ = self?.beginSync(trigger: trigger)
         }
     }
 
@@ -106,26 +140,29 @@ final class ICloudLibrarySync {
         guard isEnabled, configurationLoadError == nil, started || !usesLiveTransport else { return }
         debounceTask?.cancel()
         debounceTask = nil
-        if let task { await task.value; return }
-        let operation = beginSync()
+        if let task { manualOperation = true; await task.value; return }
+        resetRetryBudget()
+        let operation = beginSync(trigger: .manual)
         await operation?.value
     }
 
-    private func beginSync() -> Task<Void, Never>? {
+    private func beginSync(trigger: Trigger) -> Task<Void, Never>? {
         guard isEnabled, task == nil, configurationLoadError == nil, started || !usesLiveTransport else { return task }
         generation = UUID()
         let operationID = generation
         let lease = LibrarySyncLease()
         self.lease = lease
-        refreshPending = false
+        refreshPending = nil
+        manualOperation = trigger == .manual
         isSyncing = true
-        errorMessage = nil
         statusText = "Checking iCloud Drive…"
+        log.info("event=sync_started trigger=\(trigger.rawValue, privacy: .public) retry=\(self.retryCount)")
         let transport = self.transport
         let library = self.library
         let now = self.now
+        let began = ContinuousClock.now
         let operation = Task { @MainActor [weak self] in
-            defer { self?.finished(operationID) }
+            defer { self?.finished(operationID, elapsed: began.duration(to: .now)) }
             do {
                 let account = try await transport.accountIdentifier()
                 guard let scope = try self?.acceptAccount(account, operationID: operationID, lease: lease) else { return }
@@ -143,13 +180,18 @@ final class ICloudLibrarySync {
                 let confirmedAccount = try await transport.accountIdentifier()
                 guard try self?.confirmAccount(confirmedAccount, operationID: operationID, scope: scope) == true else { return }
                 if read.pendingDownloads > 0 {
+                    self?.resetRetryBudget()
+                    self?.log.info("event=sync_waiting reason=downloads count=\(min(read.pendingDownloads, LibrarySyncCodec.maximumFiles))")
                     self?.statusText = "Waiting for iCloud to download your library…"
                     return
                 }
+                let localGeneration = self?.localChangeGeneration
                 let prepared = try await library.prepareCloudMerge(remote)
                 guard self?.isCurrent(operationID, scope: scope) == true else { return }
                 let mergeAccount = try await transport.accountIdentifier()
                 guard try self?.confirmAccount(mergeAccount, operationID: operationID, scope: scope) == true else { return }
+                // Retire stale preparation before LibraryStore reports the expected race as a storage/banner failure.
+                guard self?.localChangeGeneration == localGeneration else { throw LibrarySyncError.localChangedDuringSync }
                 guard let data = try self?.applyAndEncode(prepared, operationID: operationID, scope: scope) else { return }
                 try await transport.publish(data, in: scope, replacing: read.publication)
                 guard self?.isCurrent(operationID, scope: scope) == true else { return }
@@ -165,9 +207,13 @@ final class ICloudLibrarySync {
         timeoutTask = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: timeout) } catch { return }
             guard !Task.isCancelled, self?.generation == operationID else { return }
-            self?.invalidateWork()
-            self?.errorMessage = "iCloud is taking too long to respond. Your library is on this device. Try syncing again."
-            self?.statusText = "iCloud sync timed out"
+            guard let self else { return }
+            let manual = self.manualOperation
+            self.invalidateWork()
+            self.manualOperation = manual
+            self.log.info("event=sync_timeout duration_ms=\(Int(began.duration(to: .now) / .milliseconds(1)))")
+            self.recordFailure(.timeout, message: "iCloud is taking too long to respond. Your library is on this device. Try syncing again.")
+            self.scheduleRetry()
         }
         return operation
     }
@@ -175,7 +221,12 @@ final class ICloudLibrarySync {
     private func acceptAccount(_ account: String?, operationID: UUID, lease: LibrarySyncLease) throws -> LibrarySyncScope? {
         guard generation == operationID, isEnabled, lease.isValid else { return nil }
         try verifyConfiguration()
-        guard let account else { statusText = "Sign in to iCloud and turn on iCloud Drive to sync."; return nil }
+        guard let account else {
+            library.invalidateListeningCheckpointPreparations()
+            log.info("event=sync_waiting reason=account count=0")
+            statusText = "Sign in to iCloud and turn on iCloud Drive to sync."
+            return nil
+        }
         let matchesBound = try configuration.boundAccount.map { try transport.accountsMatch($0, account) } ?? false
         if configuration.boundAccount != nil, !matchesBound, !allowAccountRebind {
             pauseForAccountChange()
@@ -185,6 +236,7 @@ final class ICloudLibrarySync {
             var candidate = configuration
             if candidate.boundAccount != nil { candidate.replicaID = UUID() }
             candidate.boundAccount = account
+            library.invalidateListeningCheckpointPreparations()
             candidate.lastSyncDate = nil
             try configurationStore.save(candidate)
             configuration = candidate
@@ -197,8 +249,14 @@ final class ICloudLibrarySync {
     private func confirmAccount(_ account: String?, operationID: UUID, scope: LibrarySyncScope) throws -> Bool {
         guard isCurrent(operationID, scope: scope) else { return false }
         try verifyConfiguration()
-        guard let account else { throw LibrarySyncError.unavailable }
-        guard try transport.accountsMatch(account, scope.accountIdentifier) else { throw LibrarySyncError.accountChanged }
+        guard let account else {
+            library.invalidateListeningCheckpointPreparations()
+            throw LibrarySyncError.unavailable
+        }
+        guard try transport.accountsMatch(account, scope.accountIdentifier) else {
+            library.invalidateListeningCheckpointPreparations()
+            throw LibrarySyncError.accountChanged
+        }
         return true
     }
 
@@ -230,22 +288,69 @@ final class ICloudLibrarySync {
         configuration = candidate
         lastSyncDate = candidate.lastSyncDate
         errorMessage = nil
+        log.info("event=sync_succeeded retries=\(self.retryCount)")
+        resetFailures()
         statusText = "Handed to iCloud. Other devices may update later."
     }
 
     private func failed(_ error: any Error, operationID: UUID) {
         guard generation == operationID, isEnabled else { return }
-        if let error = error as? LibrarySyncError, error == .cancelled { return }
         if let error = error as? LibrarySyncError, error == .accountChanged { pauseForAccountChange(); return }
-        errorMessage = error.localizedDescription
-        let cocoa = error as NSError
-        if cocoa.domain == NSCocoaErrorDomain, cocoa.code == CocoaError.Code.ubiquitousFileNotUploadedDueToQuota.rawValue {
-            statusText = "iCloud storage is full"
-        } else if let error = error as? LibrarySyncError, error == .unavailable {
-            statusText = "Waiting for iCloud Drive"
-        } else {
-            statusText = "iCloud sync needs attention"
+        let reason = LibrarySyncFailure.reason(for: error)
+        if reason == .cancelled {
+            log.info("event=sync_cancelled")
+            statusText = "Sync was cancelled. Try syncing again."
+            return
         }
+        recordFailure(reason, message: error.localizedDescription)
+    }
+
+    private func recordFailure(_ reason: LibrarySyncFailure, message: String) {
+        automaticFailure = reason
+        refreshPending = nil
+        statusText = reason.status
+        let willRetry = reason.isTransient && retryCount < retryDelays.count && started
+        if willRetry && !manualOperation { statusText += ". Retrying shortly." }
+        retryDelay = willRetry ? retryDelays[retryCount] : nil
+        nextAutomaticAttempt = uptime() + 300
+        let sustained = !willRetry
+        let visible = manualOperation || !reason.isTransient || sustained
+        if visible { errorMessage = message }
+        let notify = visible && (manualOperation || !notifiedFailures.contains(reason))
+        log.error("event=sync_failed reason=\(reason.rawValue, privacy: .public) retry=\(self.retryCount) will_retry=\(willRetry) notified=\(notify)")
+        if notify {
+            notifiedFailures.insert(reason)
+            onFailureNotification?(message)
+        }
+    }
+
+    private func scheduleRetry() {
+        guard let delay = retryDelay, started, isEnabled else { return }
+        retryDelay = nil
+        retryCount += 1
+        let operationID = generation
+        log.info("event=sync_retry_scheduled attempt=\(self.retryCount) delay_ms=\(Int(delay / .milliseconds(1)))")
+        retryTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: delay) } catch { return }
+            guard let self, !Task.isCancelled, self.generation == operationID else { return }
+            self.retryTask = nil
+            _ = self.beginSync(trigger: .retry)
+        }
+    }
+
+    private func resetRetryBudget() {
+        retryTask?.cancel()
+        retryTask = nil
+        retryDelay = nil
+        retryCount = 0
+        automaticFailure = nil
+        nextAutomaticAttempt = nil
+    }
+
+    private func resetFailures() {
+        resetRetryBudget()
+        notifiedFailures.removeAll()
+        onFailureNotification?(nil)
     }
 
     private func pauseForAccountChange() {
@@ -258,22 +363,27 @@ final class ICloudLibrarySync {
         candidate.enabled = false
         candidate.lastSyncDate = nil
         do { try configurationStore.save(candidate); configuration = candidate; errorMessage = nil }
-        catch { errorMessage = "Breezy couldn’t save the paused sync setting. \(error.localizedDescription)" }
+        catch { errorMessage = "Velvet Thorn couldn’t save the paused sync setting. \(error.localizedDescription)" }
         statusText = "Your Apple Account changed. Turn sync on to use this account."
+        resetFailures()
+        log.info("event=sync_paused reason=account_changed")
     }
 
-    private func finished(_ operationID: UUID) {
+    private func finished(_ operationID: UUID, elapsed: Duration) {
         guard generation == operationID else { return }
+        log.info("event=sync_finished duration_ms=\(Int(elapsed / .milliseconds(1)))")
         timeoutTask?.cancel()
         timeoutTask = nil
         lease?.invalidate()
         lease = nil
         task = nil
         isSyncing = false
-        if refreshPending { refreshPending = false; refresh() }
+        if retryDelay != nil { scheduleRetry() }
+        else if let pending = refreshPending { refreshPending = nil; refresh(trigger: pending) }
     }
 
     private func invalidateWork() {
+        library.invalidateListeningCheckpointPreparations()
         generation = UUID()
         lease?.invalidate()
         lease = nil
@@ -283,7 +393,10 @@ final class ICloudLibrarySync {
         debounceTask = nil
         timeoutTask?.cancel()
         timeoutTask = nil
-        refreshPending = false
+        retryTask?.cancel()
+        retryTask = nil
+        retryDelay = nil
+        refreshPending = nil
         isSyncing = false
     }
 
@@ -295,7 +408,7 @@ final class ICloudLibrarySync {
                 self.allowAccountRebind = false
                 if self.isEnabled { self.statusText = "Checking your Apple Account…" }
             }
-            self.refresh()
+            self.refresh(trigger: event == .identityChanged ? .activation : .filesChanged)
         }
     }
 
@@ -318,6 +431,7 @@ final class ICloudLibrarySync {
         task?.cancel()
         debounceTask?.cancel()
         timeoutTask?.cancel()
+        retryTask?.cancel()
         transport.stopObserving()
     }
 }

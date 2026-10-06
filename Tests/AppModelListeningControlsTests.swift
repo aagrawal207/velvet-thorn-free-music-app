@@ -10,7 +10,7 @@ final class AppModelListeningControlsTests: XCTestCase {
         let device = harness.device()
         var preferences = device.library.preferences
         preferences.useEncryptedDNS = false
-        preferences.shuffleStyle = .fewerRepeats
+        preferences.chooseShuffleStyle(.random)
         preferences.discoveryFamiliarity = .newMusic
         device.library.preferences = preferences
         let song = AppModelFixtures.track("restored-song")
@@ -22,14 +22,14 @@ final class AppModelListeningControlsTests: XCTestCase {
 
         let library = LibraryStore(directory: device.directory)
         let (model, streams) = makeModel(library: library)
-        XCTAssertEqual(model.player.shuffleStyle, .fewerRepeats)
+        XCTAssertEqual(model.player.shuffleStyle, .random)
         XCTAssertEqual(library.preferences.discoveryFamiliarity, .newMusic)
         model.player.handleLifecycleCheckpoint()
         model.updatePreferences {
-            $0.shuffleStyle = .random
+            $0.shuffleStyle = .fewerRepeats
             $0.discoveryFamiliarity = .familiar
         }
-        XCTAssertEqual(model.player.shuffleStyle, .random)
+        XCTAssertEqual(model.player.shuffleStyle, .fewerRepeats)
         XCTAssertEqual(model.player.queue, saved.queue)
         XCTAssertEqual(model.player.currentIndex, saved.currentIndex)
         XCTAssertEqual(model.player.currentTrack, song)
@@ -47,6 +47,195 @@ final class AppModelListeningControlsTests: XCTestCase {
         XCTAssertEqual(restored.preferences, library.preferences)
         let requests = await streams.streams.requests
         XCTAssertTrue(requests.isEmpty)
+    }
+
+    // MARK: Shuffle preference preservation
+
+    func testFreshInstallDefaultsToFewerRepeatsWithoutAMigrationWrite() throws {
+        try withLibraryTestDirectory { directory in
+            let file = directory.appendingPathComponent(LibraryPersistence.fileName)
+            let library = LibraryStore(directory: directory)
+            let existedBefore = FileManager.default.fileExists(atPath: file.path)
+            let before = existedBefore ? try Data(contentsOf: file) : nil
+            let (model, _) = makeModel(library: library)
+            XCTAssertEqual(library.preferences.shuffleStyle, .fewerRepeats)
+            XCTAssertFalse(library.preferences.shuffleDefaultMigrated, "A default does not establish prior user intent")
+            XCTAssertEqual(model.player.shuffleStyle, .fewerRepeats)
+            XCTAssertEqual(FileManager.default.fileExists(atPath: file.path), existedBefore)
+            if let before { XCTAssertEqual(try Data(contentsOf: file), before, "A fresh install writes nothing at launch") }
+        }
+    }
+
+    func testMissingShuffleStyleDefaultsToFewerRepeatsWithoutLaunchOrReloadWrites() throws {
+        for version in [1, 2, 3] {
+            try withLibraryTestDirectory { directory in
+                var document = LibraryDocument()
+                document.version = version
+                // Reload flushes playback; keep its empty original queue checkpoint-stable before removing preference fields.
+                document.playback = PlaybackSnapshot(originalQueue: [])
+                var object = try XCTUnwrap(JSONSerialization.jsonObject(with: LibrarySyncTestData.legacyDocumentBytes(document)) as? [String: Any])
+                var preferences = try XCTUnwrap(object["preferences"] as? [String: Any])
+                preferences.removeValue(forKey: "shuffleStyle")
+                preferences.removeValue(forKey: "shuffleDefaultMigrated")
+                object["preferences"] = preferences
+                let bytes = try JSONSerialization.data(withJSONObject: object, options: .sortedKeys)
+                let file = directory.appendingPathComponent(LibraryPersistence.fileName)
+                try LibraryPersistence.write(bytes, to: file, replacing: nil)
+
+                let (model, _) = makeModel(library: LibraryStore(directory: directory))
+                XCTAssertNil(model.library.errorMessage)
+                XCTAssertEqual(model.library.preferences.shuffleStyle, .fewerRepeats)
+                XCTAssertEqual(model.player.shuffleStyle, .fewerRepeats)
+                XCTAssertFalse(model.library.preferences.shuffleDefaultMigrated)
+                XCTAssertEqual(try Data(contentsOf: file), bytes)
+                XCTAssertEqual(model.reloadSavedLibrary(), .reloaded)
+                XCTAssertEqual(model.library.preferences.shuffleStyle, .fewerRepeats)
+                XCTAssertEqual(model.player.shuffleStyle, .fewerRepeats)
+                XCTAssertFalse(model.library.preferences.shuffleDefaultMigrated)
+                XCTAssertEqual(try Data(contentsOf: file), bytes, "Missing fields do not require a durable migration")
+                XCTAssertNil(try LibraryPersistence.decode(Data(contentsOf: file), now: Date()).syncState)
+            }
+        }
+    }
+
+    func testSavedRandomPreservesBytesAndRevisionsOnLaunchAndReloadRegardlessOfMarker() throws {
+        for marker in [nil, false, true] as [Bool?] {
+            let harness = LibrarySyncTestHarness()
+            addTeardownBlock { @MainActor in harness.remove() }
+            let device = harness.device()
+            // An absent original queue becomes [] on a playback checkpoint, independently of shuffle preferences.
+            device.library.updatePlayback(PlaybackSnapshot(originalQueue: []))
+            var preferences = device.library.preferences
+            preferences.shuffleStyle = .random
+            preferences.shuffleDefaultMigrated = marker ?? false
+            device.library.preferences = preferences
+            XCTAssertNil(device.library.errorMessage)
+            var bytes = try Data(contentsOf: device.fileURL)
+            if marker == nil {
+                var object = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+                var savedPreferences = try XCTUnwrap(object["preferences"] as? [String: Any])
+                savedPreferences.removeValue(forKey: "shuffleDefaultMigrated")
+                object["preferences"] = savedPreferences
+                let withoutMarker = try JSONSerialization.data(withJSONObject: object, options: .sortedKeys)
+                try LibraryPersistence.write(withoutMarker, to: device.fileURL, replacing: bytes)
+                bytes = withoutMarker
+            }
+            let before = try XCTUnwrap(device.saved().syncState)
+
+            let (model, _) = makeModel(library: LibraryStore(directory: device.directory, writerID: device.id))
+            XCTAssertEqual(model.library.preferences, preferences)
+            XCTAssertEqual(model.player.shuffleStyle, .random)
+            XCTAssertEqual(try Data(contentsOf: device.fileURL), bytes, "A stored Random cannot be inferred to be an old default")
+            XCTAssertEqual(try device.saved().syncState, before)
+
+            XCTAssertEqual(model.reloadSavedLibrary(), .reloaded)
+            XCTAssertEqual(model.library.preferences, preferences)
+            XCTAssertEqual(model.player.shuffleStyle, .random)
+            XCTAssertEqual(try Data(contentsOf: device.fileURL), bytes)
+            XCTAssertEqual(try device.saved().syncState, before, "Reload must not stamp style or compatibility-marker revisions")
+
+            let (again, _) = makeModel(library: LibraryStore(directory: device.directory, writerID: device.id))
+            XCTAssertEqual(again.library.preferences, preferences)
+            XCTAssertEqual(again.player.shuffleStyle, .random)
+            XCTAssertEqual(try Data(contentsOf: device.fileURL), bytes)
+            XCTAssertEqual(try device.saved().syncState, before)
+        }
+    }
+
+    func testRandomChosenOnFreshInstallStaysRandomWithoutRepeatedWrites() throws {
+        let harness = LibrarySyncTestHarness()
+        addTeardownBlock { @MainActor in harness.remove() }
+        let device = harness.device()
+        let (model, _) = makeModel(library: device.library)
+        XCTAssertEqual(model.library.preferences.shuffleStyle, .fewerRepeats)
+        XCTAssertEqual(model.player.shuffleStyle, .fewerRepeats)
+        // Establish the ordinary playback checkpoint before measuring writes caused by choosing or reloading preferences.
+        model.player.handleLifecycleCheckpoint()
+        XCTAssertEqual(device.library.playback.originalQueue, [])
+        XCTAssertNil(device.library.playback.originalQueueIndices)
+        model.updatePreferences { $0.chooseShuffleStyle(.random) }
+        XCTAssertNil(model.library.errorMessage)
+        XCTAssertEqual(model.library.preferences.shuffleStyle, .random)
+        XCTAssertEqual(model.player.shuffleStyle, .random)
+        let bytes = try Data(contentsOf: device.fileURL)
+        let before = try XCTUnwrap(device.saved().syncState)
+        model.updatePreferences { $0.chooseShuffleStyle(.random) }
+        XCTAssertEqual(try Data(contentsOf: device.fileURL), bytes, "Selecting the saved choice again is a no-op")
+        XCTAssertEqual(try device.saved().syncState, before)
+
+        let (reopened, _) = makeModel(library: LibraryStore(directory: device.directory, writerID: device.id))
+        XCTAssertEqual(reopened.library.preferences.shuffleStyle, .random)
+        XCTAssertEqual(reopened.player.shuffleStyle, .random)
+        XCTAssertEqual(try Data(contentsOf: device.fileURL), bytes)
+        XCTAssertEqual(reopened.reloadSavedLibrary(), .reloaded)
+        XCTAssertEqual(reopened.library.preferences.shuffleStyle, .random)
+        XCTAssertEqual(reopened.player.shuffleStyle, .random)
+        XCTAssertEqual(try Data(contentsOf: device.fileURL), bytes)
+        XCTAssertEqual(try device.saved().syncState, before)
+    }
+
+    func testCompatibilityMarkerDecodesAndSyncsWithoutInferringShuffleIntent() async throws {
+        for (json, expected) in [(#"{}"#, false), (#"{"shuffleDefaultMigrated":true}"#, true),
+                                 (#"{"shuffleDefaultMigrated":false}"#, false), (#"{"shuffleDefaultMigrated":null}"#, false),
+                                 (#"{"shuffleDefaultMigrated":"yes"}"#, false), (#"{"shuffleDefaultMigrated":1}"#, false)] {
+            var preferences = try LibrarySyncCodec.decode(UserPreferences.self, from: Data(json.utf8))
+            XCTAssertEqual(preferences.shuffleDefaultMigrated, expected, json)
+            XCTAssertEqual(preferences.shuffleStyle, .fewerRepeats, json)
+            preferences.shuffleStyle = .random
+            let before = preferences
+            XCTAssertFalse(preferences.migrateShuffleDefault(), json)
+            XCTAssertFalse(preferences.migrateShuffleDefault(), "Repeated compatibility calls are also no-ops")
+            XCTAssertEqual(preferences, before, "The compatibility marker cannot establish prior intent")
+            let fields = try LibrarySyncPreferences.fields(preferences)
+            XCTAssertEqual(fields["shuffleDefaultMigrated"], Data((expected ? "true" : "false").utf8))
+            XCTAssertEqual(fields["shuffleStyle"], Data("\"random\"".utf8))
+            XCTAssertEqual(try LibrarySyncPreferences.applying(fields, to: UserPreferences()), before)
+        }
+
+        let harness = LibrarySyncTestHarness()
+        addTeardownBlock { @MainActor in harness.remove() }
+        let a = harness.device()
+        let b = harness.device(LibrarySyncTestData.b)
+        // Playback is device-local; a remote preference merge must not have to normalize the next local checkpoint.
+        b.library.updatePlayback(PlaybackSnapshot(originalQueue: []))
+        let (model, _) = makeModel(library: b.library)
+        XCTAssertEqual(model.player.shuffleStyle, .fewerRepeats)
+        a.library.preferences.shuffleStyle = .random
+        let randomState = try a.state()
+        let flagKey = LibrarySyncKey(.preference, "shuffleDefaultMigrated")
+        for marker in [false, true] {
+            if marker { a.library.preferences.shuffleDefaultMigrated = true }
+            XCTAssertNil(a.library.errorMessage)
+            let incoming = try a.state()
+            XCTAssertEqual(incoming.registers.filter { $0.key != flagKey }, randomState.registers.filter { $0.key != flagKey },
+                           "A compatibility-marker edit must not restamp the saved Random")
+            if marker { XCTAssertEqual(incoming.registers[flagKey]?.value, Data("true".utf8)) }
+            let preparation = try await b.library.prepareCloudMerge(incoming)
+            XCTAssertFalse(preparation.recommendationsChanged, "Shuffle and marker-only merges leave Home alone")
+            XCTAssertTrue(try b.library.applyCloudMerge(preparation))
+            XCTAssertEqual(b.library.preferences.shuffleStyle, .random)
+            XCTAssertEqual(b.library.preferences.shuffleDefaultMigrated, marker)
+            XCTAssertEqual(model.player.shuffleStyle, .random)
+            XCTAssertEqual(try b.saved().syncState, incoming, "Remote revisions are adopted without local preference edits")
+
+            let bytes = try Data(contentsOf: b.fileURL)
+            let repeated = try await b.library.prepareCloudMerge(incoming)
+            XCTAssertNil(repeated.encoded, "An identical remote state requires no write")
+            XCTAssertFalse(try b.library.applyCloudMerge(repeated))
+            XCTAssertEqual(try Data(contentsOf: b.fileURL), bytes)
+            XCTAssertEqual(model.reloadSavedLibrary(), .reloaded)
+            XCTAssertEqual(b.library.preferences.shuffleStyle, .random)
+            XCTAssertEqual(b.library.preferences.shuffleDefaultMigrated, marker)
+            XCTAssertEqual(model.player.shuffleStyle, .random)
+            XCTAssertEqual(try Data(contentsOf: b.fileURL), bytes)
+
+            let (other, _) = makeModel(library: LibraryStore(directory: b.directory, writerID: b.id))
+            XCTAssertEqual(other.library.preferences.shuffleStyle, .random)
+            XCTAssertEqual(other.library.preferences.shuffleDefaultMigrated, marker)
+            XCTAssertEqual(other.player.shuffleStyle, .random)
+            XCTAssertEqual(try Data(contentsOf: b.fileURL), bytes, "Launching after sync must not infer a new shuffle choice")
+            XCTAssertEqual(try b.saved().syncState, incoming)
+        }
     }
 
     func testShuffleHistoryReadsCurrentDurableEventsAndHonorsPrivacyBoundaries() throws {
@@ -134,7 +323,7 @@ final class AppModelListeningControlsTests: XCTestCase {
         let saved = try Data(contentsOf: file)
         try context.withBlockedLibraryFile {
             context.model.updatePreferences {
-                $0.shuffleStyle = .fewerRepeats
+                $0.shuffleStyle = .random
                 $0.discoveryFamiliarity = .newMusic
             }
             XCTAssertNotNil(context.library.errorMessage)
@@ -258,18 +447,22 @@ final class AppModelListeningControlsTests: XCTestCase {
             let neighbor = RecommendationFixtures.track("unheard-known-artist", artist: seed.artistName,
                                                         artistID: seed.artistID, language: .english)
             let fresh = candidates("unheard", count: 29)
+            // A known artist's first five top songs are likely known and leave the Weekly; the neighbor sits just past them.
+            let hits = (0..<5).map { RecommendationFixtures.track("known-artist-hit-\($0)", artist: seed.artistName,
+                                                                  artistID: seed.artistID, language: .english) }
             context.model.updatePreferences { $0.discoveryFamiliarity = mode }
             let task = try XCTUnwrap(context.model.refreshMixes())
             defer { task.cancel() }
             for index in 0..<2 {
                 let harvest = try await pendingMix(in: context, at: index)
-                try await completeMix(harvest, with: [neighbor] + fresh, artistTracks: [neighbor], in: context)
+                try await completeMix(harvest, with: [neighbor] + fresh, artistTracks: hits + [neighbor], in: context)
             }
             await task.value
             let weekly = try XCTUnwrap(context.model.discoverWeekly)
             let daily = try XCTUnwrap(context.model.dailyMix)
             XCTAssertEqual(weekly.tracks.count, 30)
             XCTAssertTrue(Set(weekly.tracks.map(\.id)).isDisjoint(with: heardIDs))
+            XCTAssertTrue(Set(weekly.tracks.map(\.id)).isDisjoint(with: hits.map(\.id)))
             XCTAssertEqual(mode == .familiar ? weekly.tracks.first?.id : weekly.tracks.last?.id, neighbor.id)
             XCTAssertEqual(daily.tracks.count, 25)
             dailyFamiliarCounts.append(daily.tracks.filter { heardIDs.contains($0.id) }.count)
@@ -416,7 +609,7 @@ final class AppModelListeningControlsTests: XCTestCase {
             let stream = try XCTUnwrap(context.player.currentStreamURL)
             let requests = await resolver.requests
             let change: (inout UserPreferences) -> Void = {
-                $0.shuffleStyle = .fewerRepeats
+                $0.chooseShuffleStyle(.random)
                 $0.discoveryFamiliarity = .newMusic
             }
             if reload {
@@ -432,7 +625,7 @@ final class AppModelListeningControlsTests: XCTestCase {
                 let incoming = try cloudPreferences(from: context.library, change: change)
                 XCTAssertTrue(try context.library.mergeCloudState(incoming))
             }
-            XCTAssertEqual(context.player.shuffleStyle, .fewerRepeats)
+            XCTAssertEqual(context.player.shuffleStyle, .random)
             XCTAssertEqual(context.library.preferences.discoveryFamiliarity, .newMusic)
             XCTAssertEqual(context.player.queue, order)
             XCTAssertEqual(context.player.currentIndex, index)
@@ -453,7 +646,7 @@ final class AppModelListeningControlsTests: XCTestCase {
             XCTAssertEqual(starts, 1)
             XCTAssertEqual(context.player.currentStreamURL, stream)
             let durable = LibraryStore(directory: context.directory)
-            XCTAssertEqual(durable.preferences.shuffleStyle, .fewerRepeats)
+            XCTAssertEqual(durable.preferences.shuffleStyle, .random)
             XCTAssertEqual(durable.preferences.discoveryFamiliarity, .newMusic)
             XCTAssertEqual(durable.playback.queue, order)
             XCTAssertEqual(durable.playback.originalQueue, tracks)
@@ -475,7 +668,7 @@ final class AppModelListeningControlsTests: XCTestCase {
         defer { radio.cancel() }
         let request = try await context.catalog.autoplayRadios.request(at: 0)
         XCTAssertEqual(request.input.id, anchor.id)
-        context.model.updatePreferences { $0.shuffleStyle = .fewerRepeats }
+        context.model.updatePreferences { $0.shuffleStyle = .random }
         XCTAssertTrue(context.model.isLoadingHome)
         XCTAssertTrue(context.model.isLoadingRadio)
         XCTAssertEqual(context.model.selectedRadioExperience, station)
@@ -495,9 +688,9 @@ final class AppModelListeningControlsTests: XCTestCase {
 
         for cloud in [false, true] {
             if cloud {
-                let incoming = try cloudPreferences(from: context.library) { $0.shuffleStyle = .fewerRepeats }
+                let incoming = try cloudPreferences(from: context.library) { $0.shuffleStyle = .random }
                 XCTAssertTrue(try context.library.mergeCloudState(incoming))
-            } else { context.model.updatePreferences { $0.shuffleStyle = .random } }
+            } else { context.model.updatePreferences { $0.shuffleStyle = .fewerRepeats } }
             XCTAssertEqual(context.model.homeSections.flatMap(\.tracks), [homeSong], "A shuffle-only edit cannot retire Home")
             XCTAssertEqual(context.model.charts.map(\.id), [homeChart.id])
             XCTAssertEqual(context.model.activeRadioExperience, station)

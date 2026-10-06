@@ -1,3 +1,5 @@
+// CarPlay templates exist only on iPhone; Mac Catalyst links the framework but cannot host its scenes.
+#if !targetEnvironment(macCatalyst)
 import CarPlay
 import MediaPlayer
 import XCTest
@@ -36,10 +38,17 @@ final class CarPlayPlaybackIntegrationTests: CarPlayTestCase {
         XCTAssertEqual(MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyExternalContentIdentifier] as? String,
                        info?[MPNowPlayingInfoPropertyExternalContentIdentifier] as? String)
         let before = observed.snapshots.count
-        let response = bridge.handle(CompanionRequest(action: .setFavorite(true), expectedTrackID: track.id))
+        let response = bridge.handle(CompanionRequest(action: .setFavorite(true), expectedTrackID: track.id), origin: .carPlay)
         XCTAssertTrue(response.accepted)
         XCTAssertGreaterThan(observed.snapshots.count, before)
         XCTAssertTrue(observed.snapshots.last?.nowPlaying?.isFavorite == true)
+        XCTAssertTrue(observed.snapshots.last?.nowPlaying?.isSuperLiked == false)
+        let promoted = bridge.handle(CompanionRequest(action: .setSuperLiked(true), expectedTrackID: track.id), origin: .carPlay)
+        XCTAssertTrue(promoted.accepted)
+        XCTAssertTrue(promoted.snapshot.nowPlaying?.isSuperLiked == true)
+        XCTAssertTrue(observed.snapshots.last?.nowPlaying?.isSuperLiked == true)
+        XCTAssertTrue(context.library.isSuperLiked(track))
+        XCTAssertTrue(context.player.isPlaying)
         try await PlaybackTestSupport.waitUntil { context.player.isPlaying && context.player.position > position + 0.3 }
     }
 
@@ -95,7 +104,7 @@ final class CarPlayPlaybackIntegrationTests: CarPlayTestCase {
         XCTAssertTrue(context.library.requiresReload)
         XCTAssertTrue(context.library.isFavorite(track))
         let failedSnapshot = bridge.handle(CompanionRequest(action: .snapshot)).snapshot
-        XCTAssertEqual(failedSnapshot.libraryError, "Your library change couldn’t be saved. Open Breezy on your iPhone to try again.")
+        XCTAssertEqual(failedSnapshot.libraryError, "Your library change couldn’t be saved. Open Velvet Thorn on your iPhone to try again.")
         XCTAssertNil(failedSnapshot.nowPlaying?.errorMessage)
         XCTAssertTrue(failedSnapshot.nowPlaying?.isPlaying == true)
         let beforeNotice = context.player.position
@@ -139,3 +148,4 @@ private final class CarPlayObservedSnapshots {
 
 @MainActor
 private final class CarPlayExternalInterfaceDelegate: NSObject, CPInterfaceControllerDelegate { }
+#endif

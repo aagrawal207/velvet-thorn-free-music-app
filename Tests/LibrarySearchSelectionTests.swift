@@ -279,7 +279,7 @@ final class LibrarySearchSelectionTests: XCTestCase {
                     state.version = 1
                     legacy.syncState = state
                 }
-                var json = try XCTUnwrap(JSONSerialization.jsonObject(with: LibraryPersistence.encode(legacy)) as? [String: Any])
+                var json = try XCTUnwrap(JSONSerialization.jsonObject(with: LibrarySyncTestData.legacyDocumentBytes(legacy)) as? [String: Any])
                 json.removeValue(forKey: "recentSearchSelections")
                 let original = try JSONSerialization.data(withJSONObject: json, options: .sortedKeys)
                 let url = directory.appendingPathComponent(LibraryPersistence.fileName)
@@ -374,7 +374,14 @@ final class LibrarySearchSelectionTests: XCTestCase {
         invalids.append(try LibraryPersistence.encode(embedded))
         var wrongVersion = document
         wrongVersion.version = 2
-        invalids.append(try LibraryPersistence.encode(wrongVersion))
+        let typedLegacy = try LibrarySyncTestData.legacyDocumentBytes(wrongVersion)
+        XCTAssertThrowsError(try LibraryPersistence.decode(typedLegacy, now: LibrarySyncTestData.now)) { error in
+            guard let failure = error as? LibraryStorageError, case .invalidData(let detail) = failure else {
+                return XCTFail("Expected the typed-selection version guard: \(error)")
+            }
+            XCTAssertEqual(detail, "search selection format version")
+        }
+        invalids.append(typedLegacy)
         var unknownKind = valid
         let unknownCollection: [String: Any] = ["id": "id", "title": "Title", "subtitle": "", "kind": "unknown", "tracks": [Any]()]
         unknownKind["recentSearchSelections"] = [["collection": ["_0": unknownCollection]]]

@@ -1,8 +1,13 @@
 import SwiftUI
 import WebKit
 
-/// Google sign-in in a throwaway web view. Only the youtube.com cookies it ends with are kept, and only for
-/// stream lookups; the web view's own storage is discarded with the sheet.
+enum YouTubeConnectionCopy {
+    static let importExplanation = "Import liked songs, playlists and followed artists only when you tap Import. Imports are read-only and never change your YouTube account."
+    static let playbackExplanation = "Sign-in may help playback, but Google can refuse it. It does not guarantee Premium audio or grant download rights."
+}
+
+/// Only YouTube cookies are retained for playback and explicitly requested library imports.
+/// The web view's own storage is discarded with the sheet.
 @MainActor
 struct YouTubeSignInView: View {
     @Environment(MusicAppModel.self) private var model
@@ -17,13 +22,21 @@ struct YouTubeSignInView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Text("Sign in with your Google account. The sign-in stays on this device and is used only to load songs.")
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Connecting is optional. Your sign-in is saved on this device. Google can associate requests with your account.")
+                        Text(YouTubeConnectionCopy.importExplanation)
+                        Text(YouTubeConnectionCopy.playbackExplanation)
+                    }
                     .appFont(.footnote)
                     .foregroundStyle(AppTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
+                }
+                .frame(maxHeight: 180)
+                .accessibilityIdentifier("signin.explanation")
                 ProgressView(value: progress)
                     .progressViewStyle(.linear)
                     .tint(AppTheme.accent)
@@ -38,11 +51,14 @@ struct YouTubeSignInView: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .accessibilityFocused($isErrorFocused)
                             .accessibilityIdentifier("signin.error")
-                        Button("Retry") { coordinator.retry() }
-                            .appFont(.body, weight: .semibold)
-                            .frame(minHeight: 44)
-                            .accessibilityLabel("Retry YouTube sign-in")
-                            .accessibilityIdentifier("signin.retry")
+                        Button { coordinator.retry() } label: {
+                            Text("Retry")
+                                .appFont(.body, weight: .semibold)
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Retry YouTube sign-in")
+                        .accessibilityIdentifier("signin.retry")
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
@@ -56,16 +72,20 @@ struct YouTubeSignInView: View {
                 .accessibilityIdentifier("signin.web")
             }
             .background(AppTheme.background)
-            .navigationTitle("Sign in to YouTube")
+            .navigationTitle("Sign In to YouTube")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
+                    Button {
                         AppNavigationIntent.perform(in: model) {
                             isFinished = true
                             coordinator.retire()
                             dismiss()
                         }
+                    } label: {
+                        Text("Cancel")
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
                     .appFont(.body)
                     .accessibilityIdentifier("signin.cancel")

@@ -17,14 +17,28 @@ extension View {
         presentationDragIndicator(.visible)
             .presentationBackground(AppTheme.background)
             .foregroundStyle(AppTheme.primaryText)
-            .tint(AppTheme.accent)
+            .appAccentChrome()
+            .modifier(MacSheetSizing())
+    }
+
+    /// Applies the saved accent. Sheets, covers and `ImageRenderer` can miss the root's accent and fall back to the coral asset.
+    func appAccentChrome() -> some View {
+        modifier(AppAccentChrome())
     }
 
     /// Standard trailing Done for a sheet's navigation bar.
     func appSheetDoneButton(id: String, action: @escaping () -> Void) -> some View {
         toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                AppSheetDoneButton(id: id, action: action)
+            if #available(iOS 26.0, *) {
+                // The button draws its own capsule inside a 44-point target; the bar's automatic glass would hug the target.
+                ToolbarItem(placement: .topBarTrailing) {
+                    AppSheetDoneButton(id: id, action: action)
+                }
+                .sharedBackgroundVisibility(.hidden)
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    AppSheetDoneButton(id: id, action: action)
+                }
             }
         }
     }
@@ -34,15 +48,33 @@ extension View {
 struct AppSheetDoneButton: View {
     let id: String
     let action: () -> Void
+    /// A sheet stacked on another sheet renders at 0.96 scale on iOS 26, so 46 layout points keep 44 on screen.
+    private static let targetSize: CGFloat = 46
 
     var body: some View {
-        Button(action: action) {
-            Text("Done")
-                .appFont(.body, weight: .semibold)
-                .frame(minWidth: 44, minHeight: 44)
-                .contentShape(Rectangle())
+        if #available(iOS 26.0, *) {
+            // The system glass style fixes its capsule at about 36 points and ignores a taller label, so the
+            // capsule is drawn here at that size and the plain button around it owns the hit shape.
+            Button(action: action) {
+                Text("Done")
+                    .appFont(.body, weight: .semibold)
+                    .padding(.horizontal, 15)
+                    .frame(minHeight: 36)
+                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .frame(minWidth: Self.targetSize, minHeight: Self.targetSize)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(id)
+        } else {
+            Button(action: action) {
+                Text("Done")
+                    .appFont(.body, weight: .semibold)
+                    .frame(minWidth: Self.targetSize, minHeight: Self.targetSize)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityIdentifier(id)
         }
-        .accessibilityIdentifier(id)
     }
 }
 
@@ -116,12 +148,15 @@ struct ArtworkView: View {
 
     @State private var image: UIImage?
     @State private var imageTier: ArtworkURL.Tier?
+    @State private var imageURL: URL?
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
+        // The body stays a plain read: rows re-evaluate often, and URL candidate lookups here cost scroll frames.
+        let shown = imageURL == url ? image : nil
         ZStack {
-            if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+            if let visible = shown {
+                Image(uiImage: visible).resizable().scaledToFill()
             } else {
                 ArtworkPlaceholder(title: title)
             }
@@ -132,12 +167,35 @@ struct ArtworkView: View {
         .animation(.easeOut(duration: 0.25), value: imageTier)
         .accessibilityHidden(true)
         .task(id: url) {
-            image = nil
-            imageTier = nil
-            guard let url else { return }
-            let target = ArtworkURL.tier(forDisplaySize: size)
-            let pixels = Int((size * displayScale).rounded(.up))
-            if target > .thumbnail, let quick = await ArtworkLoader.shared.image(for: url, tier: .thumbnail, maxPixels: pixels) {
+            guard let url else {
+                image = nil
+                imageTier = nil
+                imageURL = nil
+                return
+            }
+            let target = targetTier
+            let pixels = pixels
+            // Reappearing restarts this task; the sharp image it already shows needs no reload.
+            if imageURL == url, imageTier == target, image != nil { return }
+            // A decoded copy in memory appears without a cross-fade, which SwiftUI rasterizes on the CPU for every
+            // visible tile at once when a screen returns.
+            if let cached = ArtworkLoader.shared.memoryImage(for: url, tier: target, maxPixels: pixels) {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    image = cached
+                    imageTier = target
+                    imageURL = url
+                }
+                return
+            }
+            if imageURL != url {
+                image = nil
+                imageTier = nil
+                imageURL = url
+            }
+            if target > .thumbnail, imageTier == nil,
+               let quick = await ArtworkLoader.shared.image(for: url, tier: .thumbnail, maxPixels: pixels) {
                 guard !Task.isCancelled, imageTier == nil else { return }
                 image = quick
                 imageTier = .thumbnail
@@ -149,6 +207,16 @@ struct ArtworkView: View {
             }
         }
     }
+
+    private var targetTier: ArtworkURL.Tier { ArtworkURL.tier(forDisplaySize: size) }
+    private var pixels: Int { Int((size * displayScale).rounded(.up)) }
+}
+
+/// Decoded bitmaps shared by the loader and synchronous first-frame reads. `NSCache` synchronizes internally.
+final class ArtworkMemoryCache: @unchecked Sendable {
+    let storage = NSCache<NSString, UIImage>()
+
+    func object(forKey key: NSString) -> UIImage? { storage.object(forKey: key) }
 }
 
 /// Downloads, downsamples, and caches artwork. Decoded bitmaps are bounded by the requested pixel size
@@ -177,7 +245,8 @@ actor ArtworkLoader {
     private let session: URLSession
     private let responseCache: URLCache?
     private let resourceTimeout: TimeInterval
-    private let cache = NSCache<NSString, UIImage>()
+    private let memory = ArtworkMemoryCache()
+    private var cache: NSCache<NSString, UIImage> { memory.storage }
     private var cacheKeys: Set<String> = []
     private var inFlight: [String: Flight] = [:]
     private var retiring: [UUID: Task<Void, Never>] = [:]
@@ -215,15 +284,20 @@ actor ArtworkLoader {
         self.session = selectedSession
         self.resourceTimeout = timeout
         responseCache = selectedSession.configuration.urlCache
-        cache.totalCostLimit = 96 << 20
+        memory.storage.totalCostLimit = 96 << 20
+    }
+
+    private static let keyPruneThreshold = 2_048
+
+    private func pruneEvictedKeys() {
+        for key in cacheKeys where cache.object(forKey: key as NSString) == nil { cacheKeys.remove(key) }
     }
 
     func storageUsage() -> Usage {
         var decodedBytes: Int64 = 0
-        cacheKeys = cacheKeys.filter { key in
-            guard let image = cache.object(forKey: key as NSString) else { return false }
-            decodedBytes += Int64(Self.cost(of: image))
-            return true
+        pruneEvictedKeys()
+        for key in cacheKeys {
+            if let image = cache.object(forKey: key as NSString) { decodedBytes += Int64(Self.cost(of: image)) }
         }
         return Usage(diskBytes: Int64(responseCache?.currentDiskUsage ?? 0),
                      responseMemoryBytes: Int64(responseCache?.currentMemoryUsage ?? 0),
@@ -259,24 +333,38 @@ actor ArtworkLoader {
         return storageUsage()
     }
 
+    /// The decoded bitmap `image(for:tier:maxPixels:)` would return from memory, read synchronously so a view
+    /// can draw it in its first frame. `NSCache` is thread-safe; a miss says nothing about disk or network.
+    nonisolated func memoryImage(for url: URL, tier: ArtworkURL.Tier, maxPixels: Int) -> UIImage? {
+        let pixels = Self.decodePixels(maxPixels, tier: tier)
+        for candidate in ArtworkURL.candidates(for: url, tier: tier) {
+            if let cached = memory.object(forKey: Self.key(candidate, pixels: pixels)) { return cached }
+        }
+        return nil
+    }
+
+    // Larger tiers only need more pixels when the view is actually larger; cap decode at the tier size.
+    private nonisolated static func decodePixels(_ maxPixels: Int, tier: ArtworkURL.Tier) -> Int {
+        min(max(32, maxPixels), tier.pixels * 2)
+    }
+
+    private nonisolated static func key(_ candidate: URL, pixels: Int) -> NSString {
+        "\(pixels)|\(candidate.absoluteString)" as NSString
+    }
+
     func image(for url: URL, tier: ArtworkURL.Tier, maxPixels: Int) async -> UIImage? {
         guard !Task.isCancelled, clearingTask == nil else { return nil }
         let generation = self.generation
         let candidates = ArtworkURL.candidates(for: url, tier: tier)
-        // Larger tiers only need more pixels when the view is actually larger; cap decode at the tier size.
-        let pixels = min(max(32, maxPixels), tier.pixels * 2)
+        let pixels = Self.decodePixels(maxPixels, tier: tier)
         for candidate in candidates {
             guard !Task.isCancelled, generation == self.generation, clearingTask == nil else { return nil }
             let key = "\(pixels)|\(candidate.absoluteString)"
             if let cached = cache.object(forKey: key as NSString) { return cached }
+            // `finish` caches the image before resuming waiters, so nothing here writes state after the resume.
             let image = await waitForImage(candidate, key: key, maxPixels: pixels, generation: generation)
             guard !Task.isCancelled, generation == self.generation, clearingTask == nil else { return nil }
-            if let image {
-                cache.setObject(image, forKey: key as NSString, cost: Self.cost(of: image))
-                cacheKeys.insert(key)
-                cacheKeys = cacheKeys.filter { cache.object(forKey: $0 as NSString) != nil }
-                return image
-            }
+            if let image { return image }
         }
         return nil
     }
@@ -355,6 +443,12 @@ actor ArtworkLoader {
         guard let flight = inFlight[key], flight.token == token else { return }
         inFlight.removeValue(forKey: key)
         let result = generation == self.generation && clearingTask == nil && !flight.task.isCancelled ? image : nil
+        if let result {
+            cache.setObject(result, forKey: key as NSString, cost: Self.cost(of: result))
+            cacheKeys.insert(key)
+            // Evicted keys are only dropped past a cap; a prune on every insert made each load O(cached images).
+            if cacheKeys.count > Self.keyPruneThreshold { pruneEvictedKeys() }
+        }
         flight.waiters.values.forEach { $0.resume(returning: result) }
     }
 
@@ -473,5 +567,29 @@ struct EmptyStateView: View {
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
+    }
+}
+
+/// Reads the preference itself so a hosted presentation re-renders when the accent changes.
+private struct AppAccentChrome: ViewModifier {
+    @Environment(MusicAppModel.self) private var model: MusicAppModel?
+
+    func body(content: Content) -> some View {
+        if let color = model?.library.preferences.accent.color {
+            content.accentColor(color).tint(color)
+        } else {
+            content.tint(AppTheme.accent)
+        }
+    }
+}
+
+/// Catalyst's default form sheet is about 470 by 400 points, too small for Settings and long lists.
+private struct MacSheetSizing: ViewModifier {
+    func body(content: Content) -> some View {
+        if AppPlatform.isMacCatalyst {
+            content.presentationSizing(.page)
+        } else {
+            content
+        }
     }
 }

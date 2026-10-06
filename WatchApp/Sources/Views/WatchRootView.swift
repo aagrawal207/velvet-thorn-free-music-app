@@ -14,13 +14,14 @@ struct WatchRootView: View {
     var body: some View {
         NavigationStack(path: $path) {
             WatchNowPlayingView()
-                .navigationTitle("Breezy")
+                .navigationTitle("Velvet Thorn")
                 .navigationDestination(for: String.self) { location in
                     WatchBrowseView(location: location) { path.removeAll() }
                 }
         }
         .environment(model)
-        .tint(WatchTheme.accent)
+        .environment(\.watchAccent, WatchTheme.color(for: model.accent))
+        .tint(WatchTheme.color(for: model.accent))
         .transaction { if reduceMotion { $0.animation = nil } }
         .onChange(of: scenePhase, initial: true) { _, phase in
             model.setForeground(phase == .active)
@@ -29,12 +30,35 @@ struct WatchRootView: View {
 }
 
 enum WatchTheme {
-    static let accent = Color(red: 0.66, green: 0.93, blue: 0.84)
     static let petal = Color(red: 1, green: 0.62, blue: 0.56)
     static let surface = Color(red: 0.11, green: 0.12, blue: 0.14)
+
+    /// The phone palette's dark-appearance values; the watch is always dark and draws black glyphs on these fills.
+    static func hex(for accent: CompanionAccent) -> UInt32 {
+        switch accent {
+        case .coral: 0xFF5A7A
+        case .mint: 0x4DE0B0
+        case .ocean: 0x64B5FF
+        case .violet: 0xB79AFF
+        case .amber: 0xFFC15A
+        case .rose: 0xFF83BB
+        case .teal: 0x53D7E0
+        }
+    }
+
+    static func color(for accent: CompanionAccent) -> Color {
+        let value = hex(for: accent)
+        return Color(red: Double(value >> 16 & 0xFF) / 255, green: Double(value >> 8 & 0xFF) / 255,
+                     blue: Double(value & 0xFF) / 255)
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var watchAccent: Color = WatchTheme.color(for: .fallback)
 }
 
 struct WatchRecordMark: View {
+    @Environment(\.watchAccent) private var accent
     var size: CGFloat = 60
 
     var body: some View {
@@ -42,7 +66,7 @@ struct WatchRecordMark: View {
             Circle().fill(WatchTheme.surface)
             Circle().strokeBorder(.white.opacity(0.12), lineWidth: 1).padding(size / 12)
             Circle().strokeBorder(.white.opacity(0.08), lineWidth: 1).padding(size / 6)
-            Circle().fill(WatchTheme.accent).padding(size * 0.26)
+            Circle().fill(accent).padding(size * 0.26)
             Image(systemName: "music.note")
                 .font(.system(size: size * 0.27, weight: .semibold))
                 .foregroundStyle(.black)

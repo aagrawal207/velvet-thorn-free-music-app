@@ -11,20 +11,29 @@ final class ConnectivityMonitor {
     }
 
     private(set) var status: Status
+    /// Cellular, hotspot or Low Data Mode paths; downloads default to waiting these out.
+    private(set) var isExpensive: Bool
+    /// Low Data Mode alone; `isExpensive` also covers it, but speculative work stops here even with cellular allowed.
+    private(set) var isConstrained = false
     @ObservationIgnored var onChange: (@MainActor (Status) -> Void)?
+    @ObservationIgnored var onExpensiveChange: (@MainActor (Bool) -> Void)?
     @ObservationIgnored nonisolated private let lockedStatus: Mutex<Status>
+    @ObservationIgnored nonisolated private let lockedExpensive: Mutex<Bool>
     @ObservationIgnored private let monitorsSystem: Bool
     @ObservationIgnored private var monitor: NWPathMonitor?
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private let log = Logger(subsystem: "com.agraabhi.ganabajana", category: "Connectivity")
 
-    init(initialStatus: Status = .unknown, monitorsSystem: Bool = true) {
+    init(initialStatus: Status = .unknown, isExpensive: Bool = false, monitorsSystem: Bool = true) {
         status = initialStatus
+        self.isExpensive = isExpensive
         lockedStatus = Mutex(initialStatus)
+        lockedExpensive = Mutex(isExpensive)
         self.monitorsSystem = monitorsSystem
     }
 
     nonisolated var isOffline: Bool { lockedStatus.withLock { $0 == .offline } }
+    nonisolated var isExpensivePath: Bool { lockedExpensive.withLock { $0 } }
 
     func start() {
         guard monitorsSystem, monitor == nil else { return }
@@ -40,8 +49,12 @@ final class ConnectivityMonitor {
             case .requiresConnection: status = .unknown
             @unknown default: status = .unknown
             }
+            let expensive = path.isExpensive || path.isConstrained
+            let constrained = path.isConstrained
             Task { @MainActor [weak self] in
                 guard let self, self.generation == token else { return }
+                self.isConstrained = constrained
+                self.setExpensive(expensive)
                 self.setStatus(status)
             }
         }
@@ -58,9 +71,19 @@ final class ConnectivityMonitor {
         guard status != self.status else { return }
         lockedStatus.withLock { $0 = status }
         self.status = status
-        log.info("event=network_path status=\(status.rawValue)")
+        log.info("event=network_path status=\(status.rawValue) expensive=\(self.isExpensive ? 1 : 0)")
         onChange?(status)
+    }
+
+    func setExpensive(_ expensive: Bool) {
+        guard expensive != isExpensive else { return }
+        lockedExpensive.withLock { $0 = expensive }
+        isExpensive = expensive
+        log.info("event=network_path status=\(self.status.rawValue) expensive=\(expensive ? 1 : 0)")
+        onExpensiveChange?(expensive)
     }
 
     isolated deinit { monitor?.cancel() }
 }
+
+extension ConnectivityMonitor: DownloadConnectivity { }

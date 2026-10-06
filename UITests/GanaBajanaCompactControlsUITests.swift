@@ -27,10 +27,11 @@ final class GanaBajanaCompactControlsUITests: XCTestCase {
         let ui = makeDriver()
         try ui.launch(additionalArguments: ["--light"])
         try ui.openSettings()
+        try ui.openSettingsPage(.discovery)
         try ui.reveal(ui.app.buttons["settings.languages"], maxSwipes: 16)
         try ui.tap(ui.app.buttons["settings.languages"])
         try ui.wait("Language tuning must use the listening-statistics destination") {
-            ui.app.navigationBars["Listening languages"].exists
+            ui.app.navigationBars["Listening Languages"].exists
         }
         XCTAssertFalse(ui.app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "settings.language.")).firstMatch.exists)
         try ui.reveal(ui.app.buttons["listeningLanguages.tune"])
@@ -53,7 +54,7 @@ final class GanaBajanaCompactControlsUITests: XCTestCase {
         try ui.tap(reset)
         try ui.expectValue(tamil, "Automatic")
         XCTAssertFalse(reset.isEnabled, "All adjustments may return to Automatic without a minimum-language rule")
-        try ui.tap(ui.app.navigationBars["Listening languages"].buttons.firstMatch)
+        try ui.tap(ui.app.navigationBars["Listening Languages"].buttons.firstMatch)
         let customize = ui.app.buttons["settings.customizeHome"]
         try ui.reveal(customize)
         try ui.tap(customize)
@@ -95,10 +96,10 @@ final class GanaBajanaCompactControlsUITests: XCTestCase {
         let primary = ui.app.buttons["settings.icon.Beat"]
         XCTAssertEqual(primary.label, "Leafnote")
         let choices = ui.app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'settings.icon.'"))
-        XCTAssertEqual(choices.count, 7, "Retired icons must not appear in the picker")
+        XCTAssertEqual(choices.count, 20, "Retired icons must not appear in the picker")
         XCTAssertFalse(ui.app.buttons["settings.icon.Copper"].exists)
-        for title in ["Thorn", "Sonnet"] {
-            let option = ui.app.buttons["settings.icon.\(title)"]
+        for (id, title) in [("Thorn", "Thorn"), ("Sonnet", "Sonnet"), ("ThornEdge", "Edge"), ("LeafSky", "Sky")] {
+            let option = ui.app.buttons["settings.icon.\(id)"]
             try ui.reveal(option, maxSwipes: 12)
             XCTAssertEqual(option.label, title)
             try ui.tap(option)
@@ -108,8 +109,8 @@ final class GanaBajanaCompactControlsUITests: XCTestCase {
         ui.capture("rose-pen-icon-options-in-settings")
         try ui.relaunch()
         try openIcons(ui)
-        try ui.reveal(ui.app.buttons["settings.icon.Sonnet"])
-        XCTAssertTrue(ui.app.buttons["settings.icon.Sonnet"].isSelected)
+        try ui.reveal(ui.app.buttons["settings.icon.LeafSky"])
+        XCTAssertTrue(ui.app.buttons["settings.icon.LeafSky"].isSelected)
         try ui.reveal(primary, direction: .down)
         try ui.tap(primary)
         dismissIconConfirmation()
@@ -118,9 +119,10 @@ final class GanaBajanaCompactControlsUITests: XCTestCase {
 
     private func openIcons(_ ui: AppUITestDriver) throws {
         try ui.openSettings()
+        try ui.openSettingsPage(.appearance)
         try ui.reveal(ui.app.buttons["settings.appIcon"], maxSwipes: 16)
         try ui.tap(ui.app.buttons["settings.appIcon"])
-        try ui.wait("The native icon picker must open") { ui.app.navigationBars["App icon"].exists }
+        try ui.wait("The native icon picker must open") { ui.app.navigationBars["App Icon"].exists }
     }
 
     private func dismissIconConfirmation() {

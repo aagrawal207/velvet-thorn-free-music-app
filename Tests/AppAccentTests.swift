@@ -212,6 +212,35 @@ final class AppAccentTests: XCTestCase {
         }
     }
 
+    func testSheetChromeAppliesTheSavedAccentWithoutTheRootModifier() async throws {
+        let context = try AppModelTestContext()
+        addTeardownBlock { @MainActor in try await context.close() }
+        context.model.updatePreferences { $0.accent = .mint }
+
+        func render(_ chrome: Bool) throws -> [UInt: Int] {
+            let icon = SettingsRowIcon(systemImage: "square.fill")
+                .frame(width: 60, height: 60)
+                .background(AppTheme.background)
+            // Settings is a sheet: it sees the model, but not RootView's `.accentColor`.
+            let content = Group {
+                if chrome { icon.appSheetChrome() } else { icon }
+            }
+            .environment(context.model)
+            .environment(\.colorScheme, .dark)
+            let renderer = ImageRenderer(content: content)
+            renderer.scale = 2
+            var rendered: CGImage?
+            UITraitCollection(userInterfaceStyle: .dark).performAsCurrent { rendered = renderer.cgImage }
+            return try renderedColors(try XCTUnwrap(rendered), in: CGRect(x: 0, y: 0, width: 120, height: 120))
+        }
+
+        let plain = try render(false)
+        XCTAssertEqual(matchingPixels(0x4DE0B0, in: plain), 0, "Without the chrome the icon falls back to a default accent")
+        let chromed = try render(true)
+        XCTAssertGreaterThan(matchingPixels(0x4DE0B0, in: chromed), 50, "Sheet chrome must draw Settings icons in the saved accent")
+        XCTAssertEqual(matchingPixels(0xFF5A7A, in: chromed), 0)
+    }
+
     private func components(_ color: UIColor, appearance: UIUserInterfaceStyle) throws -> [Double] {
         let resolved = color.resolvedColor(with: UITraitCollection(userInterfaceStyle: appearance))
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0

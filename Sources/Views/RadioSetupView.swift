@@ -49,7 +49,7 @@ struct RadioSetupView: View {
                 startControl
             }
             .background(AppTheme.background)
-            .navigationTitle("Set up radio")
+            .navigationTitle("Set Up Radio")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -102,7 +102,7 @@ struct RadioSetupView: View {
         let layout = dynamicTypeSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Era preference").appFont(.headline, weight: .semibold)
+            Text("Era Preference").appFont(.headline, weight: .semibold)
             layout {
                 ForEach(RadioEra.allCases) { era in
                     Button { setup.selectEra(era) } label: {
@@ -140,7 +140,7 @@ struct RadioSetupView: View {
             Text("The station sets the mood. Artist hints nudge the mix; other artists can play too.")
                 .appFont(.caption)
                 .foregroundStyle(AppTheme.secondaryText)
-            Button("Clear artist hints") { setup.clearArtistHints() }
+            Button("Clear Artist Hints") { setup.clearArtistHints() }
                 .appFont(.subheadline)
                 .frame(minHeight: 44)
                 .disabled(setup.selectedArtists.isEmpty)
@@ -187,7 +187,7 @@ struct RadioSetupView: View {
     private var artistSearch: some View {
         @Bindable var setup = setup
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Add an artist").appFont(.headline, weight: .semibold)
+            Text("Add an Artist").appFont(.headline, weight: .semibold)
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.secondaryText)
                 TextField("Search artists", text: $setup.artistQuery)
@@ -204,7 +204,7 @@ struct RadioSetupView: View {
             .background(AppTheme.raised, in: RoundedRectangle(cornerRadius: 8))
             if let error = setup.artistSearchError {
                 Text(error).appFont(.caption).foregroundStyle(AppTheme.secondaryText)
-                Button("Try again") { setup.retryArtistSearch() }
+                Button("Try Again") { setup.retryArtistSearch() }
                     .appFont(.subheadline)
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("radio.setup.retryArtistSearch")
@@ -247,7 +247,7 @@ struct RadioSetupView: View {
             } label: {
                 HStack {
                     Spacer()
-                    Text("Start radio").appFont(.body, weight: .semibold)
+                    Text("Start Radio").appFont(.body, weight: .semibold)
                     Spacer()
                     Image(systemName: "play.fill").frame(width: 24, height: 24)
                 }

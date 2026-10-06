@@ -10,64 +10,25 @@ import Foundation
 import JavaScriptCore
 import os.log
 
+@available(iOS 13.0, watchOS 6.0, tvOS 13.0, macOS 10.15, *)
 class SignatureSolver {
 
-    private static let log = OSLog(SignatureSolver.self)
+    static let log = OSLog(SignatureSolver.self)
 
-    private let vm = JSVirtualMachine()
-    private let ctx: JSContext
-    
     private let playerJS: String
-    
-    init(js: String, context: JSContext? = nil) throws {
+    private let compatibility: ExtractionCompatibilitySnapshot
+    private let compatibilityPlayer: ExtractionCompatibility.Player?
+    // An injected context is test-owned and never enters the shared cache.
+    private let injected: PreparedSignaturePlayer?
+    private let cache: SignatureSolverCache
+
+    init(js: String, context: JSContext? = nil, cache: SignatureSolverCache = .shared) throws {
         self.playerJS = js
-        
-        guard let context = context ?? JSContext(virtualMachine: vm) else {
-            throw SignatureSolverError.contextCreationFailed
-        }
-        ctx = context
-        ctx.exceptionHandler = { context, exception in
-            context?.exception = exception
-            os_log("event=signature_solver_failed category=javascript_exception", log: Self.log, type: .error)
-        }
-        
-        // Minimal DOM/env shims (matches `setupNodes`)
-        ctx.evaluateScript(#"""
-            globalThis.XMLHttpRequest = { prototype: {} };
-            globalThis.URL = class URL {
-                constructor(url) {
-                    this.href = url;
-                    const match = url.match(/^(https?:)\/\/([^/:]+)(:(\d+))?(\/[^?#]*)?(\?[^#]*)?(#.*)?$/);
-                    this.protocol = match ? match[1] : '';
-                    this.hostname = match ? match[2] : '';
-                    this.port = match && match[4] ? match[4] : '';
-                    this.pathname = match && match[5] ? match[5] : '/';
-                    this.search = match && match[6] ? match[6] : '';
-                    this.hash = match && match[7] ? match[7] : '';
-                }
-            };
-            globalThis.navigator = {
-                userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-            };
-            const window = Object.assign(Object.create(null), globalThis);
-            window.location = new URL("https://www.youtube.com/watch?v=youtubekit-wins");
-            const document = {};
-            let self = globalThis;
-        """#)
-        
-        // Load meriyah + astring UMD bundles from package resources
-        func evalResource(_ name: String, _ ext: String) throws {
-            guard let url = Bundle.module.url(forResource: name, withExtension: ext) else {
-                throw SignatureSolverError.resourceNotFound(name: name, extension: ext)
-            }
-            let src = try String(contentsOf: url, encoding: .utf8)
-            ctx.evaluateScript(src)
-        }
-        try evalResource("meriyah", "umd.js")
-        try evalResource("astring", "umd.js")
-        
-        // Load generated yt-ejs helper
-        try evalResource("yt_ejs_helper", "js")
+        let snapshot = YouTubeKitHooks.extractionCompatibility
+        compatibility = snapshot
+        compatibilityPlayer = try snapshot.rules.player(for: js)
+        self.cache = cache
+        injected = try context.map { try PreparedSignaturePlayer(js: js, context: $0) }
     }
     
     private struct Request: Codable {
@@ -76,19 +37,6 @@ class SignatureSolver {
         
         enum RequestType: String, Codable {
             case n, sig
-        }
-    }
-    
-    private struct Input: Codable {
-        let type: PlayerType
-        let player: String? // raw player JS if type == .player
-        let preprocessed_player: String? // otherwise
-        let requests: [Request]
-        let output_preprocessed: Bool?
-        
-        enum PlayerType: String, Codable {
-            case player
-            case preprocessedPlayer = "preprocessed_player"
         }
     }
     
@@ -107,29 +55,13 @@ class SignatureSolver {
         let preprocessed_player: String?
     }
     
-    private func solve(with input: Input) throws -> Response {
-        let encoder = JSONEncoder()
-        let decoder = JSONDecoder()
-        let json = try String(data: encoder.encode(input), encoding: .utf8)!
-        
-        // Call the global `jsc` function defined by yt-ejs
-        ctx.setObject(json, forKeyedSubscript: "swiftInput" as NSString)
-        let js = "JSON.stringify(jsc(JSON.parse(swiftInput)))"
-        ctx.exception = nil
-        guard let result = ctx.evaluateScript(js), ctx.exception == nil else {
-            throw SignatureSolverError.evaluationFailed
-        }
-        
-        guard let out = result.toString() else {
-            throw SignatureSolverError.resultConversionFailed
-        }
-        
+    private func decode(_ out: String) throws -> Response {
         guard let data = out.data(using: .utf8) else {
             throw SignatureSolverError.encodingFailed
         }
         
         do {
-            return try decoder.decode(Response.self, from: data)
+            return try JSONDecoder().decode(Response.self, from: data)
         } catch {
             // JavaScript output and decoder errors can contain challenges, signatures, and signed URLs.
             os_log("event=signature_solver_failed category=invalid_response", log: Self.log, type: .error)
@@ -150,21 +82,83 @@ class SignatureSolver {
     }
     
     func batchSolve(request: SolveRequest) throws -> SolveResponse {
-
+        guard request.nInputs.count <= 256, request.sigInputs.count <= 256 else {
+            throw ExtractionCompatibility.Failure.inputBounds
+        }
+        if compatibilityPlayer != nil {
+            var totalBytes = 0
+            for input in request.nInputs + request.sigInputs {
+                guard input.utf8.count <= 4096 else { throw ExtractionCompatibility.Failure.inputBounds }
+                totalBytes += input.utf8.count
+                guard totalBytes <= 65_536 else { throw ExtractionCompatibility.Failure.inputBounds }
+            }
+        }
+        guard compatibility.generation == YouTubeKitHooks.extractionCompatibility.generation else { throw CancellationError() }
+        var updatedN: [String: String] = [:]
+        var updatedSig: [String: String] = [:]
+        if let plan = compatibilityPlayer?.throttling {
+            for input in request.nInputs { updatedN[input] = try ExtractionCompatibility.transform(input, steps: plan) }
+        }
+        if let plan = compatibilityPlayer?.signature {
+            for input in request.sigInputs { updatedSig[input] = try ExtractionCompatibility.transform(input, steps: plan) }
+        }
+        let remainingN = compatibilityPlayer?.throttling == nil ? request.nInputs : []
+        let remainingSig = compatibilityPlayer?.signature == nil ? request.sigInputs : []
+        let outcome = compatibilityPlayer == nil ? "bundled" : (remainingN.isEmpty && remainingSig.isEmpty ? "updated" : "partial")
+        os_log("event=extraction_compatibility outcome=%{public}@", log: Self.log, type: .debug, outcome)
+        if remainingN.isEmpty && remainingSig.isEmpty {
+            guard compatibility.generation == YouTubeKitHooks.extractionCompatibility.generation else { throw CancellationError() }
+            return SolveResponse(nMap: updatedN, sigMap: updatedSig)
+        }
         let requests = [
-            Request(type: .n, challenges: request.nInputs),
-            Request(type: .sig, challenges: request.sigInputs)
+            Request(type: .n, challenges: remainingN),
+            Request(type: .sig, challenges: remainingSig)
         ]
 
-        let input = Input(
-            type: .player,
-            player: self.playerJS,
-            preprocessed_player: nil,
-            requests: requests,
-            output_preprocessed: false
-        )
+        guard let requestsJSON = String(data: try JSONEncoder().encode(requests), encoding: .utf8) else {
+            throw SignatureSolverError.encodingFailed
+        }
+        var nMap = updatedN
+        var sigMap = updatedSig
+        let solved: (nMap: [String: String], sigMap: [String: String])
+        if let injected {
+            solved = try attempt(injected, requests: requests, requestsJSON: requestsJSON, reused: false)
+        } else {
+            let lease = try cache.lease(js: playerJS)
+            do {
+                solved = try attempt(lease.player, requests: requests, requestsJSON: requestsJSON, reused: lease.reused)
+            } catch {
+                cache.evict(lease.player)
+                guard lease.reused, lease.player.hasSucceeded else { throw error }
+                let fresh = try cache.lease(js: playerJS)
+                do {
+                    solved = try attempt(fresh.player, requests: requests, requestsJSON: requestsJSON, reused: fresh.reused)
+                } catch {
+                    cache.evict(fresh.player)
+                    throw error
+                }
+            }
+        }
+        nMap.merge(solved.nMap) { _, new in new }
+        sigMap.merge(solved.sigMap) { _, new in new }
 
-        let response = try solve(with: input)
+        guard compatibility.generation == YouTubeKitHooks.extractionCompatibility.generation else { throw CancellationError() }
+        return SolveResponse(nMap: nMap, sigMap: sigMap)
+    }
+
+    private func attempt(_ player: PreparedSignaturePlayer, requests: [Request], requestsJSON: String, reused: Bool) throws -> (nMap: [String: String], sigMap: [String: String]) {
+        let prepareMS = reused ? 0 : player.prepareMilliseconds
+        var solveMS = 0
+        var preprocessed = false
+        var success = false
+        defer {
+            os_log("event=signature_solver reuse=%ld prepare_ms=%ld solve_ms=%ld preprocessed=%ld outcome=%{public}@",
+                   log: Self.log, type: .info, reused ? 1 : 0, prepareMS, solveMS, preprocessed ? 1 : 0, success ? "success" : "failure")
+        }
+        let solve = try player.solve(requestsJSON: requestsJSON)
+        solveMS = solve.milliseconds
+        preprocessed = solve.usedPreprocessed
+        let response = try decode(solve.output)
 
         var nMap: [String: String] = [:]
         var sigMap: [String: String] = [:]
@@ -186,8 +180,9 @@ class SignatureSolver {
                 }
             }
         }
-
-        return SolveResponse(nMap: nMap, sigMap: sigMap)
+        player.markSucceeded()
+        success = true
+        return (nMap, sigMap)
     }
 }
 #endif

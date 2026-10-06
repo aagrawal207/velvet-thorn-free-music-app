@@ -7,6 +7,19 @@ struct CachedSong: Equatable, Identifiable, Sendable {
     let bytes: Int64
     let variantCount: Int
     let isInUse: Bool
+    /// At least one complete variant lives in the permanent download tier.
+    let isDownloaded: Bool
+
+    init(id: String, track: Track?, preferredAudio: CachedAudio?, bytes: Int64, variantCount: Int, isInUse: Bool,
+         isDownloaded: Bool = false) {
+        self.id = id
+        self.track = track
+        self.preferredAudio = preferredAudio
+        self.bytes = bytes
+        self.variantCount = variantCount
+        self.isInUse = isInUse
+        self.isDownloaded = isDownloaded
+    }
 
     var isPlayable: Bool {
         AudioCache.isProviderTrackID(id) && preferredAudio?.trackID == id && preferredAudio?.url.isFileURL == true

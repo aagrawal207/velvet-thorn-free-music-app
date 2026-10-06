@@ -6,6 +6,8 @@ struct CachedSongsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    /// Inside a tab the offline banner already reports the status; Settings covers that banner, so it asks for the line.
+    var showsOfflineStatus = false
     @State private var query = ""
     @State private var isVisible = false
     @State private var removingID: String?
@@ -14,9 +16,11 @@ struct CachedSongsView: View {
         let songs = matchingSongs
         let playableTracks = songs.filter(\.isPlayable).compactMap { model.cachedTrack(for: $0) }
         List {
-            if model.isOffline {
+            if showsOfflineStatus, model.isOffline {
                 Label("You're offline", systemImage: "wifi.slash")
                     .appFont(.subheadline, weight: .semibold)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("You're offline")
                     .accessibilityIdentifier("cachedSongs.offline")
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -44,10 +48,10 @@ struct CachedSongsView: View {
                 .listRowSeparator(.hidden)
 
                 Section {
-                    if model.cachedSongs.isEmpty {
+                    if model.temporaryCachedSongs.isEmpty {
                         if model.cachedSongsError == nil { emptyCache }
                     } else if songs.isEmpty {
-                        EmptyStateView(symbol: "magnifyingglass", title: "No matching cached songs",
+                        EmptyStateView(symbol: "magnifyingglass", title: "No Matching Cached Songs",
                                        message: "Try another title, artist, or album.")
                             .accessibilityIdentifier("cachedSongs.search.empty")
                     } else {
@@ -73,7 +77,7 @@ struct CachedSongsView: View {
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
             } else if model.cachedSongsError == nil {
-                EmptyStateView(symbol: "internaldrive", title: "Cache browsing unavailable",
+                EmptyStateView(symbol: "internaldrive", title: "Cache Browsing Unavailable",
                                message: "This playback provider doesn't offer a cache inventory. Local audio availability couldn't be checked.")
                     .accessibilityIdentifier("cachedSongs.unsupported")
                     .listRowBackground(Color.clear)
@@ -90,7 +94,7 @@ struct CachedSongsView: View {
         .background(AppTheme.background)
         .foregroundStyle(AppTheme.primaryText)
         .tint(AppTheme.accent)
-        .navigationTitle("Cached songs")
+        .navigationTitle("Cached Songs")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
@@ -99,8 +103,17 @@ struct CachedSongsView: View {
         .autocorrectionDisabled()
         .accessibilityIdentifier("cachedSongs.screen")
         .refreshable { await model.refreshCachedSongs() }
-        .onAppear { isVisible = true }
-        .onDisappear { isVisible = false }
+        .onAppear {
+            // Paired transitions keep the model's screen count balanced if SwiftUI repeats a callback.
+            guard !isVisible else { return }
+            isVisible = true
+            model.cachedSongsScreenAppeared()
+        }
+        .onDisappear {
+            guard isVisible else { return }
+            isVisible = false
+            model.cachedSongsScreenDisappeared()
+        }
         .task(id: shouldPoll) {
             guard shouldPoll else { return }
             while !Task.isCancelled {
@@ -117,12 +130,14 @@ struct CachedSongsView: View {
     private var shouldPoll: Bool { isVisible && scenePhase == .active && !model.isPlayerPresented }
     private var isFiltering: Bool { !SearchRelevance.normalize(query).isEmpty }
 
+    /// Cache-tier songs only: a downloaded song has its home under Downloads and never shows here.
     private var matchingSongs: [CachedSong] {
+        let songs = model.temporaryCachedSongs
         let tokens = SearchRelevance.normalize(query).split(separator: " ")
-        guard !tokens.isEmpty else { return model.cachedSongs }
-        let tracks = model.cachedSongs.compactMap { model.cachedTrack(for: $0) }
+        guard !tokens.isEmpty else { return songs }
+        let tracks = songs.compactMap { model.cachedTrack(for: $0) }
         let matchingIDs = Set(LibraryTrackSearch(tracks: tracks, query: query).tracks.map(\.id))
-        return model.cachedSongs.filter { song in
+        return songs.filter { song in
             if matchingIDs.contains(song.id) { return true }
             guard model.cachedTrack(for: song) == nil else { return false }
             let text = SearchRelevance.normalize("Cached song \(song.id)")
@@ -131,7 +146,7 @@ struct CachedSongsView: View {
     }
 
     private func countDescription(_ songs: [CachedSong]) -> String {
-        let total = model.cachedSongs.count
+        let total = model.temporaryCachedSongs.count
         let count = isFiltering ? "\(songs.count.formatted()) of \(total.formatted()) songs"
             : "\(total.formatted()) \(total == 1 ? "song" : "songs")"
         let available = songs.filter(\.isPlayable).count
@@ -152,7 +167,7 @@ struct CachedSongsView: View {
                 Button {
                     Task { await model.refreshCachedSongs() }
                 } label: {
-                    Label("Try again", systemImage: "arrow.clockwise")
+                    Label("Try Again", systemImage: "arrow.clockwise")
                         .appFont(.subheadline, weight: .semibold)
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         .contentShape(Rectangle())
@@ -167,7 +182,7 @@ struct CachedSongsView: View {
 
     private var emptyCache: some View {
         VStack(spacing: 0) {
-            EmptyStateView(symbol: "music.note", title: "No cached songs yet",
+            EmptyStateView(symbol: "music.note", title: "No Cached Songs Yet",
                            message: model.isOffline
                                ? "When you're connected, play music from your library. Songs appear here after their audio finishes caching."
                                : "Songs appear here after their audio finishes caching while you listen. Play something from your library to get started.")
@@ -178,7 +193,7 @@ struct CachedSongsView: View {
                     model.selectedTab = .library
                 }
             } label: {
-                Label("Browse library", systemImage: "music.note.list")
+                Label("Browse Library", systemImage: "music.note.list")
                     .appFont(.subheadline, weight: .semibold)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(Rectangle())
@@ -193,7 +208,7 @@ struct CachedSongsView: View {
 
     private func remove(_ id: String) {
         guard removingID == nil, !model.player.isUpdatingAudioCacheLimit,
-              let song = model.cachedSongs.first(where: { $0.id == id }), !song.isInUse else { return }
+              let song = model.temporaryCachedSongs.first(where: { $0.id == id }), !song.isInUse else { return }
         removingID = id
         Task {
             defer { removingID = nil }
@@ -216,7 +231,7 @@ private struct CachedSongsQueueButtons: View {
         layout {
             Button { play(shuffle: false) } label: {
                 Label("Play", systemImage: "play.fill")
-                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .foregroundStyle(AppTheme.onAccent)
                     .background(AppTheme.accent, in: Capsule())
             }
@@ -224,21 +239,21 @@ private struct CachedSongsQueueButtons: View {
             .accessibilityIdentifier("cachedSongs.play")
             Button { play(shuffle: true) } label: {
                 Label("Shuffle", systemImage: "shuffle")
-                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .foregroundStyle(AppTheme.primaryText)
                     .background(AppTheme.raised, in: Capsule())
             }
             .accessibilityLabel("Shuffle \(title)")
             .accessibilityIdentifier("cachedSongs.shuffle")
         }
-        .appFont(.headline, weight: .semibold)
+        .appFont(.subheadline, weight: .semibold)
         .buttonStyle(.plain)
         .disabled(tracks.isEmpty)
         .opacity(tracks.isEmpty ? 0.45 : 1)
     }
 
     private func play(shuffle: Bool) {
-        let availableIDs = Set(model.cachedSongs.filter(\.isPlayable).map(\.id))
+        let availableIDs = Set(model.temporaryCachedSongs.filter(\.isPlayable).map(\.id))
         // Native search dismissal clears the filter, so playback needs its own captured queue.
         let queue = tracks.filter { availableIDs.contains($0.id) }
         guard !queue.isEmpty else { return }
@@ -322,7 +337,7 @@ private struct CachedSongRow: View {
                 .accessibilityIdentifier("cachedSongs.swipeRemove.\(song.id)")
         }
         .contextMenu {
-            Button("Play cached song", systemImage: "play.fill", action: play)
+            Button("Play Cached Song", systemImage: "play.fill", action: play)
                 .disabled(!canPlay || isRemoving)
                 .accessibilityIdentifier("cachedSongs.contextPlay.\(song.id)")
             if let quality = song.preferredAudio?.quality { Text(quality.summary) }
@@ -358,9 +373,9 @@ private struct CachedSongRow: View {
     }
 
     private func play() {
-        guard !isRemoving, let current = model.cachedSongs.first(where: { $0.id == song.id }), current.isPlayable,
+        guard !isRemoving, let current = model.temporaryCachedSongs.first(where: { $0.id == song.id }), current.isPlayable,
               let track = model.cachedTrack(for: current) else { return }
-        let availableIDs = Set(model.cachedSongs.filter(\.isPlayable).map(\.id))
+        let availableIDs = Set(model.temporaryCachedSongs.filter(\.isPlayable).map(\.id))
         // Keep both the selected recording and the filtered queue across native search dismissal.
         let queue = tracks.filter { availableIDs.contains($0.id) }
         dismissSearch()

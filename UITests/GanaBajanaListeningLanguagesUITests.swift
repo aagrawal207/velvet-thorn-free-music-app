@@ -23,7 +23,7 @@ final class GanaBajanaListeningLanguagesUITests: XCTestCase {
         try ui.expectValue(languageElement("listeningLanguages.tune", in: ui), "Collapsed")
         XCTAssertFalse(ui.app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "settings.language.")).firstMatch.exists)
         let source = languageElement("listeningLanguages.source", in: ui)
-        try reveal(source, in: ui.app.scrollViews["listeningLanguages.content"], navigationTitle: "Listening languages", ui: ui)
+        try reveal(source, in: ui.app.scrollViews["listeningLanguages.content"], navigationTitle: "Listening Languages", ui: ui)
         XCTAssertTrue(source.label.contains("text on this device"))
         ui.capture("listening-languages-actual-counts-dark")
     }
@@ -83,16 +83,17 @@ final class GanaBajanaListeningLanguagesUITests: XCTestCase {
         try openSettingsDestination(ui)
         let content = ui.app.scrollViews["listeningLanguages.content"]
         let historyOff = languageElement("listeningLanguages.historyOff", in: ui)
-        try reveal(historyOff, in: content, navigationTitle: "Listening languages", ui: ui)
+        try reveal(historyOff, in: content, navigationTitle: "Listening Languages", ui: ui)
         XCTAssertTrue(historyOff.exists)
         try assertControl(content.buttons["listeningLanguages.enableHistory"], in: ui, content: content)
         try expectSeededStats(ui)
 
         try backToSettings(ui)
+        try ui.openSettingsPage(.library)
         let clear = ui.app.buttons["settings.clearHistory"]
         try ui.reveal(clear, maxSwipes: 24)
         try ui.tap(clear)
-        try ui.tap(ui.app.alerts["Clear your listening history?"].buttons["Clear history"])
+        try ui.tap(ui.app.alerts["Clear Your Listening History?"].buttons["Clear History"])
         try ui.wait("Clearing must finish durably before the empty-state check") { clear.exists && !clear.isEnabled }
         try openSettingsDestination(ui)
         try expectEmptyStats(ui)
@@ -121,47 +122,52 @@ final class GanaBajanaListeningLanguagesUITests: XCTestCase {
 
     func testWelcomeAndRadioStartWithoutAnyLanguageSelection() throws {
         let ui = makeDriver()
-        try launch(ui, showWelcome: true)
+        let arguments = ["--seed-radio-fixture", "--cache-fixture"]
+        try launch(ui, showWelcome: true, arguments: arguments)
         XCTAssertFalse(ui.app.buttons["welcome.hindi"].exists)
         XCTAssertFalse(ui.app.buttons["welcome.english"].exists)
         let start = ui.app.buttons["welcome.continue"]
         try assertControl(start, in: ui)
-        XCTAssertEqual(start.label, "Start listening")
+        XCTAssertEqual(start.label, "Start Listening")
         ui.capture("welcome-automatic-learning-no-taste-form")
         try ui.tap(start)
-        try ui.wait("The single onboarding action must open Home") { ui.app.buttons["home.settings"].exists }
-        try launch(ui, showWelcome: true, reset: false)
+        try ui.reveal(ui.app.buttons["welcome.youtube.notNow"])
+        try ui.tap(ui.app.buttons["welcome.youtube.notNow"])
+        try ui.wait("Skipping optional connection must open Home") { ui.app.buttons["home.settings"].exists }
+        try launch(ui, showWelcome: true, reset: false, arguments: arguments)
         XCTAssertFalse(start.exists, "This relaunch omits skip-welcome and must retain the saved completion")
+        XCTAssertFalse(ui.app.buttons["welcome.youtube.notNow"].exists)
 
         try selectTab("search", in: ui)
         XCTAssertFalse(ui.app.buttons["search.filter.songs"].exists)
         let radio = ui.app.buttons["search.radio.open"]
         try assertControl(radio, in: ui)
         try ui.tap(radio)
-        try ui.wait("Radio stations must open in their own navigation destination") {
+        try ui.wait("Song and artist Radio must open in its own navigation destination") {
             ui.app.navigationBars["Radio"].exists && ui.element("search.radio.content").exists
         }
-        let station = ui.app.buttons["search.station.melancholy"]
-        try ui.reveal(station, maxSwipes: 24)
-        try ui.tap(station)
-        try ui.requireHittable(ui.app.buttons["radio.setup.cancel"])
-        XCTAssertTrue(ui.app.navigationBars["Set up radio"].exists)
-        XCTAssertFalse(ui.app.switches.matching(NSPredicate(format: "identifier BEGINSWITH %@", "radio.setup.language.")).firstMatch.exists)
-        try ui.expectLabel(ui.element("radio.setup.listeningLanguages"), "Languages follow your listening")
-        try ui.expectLabel(ui.element("radio.setup.selectionCount"), "0 of 4 hints")
-        let radioStart = ui.app.buttons["radio.setup.start"]
+        try ui.requireHittable(ui.app.searchFields["Songs or artists"])
+        try ui.expectValue(ui.app.buttons["radio.search.type"], "Songs")
+        XCTAssertFalse(ui.app.keyboards.firstMatch.exists)
+        XCTAssertFalse(ui.element("radio.session").exists)
+        let radioStart = ui.app.buttons["radio.suggestion.\(AppUIFixture.tumHiHo)"]
+        try ui.reveal(radioStart)
         try assertControl(radioStart, in: ui)
         XCTAssertTrue(radioStart.isEnabled)
-        try ui.expectValue(radioStart, "Style defaults")
-        ui.capture("radio-automatic-languages-optional-artists")
+        XCTAssertEqual(radioStart.label, "Start Tum Hi Ho Radio, Arijit Singh")
         try ui.tap(radioStart)
-        try ui.wait("Starting a radio must dismiss setup and establish its active session", timeout: 30) {
-            !ui.app.navigationBars["Set up radio"].exists && ui.app.buttons["search.station.active"].exists
+        try ui.wait("One song tap must establish radio without a language selection", timeout: 30) {
+            ui.element("radio.session").exists
                 && ui.app.buttons["miniPlayer.open"].exists
         }
-        XCTAssertTrue(ui.app.buttons["search.station.active"].label.contains("Melancholy"))
-        XCTAssertFalse(ui.element("search.station.error").exists)
+        try ui.expectLabel(ui.element("radio.session"), "Tum Hi Ho Radio")
+        try ui.expectLabel(ui.element("radio.session.tuning"), "Balanced · Automatic Language")
+        XCTAssertFalse(ui.element("radio.session.error").exists)
+        XCTAssertFalse(ui.app.buttons["radio.tune.done"].exists, "Tuning is optional after starting")
+        XCTAssertFalse(ui.app.buttons["player.close"].exists, "Starting radio must leave the Radio page visible")
+        ui.capture("radio-song-start-automatic-language")
         try ui.openPlayer()
+        try ui.expectCurrentTrack(AppUIFixture.tumHiHo)
         try ui.waitForAdvance(from: 0, by: 1)
         try ui.pause()
     }
@@ -202,7 +208,7 @@ final class GanaBajanaListeningLanguagesUITests: XCTestCase {
         try expectSeededStats(ui)
         let content = ui.app.scrollViews["listeningLanguages.content"]
         let card = languageElement("listeningLanguages.breakdown", in: ui)
-        try reveal(card, in: content, navigationTitle: "Listening languages", ui: ui)
+        try reveal(card, in: content, navigationTitle: "Listening Languages", ui: ui)
         let window = ui.app.windows.firstMatch.frame
         XCTAssertLessThanOrEqual(card.frame.width, 961)
         XCTAssertEqual(card.frame.midX, window.midX, accuracy: 2)
@@ -251,10 +257,11 @@ final class GanaBajanaListeningLanguagesUITests: XCTestCase {
     }
 
     private func openSettingsDestination(_ ui: AppUITestDriver) throws {
+        try ui.openSettingsPage(.discovery)
         let form = ui.element("settings.form")
         let link = form.buttons["settings.languages"]
-        try assertControl(link, in: ui, content: form, navigationTitle: "Settings")
-        XCTAssertTrue(link.label.contains("Listening languages"))
+        try assertControl(link, in: ui, content: form, navigationTitle: SettingsPageID.discovery.title)
+        XCTAssertTrue(link.label.contains("Listening Languages"))
         try ui.tap(link)
         try waitForLanguages(ui)
     }
@@ -263,15 +270,15 @@ final class GanaBajanaListeningLanguagesUITests: XCTestCase {
         let content = ui.app.scrollViews["listeningLanguages.content"]
         let window = content.staticTexts["listeningLanguages.window"]
         try ui.wait("Listening languages must open as a native navigation destination") {
-            ui.app.navigationBars["Listening languages"].exists && content.exists && window.exists
+            ui.app.navigationBars["Listening Languages"].exists && content.exists && window.exists
         }
-        try reveal(window, in: content, navigationTitle: "Listening languages", ui: ui)
+        try reveal(window, in: content, navigationTitle: "Listening Languages", ui: ui)
         try ui.expectLabel(window, "Last 30 days")
     }
 
     private func backToSettings(_ ui: AppUITestDriver) throws {
-        try ui.tap(ui.app.navigationBars["Listening languages"].buttons.firstMatch)
-        try ui.wait("Back must return to Settings") { ui.app.navigationBars["Settings"].exists }
+        try ui.tap(ui.app.navigationBars["Listening Languages"].buttons.firstMatch)
+        try ui.wait("Back must return to the Discovery page") { ui.app.navigationBars[SettingsPageID.discovery.title].exists }
     }
 
     private func openTuning(_ ui: AppUITestDriver) throws {
@@ -306,9 +313,9 @@ final class GanaBajanaListeningLanguagesUITests: XCTestCase {
         // The non-lazy language content exposes offscreen values; checking state must not move the viewport.
         let plays = languageElement("listeningLanguages.total.plays", in: ui)
         let songs = languageElement("listeningLanguages.total.songs", in: ui)
-        try ui.expectLabel(plays, "Counted plays")
+        try ui.expectLabel(plays, "Counted Plays")
         try ui.expectValue(plays, "20")
-        try ui.expectLabel(songs, "Different songs")
+        try ui.expectLabel(songs, "Different Songs")
         try ui.expectValue(songs, "5")
         let hindi = languageElement("listeningLanguages.row.hi", in: ui)
         let english = languageElement("listeningLanguages.row.en", in: ui)
@@ -325,7 +332,7 @@ final class GanaBajanaListeningLanguagesUITests: XCTestCase {
 
     private func expectEmptyStats(_ ui: AppUITestDriver) throws {
         let content = ui.app.scrollViews["listeningLanguages.content"]
-        try reveal(languageElement("listeningLanguages.empty", in: ui), in: content, navigationTitle: "Listening languages", ui: ui)
+        try reveal(languageElement("listeningLanguages.empty", in: ui), in: content, navigationTitle: "Listening Languages", ui: ui)
         XCTAssertFalse(languageElement("listeningLanguages.breakdown", in: ui).exists)
         XCTAssertFalse(languageElement("listeningLanguages.total.plays", in: ui).exists)
         XCTAssertFalse(languageElement("listeningLanguages.coverage", in: ui).exists)
@@ -355,7 +362,8 @@ final class GanaBajanaListeningLanguagesUITests: XCTestCase {
                 } else {
                     bottom = min(bottom, tabFrame.minY)
                 }
-                let mini = ui.app.buttons["miniPlayer.open"]
+                // Rows pass beneath the glass, so the capsule's top, not its inset open button's, ends the visible area.
+                let mini = ui.app.otherElements["miniPlayer.container"]
                 if mini.exists, usableFrame(mini.frame), mini.frame.intersects(contentBounds) {
                     bottom = min(bottom, mini.frame.minY)
                 }
@@ -391,7 +399,7 @@ final class GanaBajanaListeningLanguagesUITests: XCTestCase {
     }
 
     private func assertControl(_ element: XCUIElement, in ui: AppUITestDriver,
-                               content: XCUIElement? = nil, navigationTitle: String = "Listening languages",
+                               content: XCUIElement? = nil, navigationTitle: String = "Listening Languages",
                                file: StaticString = #filePath, line: UInt = #line) throws {
         if let content {
             try reveal(element, in: content, navigationTitle: navigationTitle, ui: ui)

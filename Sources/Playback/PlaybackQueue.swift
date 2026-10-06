@@ -87,7 +87,8 @@ struct PlaybackQueue {
         persistsOccurrenceMapping = true
     }
 
-    mutating func enqueue(_ track: Track, next: Bool) {
+    @discardableResult
+    mutating func enqueue(_ track: Track, next: Bool) -> UUID {
         let entry = Entry(id: UUID(), track: track)
         let insertion = next && !entries.isEmpty ? index + 1 : entries.count
         entries.insert(entry, at: insertion)
@@ -95,6 +96,25 @@ struct PlaybackQueue {
         original.insert(entry, at: next ? originalIndex.map { $0 + 1 } ?? original.count : original.count)
         if selectedID == nil { selectedID = entry.id }
         persistsOccurrenceMapping = true
+        return entry.id
+    }
+
+    @discardableResult
+    mutating func select(at index: Int) -> Bool {
+        guard entries.indices.contains(index) else { return false }
+        let id = entries[index].id
+        if selectedID != id { persistsOccurrenceMapping = true }
+        selectedID = id
+        return true
+    }
+
+    /// Housekeeping cannot remove the selected occurrence or its upcoming entries.
+    @discardableResult
+    mutating func removePreviousEntries(withIDs ids: Set<UUID>) -> [Entry] {
+        let indices = entries.indices.prefix(index).filter { ids.contains(entries[$0].id) }
+        let removed = indices.map { entries[$0] }
+        for index in indices.reversed() { remove(at: index) }
+        return removed
     }
 
     mutating func remove(at index: Int) {

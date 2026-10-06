@@ -29,11 +29,45 @@ PACKAGE = ROOT / "Vendor" / "FFmpegBridge"
 WORK = ROOT / "artifacts" / "FFmpegBuild"
 FRAMEWORK_NAME = "FFmpegBridge.framework"
 INSTALL_NAME = "@rpath/FFmpegBridge.framework/FFmpegBridge"
+CATALYST_INSTALL_NAME = "@rpath/FFmpegBridge.framework/Versions/A/FFmpegBridge"
 SLICE_SPECS = {
     "iphoneos-arm64": ("iphoneos", "arm64", "aarch64", "IOS"),
     "iphonesimulator-arm64": ("iphonesimulator", "arm64", "aarch64", "IOSSIMULATOR"),
     "iphonesimulator-x86_64": ("iphonesimulator", "x86_64", "x86_64", "IOSSIMULATOR"),
+    "maccatalyst-arm64": ("macosx", "arm64", "aarch64", "MACCATALYST"),
+    "maccatalyst-x86_64": ("macosx", "x86_64", "x86_64", "MACCATALYST"),
 }
+VARIANT_ARCHS = {"device": ["arm64"], "simulator": ["arm64", "x86_64"], "maccatalyst": ["arm64", "x86_64"]}
+VARIANT_PLATFORMS = {"device": "IOS", "simulator": "IOSSIMULATOR", "maccatalyst": "MACCATALYST"}
+# Mac frameworks must use the versioned bundle layout; these are the only symlinks an output may hold.
+FRAMEWORK_LINKS = {
+    "Versions/Current": "A",
+    "FFmpegBridge": "Versions/Current/FFmpegBridge",
+    "Headers": "Versions/Current/Headers",
+    "Modules": "Versions/Current/Modules",
+    "Resources": "Versions/Current/Resources",
+}
+
+
+def slice_variant(name):
+    return {"iphoneos": "device", "iphonesimulator": "simulator", "macosx": "maccatalyst"}[SLICE_SPECS[name][0]]
+
+
+def install_name(variant):
+    return CATALYST_INSTALL_NAME if variant == "maccatalyst" else INSTALL_NAME
+
+
+def framework_root(framework, variant):
+    return framework / "Versions" / "A" if variant == "maccatalyst" else framework
+
+
+def framework_plist_path(framework, variant):
+    return framework_root(framework, variant) / ("Resources/Info.plist" if variant == "maccatalyst" else "Info.plist")
+
+
+def catalyst_macos_version(minimum_ios):
+    major, _, rest = minimum_ios.partition(".")
+    return f"{int(major) - 3}.{rest or '0'}"
 COMPONENTS = {
     "DEMUXER": {"MATROSKA_DEMUXER"},
     "MUXER": {"MOV_MUXER", "MP4_MUXER"},
@@ -78,17 +112,34 @@ def read_json(path):
     return json.loads(path.read_text())
 
 
+def allowed_framework_link(path, directory, relative):
+    parts = (directory.name, *relative.parts)
+    if FRAMEWORK_NAME not in parts[:-1]:
+        return False
+    framework_index = len(parts) - 1 - parts[::-1].index(FRAMEWORK_NAME)
+    inside = PurePosixPath(*parts[framework_index + 1:]).as_posix()
+    return FRAMEWORK_LINKS.get(inside) == os.readlink(path)
+
+
 def files_under(directory):
     files = []
-    for path in sorted(directory.rglob("*")):
-        relative = path.relative_to(directory)
-        if ".git" in relative.parts:
+    for current, directories, names in os.walk(directory, followlinks=False):
+        current = Path(current)
+        if ".git" in current.relative_to(directory).parts:
+            directories[:] = []
             continue
-        require(not path.is_symlink(), f"Source or output contains a symlink: {relative}")
-        require(path.is_file() or path.is_dir(), f"Unexpected file type: {relative}")
-        if path.is_file():
-            files.append(path)
-    return files
+        for name in [*directories, *names]:
+            path = current / name
+            relative = path.relative_to(directory)
+            if ".git" in relative.parts:
+                continue
+            if path.is_symlink():
+                require(allowed_framework_link(path, directory, relative), f"Source or output contains a symlink: {relative}")
+                continue
+            require(path.is_file() or path.is_dir(), f"Unexpected file type: {relative}")
+            if path.is_file():
+                files.append(path)
+    return sorted(files)
 
 
 def tree_manifest(directory):
@@ -265,7 +316,7 @@ def prepare_source(pins, override):
 
 def compiler_script(name, minimum_ios):
     sdk, arch, _, _ = SLICE_SPECS[name]
-    target = f"{arch}-apple-ios{minimum_ios}" + ("-simulator" if sdk == "iphonesimulator" else "")
+    target = f"{arch}-apple-ios{minimum_ios}" + {"iphoneos": "", "iphonesimulator": "-simulator", "macosx": "-macabi"}[sdk]
     return f'''#!/bin/sh
 set -eu
 exec /usr/bin/xcrun --sdk {sdk} clang -target {target} \\
@@ -415,28 +466,40 @@ def wrapper_sources():
             PACKAGE / "LICENSE.md", PACKAGE / "NOTICE.md"]
 
 
-def framework_plist(pins, simulator):
-    return {
+def framework_plist(pins, variant):
+    plist = {
         "CFBundleDevelopmentRegion": "en", "CFBundleExecutable": "FFmpegBridge",
         "CFBundleIdentifier": "com.agraabhi.ganabajana.ffmpegbridge",
         "CFBundleInfoDictionaryVersion": "6.0", "CFBundleName": "FFmpegBridge",
         "CFBundlePackageType": "FMWK", "CFBundleShortVersionString": pins["version"],
-        "CFBundleVersion": pins["version"], "MinimumOSVersion": pins["minimum_ios"],
-        "CFBundleSupportedPlatforms": ["iPhoneSimulator" if simulator else "iPhoneOS"],
+        "CFBundleVersion": pins["version"],
     }
+    if variant == "maccatalyst":
+        plist.update({"LSMinimumSystemVersion": catalyst_macos_version(pins["minimum_ios"]),
+                      "CFBundleSupportedPlatforms": ["MacOSX"]})
+    else:
+        plist.update({"MinimumOSVersion": pins["minimum_ios"],
+                      "CFBundleSupportedPlatforms": ["iPhoneSimulator" if variant == "simulator" else "iPhoneOS"]})
+    return plist
 
 
-def write_framework_contents(framework, pins, simulator):
-    (framework / "Headers").mkdir(parents=True)
-    (framework / "Modules").mkdir()
-    shutil.copyfile(PACKAGE / "include" / "FFmpegBridge.h", framework / "Headers" / "FFmpegBridge.h")
-    shutil.copyfile(PACKAGE / "Framework.modulemap", framework / "Modules" / "module.modulemap")
+def write_framework_contents(framework, pins, variant):
+    root = framework_root(framework, variant)
+    (root / "Headers").mkdir(parents=True)
+    (root / "Modules").mkdir()
+    resources = root / "Resources" if variant == "maccatalyst" else root
+    resources.mkdir(exist_ok=True)
+    shutil.copyfile(PACKAGE / "include" / "FFmpegBridge.h", root / "Headers" / "FFmpegBridge.h")
+    shutil.copyfile(PACKAGE / "Framework.modulemap", root / "Modules" / "module.modulemap")
     for name in ("COPYING.LGPLv2.1", "LICENSE.md", "NOTICE.md"):
-        shutil.copyfile(PACKAGE / name, framework / name)
-    (framework / "Info.plist").write_bytes(plistlib.dumps(framework_plist(pins, simulator), sort_keys=True))
+        shutil.copyfile(PACKAGE / name, resources / name)
+    framework_plist_path(framework, variant).write_bytes(plistlib.dumps(framework_plist(pins, variant), sort_keys=True))
+    if variant == "maccatalyst":
+        for link, target in FRAMEWORK_LINKS.items():
+            (framework / link).symlink_to(target)
 
 
-def verify_binary(binary, expected_archs, expected_platform, minimum_ios, version):
+def verify_binary(binary, expected_archs, expected_platform, minimum_ios, version, expected_install_name=INSTALL_NAME):
     archs = run(["/usr/bin/xcrun", "lipo", "-archs", binary]).split()
     require(set(archs) == set(expected_archs), f"Unexpected architectures: {archs}")
     require(ROOT.as_posix().encode() not in binary.read_bytes(), "Binary embeds the user's repository path")
@@ -456,11 +519,12 @@ def verify_binary(binary, expected_archs, expected_platform, minimum_ios, versio
                 f"Wrong minimum OS for {arch}: {build_info}")
         dependencies = run(["/usr/bin/xcrun", "otool", "-arch", arch, "-L", binary])
         linked = set(re.findall(r"^\s+(.+?) \(compatibility version", dependencies, re.MULTILINE))
-        require(INSTALL_NAME in linked and linked <= {INSTALL_NAME, "/usr/lib/libSystem.B.dylib"},
+        require(expected_install_name in linked and linked <= {expected_install_name, "/usr/lib/libSystem.B.dylib"},
                 f"Unexpected dynamic dependencies for {arch}: {sorted(linked)}")
 
 
 def build_bridge(name, slice_root, environment, libraries, pins, args):
+    variant = slice_variant(name)
     files = wrapper_sources()
     compile_flags = ["-std=c11", "-Oz", "-fPIC", "-fvisibility=hidden", "-fno-ident",
                      "-Wall", "-Wextra", "-Werror", "-Wno-deprecated-declarations"]
@@ -470,9 +534,9 @@ def build_bridge(name, slice_root, environment, libraries, pins, args):
         "wrapper": {path.relative_to(PACKAGE).as_posix(): digest(path) for path in files},
         "compile_flags": compile_flags,
         "link_flags": ["-dynamiclib", "-Wl,-dead_strip", "-Wl,-no_adhoc_codesign",
-                       "-Wl,-install_name," + INSTALL_NAME, "-Wl,-compatibility_version,1.0.0",
+                       "-Wl,-install_name," + install_name(variant), "-Wl,-compatibility_version,1.0.0",
                        "-Wl,-current_version,1.0.0", "-lm"],
-        "plist": framework_plist(pins, SLICE_SPECS[name][0] == "iphonesimulator"),
+        "plist": framework_plist(pins, variant),
     }
     recipe_hash = fingerprint(recipe)
     bridge_root = owned_directory(slice_root / "bridge" / recipe_hash[:20])
@@ -490,7 +554,7 @@ def build_bridge(name, slice_root, environment, libraries, pins, args):
     staged_framework = staging / FRAMEWORK_NAME
     log = bridge_root / "bridge.log"
     try:
-        write_framework_contents(staged_framework, pins, SLICE_SPECS[name][0] == "iphonesimulator")
+        write_framework_contents(staged_framework, pins, variant)
         objects = []
         for source in sorted((PACKAGE / "Sources").glob("*.c")):
             target = staging / (source.stem + ".o")
@@ -499,13 +563,14 @@ def build_bridge(name, slice_root, environment, libraries, pins, args):
                 cwd=build, env=environment, log=log)
             objects.append(target)
         archives = [slice_root / "install" / "lib" / f"lib{library}.a" for library in LIBRARIES]
-        binary = staged_framework / "FFmpegBridge"
+        binary = framework_root(staged_framework, variant) / "FFmpegBridge"
         print(f"Linking bridge: {name} (log: {log.relative_to(ROOT)})")
         run([build / "apple-clang", *objects, *archives, *recipe["link_flags"],
              "-Xlinker", "-exported_symbols_list", "-Xlinker", PACKAGE / "exports.txt", "-o", binary],
             cwd=build, env=environment, log=log)
         run(["/usr/bin/xcrun", "strip", "-S", "-x", binary], log=log)
-        verify_binary(binary, [SLICE_SPECS[name][1]], SLICE_SPECS[name][3], pins["minimum_ios"], pins["version"])
+        verify_binary(binary, [SLICE_SPECS[name][1]], SLICE_SPECS[name][3], pins["minimum_ios"], pins["version"],
+                      install_name(variant))
         require(recipe["wrapper"] == {path.relative_to(PACKAGE).as_posix(): digest(path) for path in wrapper_sources()},
                 "Bridge inputs changed during compilation; rerun the bridge component")
         record = {"recipe": recipe, "recipe_sha256": recipe_hash,
@@ -520,17 +585,23 @@ def build_bridge(name, slice_root, environment, libraries, pins, args):
         shutil.rmtree(staging)
 
 
-def framework_checks(framework, simulator, pins):
-    info = plistlib.loads((framework / "Info.plist").read_bytes())
-    require(info == framework_plist(pins, simulator), "Framework Info.plist does not match the recipe")
-    require(digest(framework / "Headers" / "FFmpegBridge.h") == digest(PACKAGE / "include" / "FFmpegBridge.h"),
+def framework_checks(framework, variant, pins):
+    root = framework_root(framework, variant)
+    resources = root / "Resources" if variant == "maccatalyst" else root
+    info = plistlib.loads(framework_plist_path(framework, variant).read_bytes())
+    require(info == framework_plist(pins, variant), "Framework Info.plist does not match the recipe")
+    require(digest(root / "Headers" / "FFmpegBridge.h") == digest(PACKAGE / "include" / "FFmpegBridge.h"),
             "Framework header differs from the public API")
-    require(digest(framework / "Modules" / "module.modulemap") == digest(PACKAGE / "Framework.modulemap"),
+    require(digest(root / "Modules" / "module.modulemap") == digest(PACKAGE / "Framework.modulemap"),
             "Framework module map differs from the package")
     for name in ("COPYING.LGPLv2.1", "LICENSE.md", "NOTICE.md"):
-        require(digest(framework / name) == digest(PACKAGE / name), f"Framework {name} differs from the package")
-    verify_binary(framework / "FFmpegBridge", ["arm64", "x86_64"] if simulator else ["arm64"],
-                  "IOSSIMULATOR" if simulator else "IOS", pins["minimum_ios"], pins["version"])
+        require(digest(resources / name) == digest(PACKAGE / name), f"Framework {name} differs from the package")
+    if variant == "maccatalyst":
+        for link, target in FRAMEWORK_LINKS.items():
+            require((framework / link).is_symlink() and os.readlink(framework / link) == target,
+                    f"Mac framework link {link} is missing or wrong")
+    verify_binary(root / "FFmpegBridge", VARIANT_ARCHS[variant], VARIANT_PLATFORMS[variant],
+                  pins["minimum_ios"], pins["version"], install_name(variant))
 
 
 def corresponding_source(source, pins, provenance, destination):
@@ -560,13 +631,13 @@ def corresponding_source(source, pins, provenance, destination):
 
 def xcframework_entries(xcframework):
     entries = plistlib.loads((xcframework / "Info.plist").read_bytes())["AvailableLibraries"]
-    require(len(entries) == 2 and
-            {entry.get("SupportedPlatformVariant", "device") for entry in entries} == {"device", "simulator"},
-            "XCFramework must contain exactly device and simulator variants")
+    require(len(entries) == 3 and
+            {entry.get("SupportedPlatformVariant", "device") for entry in entries} == set(VARIANT_ARCHS),
+            "XCFramework must contain exactly device, simulator and Mac Catalyst variants")
     for entry in entries:
-        simulator = entry.get("SupportedPlatformVariant") == "simulator"
+        variant = entry.get("SupportedPlatformVariant", "device")
         require(entry["SupportedPlatform"] == "ios" and entry["LibraryPath"] == FRAMEWORK_NAME and
-                set(entry["SupportedArchitectures"]) == ({"arm64", "x86_64"} if simulator else {"arm64"}),
+                set(entry["SupportedArchitectures"]) == set(VARIANT_ARCHS[variant]),
                 "Unexpected XCFramework platform, library path or architecture metadata")
         require(PurePosixPath(entry["LibraryIdentifier"]).parts == (entry["LibraryIdentifier"],),
                 "Invalid XCFramework library identifier")
@@ -583,33 +654,41 @@ def package_frameworks(frameworks, records, source, source_record, pins, args):
     try:
         device = staging / "device" / FRAMEWORK_NAME
         simulator = staging / "simulator" / FRAMEWORK_NAME
+        catalyst = staging / "maccatalyst" / FRAMEWORK_NAME
         shutil.copytree(frameworks["iphoneos-arm64"], device)
         shutil.copytree(frameworks["iphonesimulator-arm64"], simulator)
+        shutil.copytree(frameworks["maccatalyst-arm64"], catalyst, symlinks=True)
         run(["/usr/bin/xcrun", "lipo", "-create",
              frameworks["iphonesimulator-arm64"] / "FFmpegBridge",
              frameworks["iphonesimulator-x86_64"] / "FFmpegBridge",
              "-output", simulator / "FFmpegBridge"])
+        catalyst_binary = framework_root(catalyst, "maccatalyst") / "FFmpegBridge"
+        run(["/usr/bin/xcrun", "lipo", "-create",
+             framework_root(frameworks["maccatalyst-arm64"], "maccatalyst") / "FFmpegBridge",
+             framework_root(frameworks["maccatalyst-x86_64"], "maccatalyst") / "FFmpegBridge",
+             "-output", catalyst_binary])
         provenance = {
             "schema": 1, "source": pins, "prepared_source": source_record,
             "build_script_sha256": digest(Path(__file__)),
             "slices": records, "simulator_ad_hoc_signed": args.sign_simulator,
             "linkage": "MH_DYLIB; private static libavformat/libavcodec/libavutil; two exported C symbols",
         }
-        for framework, is_simulator in ((device, False), (simulator, True)):
-            write_json(framework / "BUILD-PROVENANCE.json", provenance)
-            framework_checks(framework, is_simulator, pins)
+        for framework, variant in ((device, "device"), (simulator, "simulator"), (catalyst, "maccatalyst")):
+            write_json(framework_root(framework, variant) / ("Resources" if variant == "maccatalyst" else "") /
+                       "BUILD-PROVENANCE.json", provenance)
+            framework_checks(framework, variant, pins)
         if args.sign_simulator:
             run(["/usr/bin/codesign", "--force", "--sign", "-", "--timestamp=none",
                  "--identifier", "com.agraabhi.ganabajana.ffmpegbridge", simulator])
             run(["/usr/bin/codesign", "--verify", "--strict", simulator])
         xcframework = staging / "FFmpegBridge.xcframework"
         run(["/usr/bin/xcodebuild", "-create-xcframework", "-framework", device,
-             "-framework", simulator, "-output", xcframework], log=WORK / "package.log")
+             "-framework", simulator, "-framework", catalyst, "-output", xcframework], log=WORK / "package.log")
         for name in ("COPYING.LGPLv2.1", "LICENSE.md", "NOTICE.md"):
             shutil.copyfile(PACKAGE / name, xcframework / name)
         for entry in xcframework_entries(xcframework):
-            is_simulator = entry.get("SupportedPlatformVariant") == "simulator"
-            framework_checks(xcframework / entry["LibraryIdentifier"] / entry["LibraryPath"], is_simulator, pins)
+            framework_checks(xcframework / entry["LibraryIdentifier"] / entry["LibraryPath"],
+                             entry.get("SupportedPlatformVariant", "device"), pins)
         artifact_files = {path.relative_to(xcframework).as_posix(): digest(path) for path in files_under(xcframework)}
         provenance["xcframework_files"] = artifact_files
         provenance["xcframework_payload_bytes"] = sum(path.stat().st_size for path in files_under(xcframework))
@@ -685,10 +764,10 @@ def verify_package(pins):
     require(all(record["bridge"]["recipe"]["wrapper"] == inputs for record in recorded["slices"].values()),
             "The package source differs from the compiled bridge")
     for entry in xcframework_entries(xcframework):
-        simulator = entry.get("SupportedPlatformVariant") == "simulator"
+        variant = entry.get("SupportedPlatformVariant", "device")
         framework = xcframework / entry["LibraryIdentifier"] / entry["LibraryPath"]
-        framework_checks(framework, simulator, pins)
-        if simulator and recorded["simulator_ad_hoc_signed"]:
+        framework_checks(framework, variant, pins)
+        if variant == "simulator" and recorded["simulator_ad_hoc_signed"]:
             run(["/usr/bin/codesign", "--verify", "--strict", framework])
     print("Verified hashes, dynamic linkage, exports, architectures, platforms, headers, licenses and deployment targets.")
 
@@ -696,9 +775,9 @@ def verify_package(pins):
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--component", choices=("all", "source", "libraries", "bridge", "package", "verify"), default="all",
-                        help="all builds selected slices then packages all three; other components are incremental")
+                        help="all builds selected slices then packages all five; other components are incremental")
     parser.add_argument("--slice", choices=tuple(SLICE_SPECS), action="append", dest="slices",
-                        help="repeat to select slices; default is all three")
+                        help="repeat to select slices; default is all five")
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 8))
     parser.add_argument("--sign-simulator", action="store_true", help="ad-hoc sign the combined simulator framework")
     parser.add_argument("--source-dir", type=Path,

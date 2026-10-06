@@ -57,6 +57,8 @@ final class AudioCacheLimitStorageTests: XCTestCase {
             saved.removeValue(forKey: "audioCacheLimit")
             document["preferences"] = saved
             document["version"] = 1
+            document.removeValue(forKey: "lifetimeListening")
+            document.removeValue(forKey: "superLikedIDs")
             document.removeValue(forKey: "syncState")
             let legacy = try JSONSerialization.data(withJSONObject: document, options: .sortedKeys)
             try legacy.write(to: url, options: .atomic)

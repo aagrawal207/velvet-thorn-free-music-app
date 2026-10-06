@@ -29,8 +29,22 @@ enum DiscoveryFamiliarity: String, CaseIterable, Codable, Sendable, Identifiable
     }
 }
 
+/// Download Liked Songs choice; derived from two preference leaves, never stored itself.
+enum AutoDownloadScope: String, CaseIterable, Sendable, Identifiable {
+    case off, superLiked, liked
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .superLiked: "Super Liked Only"
+        case .liked: "All Liked"
+        }
+    }
+}
+
 enum HomeSectionKind: String, CaseIterable, Hashable, Sendable, Identifiable {
-    case recentlyPlayed, madeForYou, newReleases, becauseYouLike, charts, discovery
+    // New cases go last: a saved six-section order still reads as the default, and the section appends for existing users.
+    case recentlyPlayed, madeForYou, newReleases, becauseYouLike, charts, discovery, superLiked
 
     var id: String { rawValue }
 
@@ -42,6 +56,7 @@ enum HomeSectionKind: String, CaseIterable, Hashable, Sendable, Identifiable {
         case .becauseYouLike: "Because you like"
         case .charts: "Charts"
         case .discovery: "Discovery"
+        case .superLiked: "Super Liked"
         }
     }
 
@@ -53,6 +68,7 @@ enum HomeSectionKind: String, CaseIterable, Hashable, Sendable, Identifiable {
         case .becauseYouLike: "Picks based on artists you listen to."
         case .charts: "Weekly song charts for your languages."
         case .discovery: "More music to explore in your languages."
+        case .superLiked: "The songs you super liked, newest first."
         }
     }
 }
@@ -113,6 +129,8 @@ struct UserPreferences: Codable, Equatable, Sendable {
     // Older sync journals address this field; only cold starts may use it as a language hint.
     var languages: Set<MusicLanguage> = [.hindi, .english]
     var languageNudges = LanguageRecommendationNudges()
+    /// One More/Automatic/Less per genre family; encodes every family so each is its own sync register.
+    var genreNudges = GenreNudges()
     var discoveryFamiliarity: DiscoveryFamiliarity = .balanced
     var appearance: AppAppearance = .dark
     var accent: AppAccent = .coral
@@ -127,11 +145,25 @@ struct UserPreferences: Codable, Equatable, Sendable {
     var gaplessPlayback = true
     var automix = false
     var autoplay = true
-    var shuffleStyle: ShuffleStyle = .random
+    var shuffleStyle: ShuffleStyle = .fewerRepeats
+    // Retained for journal compatibility; this flag cannot establish why an older value was saved.
+    var shuffleDefaultMigrated = false
     var normalizeVolume = true
     var audioCacheLimit: AudioCacheLimit = .defaultLimit
     var newReleaseAlerts = true
     var homeLayout = HomeLayoutPreferences()
+    var trailingTimeStyle: TrailingTimeStyle = .songLength
+    var playerSwipeUpAction: PlayerSwipeUpAction = .lyrics
+    var playerBackgroundMotion: PlayerBackgroundMotion = .off
+    var audioQuality: AudioQualityPreference = .best
+    var equalizer = EqualizerSettings()
+    var downloadsOverCellular = false
+    var autoDownloadLikedSongs = false
+    /// Super Liked Only downloads; All Liked (`autoDownloadLikedSongs`) implies it. Two lenient leaves, one control.
+    var autoDownloadSuperLikedSongs = false
+    /// Ordered, not a set, so the synced register has one canonical form.
+    var enabledCatalogSources: [MusicSource] = MusicSource.allCases
+    var sponsorBlockSkipping = false
 
     init() { }
 
@@ -140,14 +172,27 @@ struct UserPreferences: Codable, Equatable, Sendable {
         case crossfadeSeconds, gaplessPlayback, automix, autoplay, normalizeVolume, newReleaseAlerts
         case homeLayout, appIconID
         case audioCacheLimit
-        case languageNudges
-        case shuffleStyle, discoveryFamiliarity
+        case languageNudges, genreNudges
+        case shuffleStyle, discoveryFamiliarity, shuffleDefaultMigrated
+        case trailingTimeStyle, playerSwipeUpAction, audioQuality, equalizer, downloadsOverCellular, autoDownloadLikedSongs
+        case enabledCatalogSources, sponsorBlockSkipping, autoDownloadSuperLikedSongs
+        case playerBackgroundMotion
+    }
+
+    /// Which likes download on their own; the picker writes both Bool leaves so each merges independently.
+    var autoDownloadScope: AutoDownloadScope {
+        get { autoDownloadLikedSongs ? .liked : autoDownloadSuperLikedSongs ? .superLiked : .off }
+        set {
+            autoDownloadLikedSongs = newValue == .liked
+            autoDownloadSuperLikedSongs = newValue != .off
+        }
     }
 
     init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         languages = try values.decodeIfPresent(Set<MusicLanguage>.self, forKey: .languages) ?? [.hindi, .english]
         languageNudges = try values.decodeIfPresent(LanguageRecommendationNudges.self, forKey: .languageNudges) ?? .init()
+        genreNudges = (try? values.decodeIfPresent(GenreNudges.self, forKey: .genreNudges)) ?? GenreNudges()
         // Only absence is a legacy default; a present null or unknown choice must block file replacement.
         if values.contains(.discoveryFamiliarity) {
             discoveryFamiliarity = try values.decode(DiscoveryFamiliarity.self, forKey: .discoveryFamiliarity)
@@ -171,6 +216,47 @@ struct UserPreferences: Codable, Equatable, Sendable {
         audioCacheLimit = try values.decodeIfPresent(AudioCacheLimit.self, forKey: .audioCacheLimit) ?? .defaultLimit
         newReleaseAlerts = try values.decodeIfPresent(Bool.self, forKey: .newReleaseAlerts) ?? true
         homeLayout = try values.decodeIfPresent(HomeLayoutPreferences.self, forKey: .homeLayout) ?? HomeLayoutPreferences()
+        // Unlike the choices above, these fall back to their defaults on an unreadable value instead of blocking the file.
+        trailingTimeStyle = (try? values.decodeIfPresent(TrailingTimeStyle.self, forKey: .trailingTimeStyle)) ?? .songLength
+        playerSwipeUpAction = (try? values.decodeIfPresent(PlayerSwipeUpAction.self, forKey: .playerSwipeUpAction)) ?? .lyrics
+        playerBackgroundMotion = (try? values.decodeIfPresent(PlayerBackgroundMotion.self, forKey: .playerBackgroundMotion)) ?? .off
+        audioQuality = (try? values.decodeIfPresent(AudioQualityPreference.self, forKey: .audioQuality)) ?? .best
+        equalizer = (try? values.decodeIfPresent(EqualizerSettings.self, forKey: .equalizer)) ?? EqualizerSettings()
+        downloadsOverCellular = (try? values.decodeIfPresent(Bool.self, forKey: .downloadsOverCellular)) ?? false
+        autoDownloadLikedSongs = (try? values.decodeIfPresent(Bool.self, forKey: .autoDownloadLikedSongs)) ?? false
+        autoDownloadSuperLikedSongs = (try? values.decodeIfPresent(Bool.self, forKey: .autoDownloadSuperLikedSongs)) ?? false
+        if let sources = try? values.decodeIfPresent([String].self, forKey: .enabledCatalogSources) {
+            // A source this version does not know is dropped; an empty list is a deliberate choice and stays empty.
+            enabledCatalogSources = sources.compactMap(MusicSource.init(rawValue:))
+        }
+        sponsorBlockSkipping = (try? values.decodeIfPresent(Bool.self, forKey: .sponsorBlockSkipping)) ?? false
+        shuffleDefaultMigrated = (try? values.decodeIfPresent(Bool.self, forKey: .shuffleDefaultMigrated)) ?? false
+    }
+
+    // Older saves encode defaults and explicit choices identically. Only a missing field takes the new default.
+    @discardableResult
+    mutating func migrateShuffleDefault() -> Bool {
+        false
+    }
+
+    // Explicit choices retain the compatibility marker without inferring intent for older saved values.
+    mutating func chooseShuffleStyle(_ style: ShuffleStyle) {
+        shuffleStyle = style
+        shuffleDefaultMigrated = true
+    }
+}
+
+/// Full-screen player backdrop motion. Off keeps the static artwork backdrop; collections never animate.
+enum PlayerBackgroundMotion: String, Codable, CaseIterable, Sendable {
+    case off, drift, pulse, reactive
+
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .drift: "Drift"
+        case .pulse: "Pulse"
+        case .reactive: "React to Music"
+        }
     }
 }
 
@@ -275,6 +361,12 @@ struct ListeningEvent: Codable, Identifiable, Sendable {
     var track: Track
     var startedAt: Date
     var listenedSeconds: TimeInterval
+}
+
+struct LifetimeListeningSummary: Equatable, Sendable {
+    var seconds: TimeInterval = 0
+    var plays: Int = 0
+    var coverageStartedAt: Date?
 }
 
 struct RecentListen: Codable, Identifiable, Sendable {

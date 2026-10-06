@@ -1,0 +1,366 @@
+{
+ "tracks": [
+  {
+   "track_id": "944286",
+   "seokey": "tumhiho",
+   "albumseokey": "aashiqui-2",
+   "track_title": "Tum Hi Ho",
+   "album_id": "92317",
+   "album_title": "Aashiqui 2",
+   "language": "Hindi",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_s_1712905431.jpg",
+   "artwork_web": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+   "artwork_large": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_l_1712905431.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+   "duration": "261",
+   "isrc": "INS181303031",
+   "popularity": "180685771~180685771",
+   "play_ct": "180M+",
+   "parental_warning": 0,
+   "is_premium": 1,
+   "premium_content": "0",
+   "rest_lev": "0",
+   "vendor_rest_lev": "0",
+   "download_enabled": 0,
+   "urls": {
+    "medium": {
+     "message": "60vnAC4Ayvhvrr1Zpy2nbH4ihp9cSm9aRDcYfnyv7tBvfk2xxwJt7NZIlxGaLmCyn/CZI7HhXH4ORha6bCh+I8OUbRWswUXHn8ywm7Dwh0XVt7a3rjJitW6hmURMsbe9DWe8IgKKQ2hAJwTde9A097UGozYcFdcUd4AH8UG0U7brJ9Dwd6gHjuYkwswV/2ML21zW0ZajD8mszAKvD79PfCnPA1wYk3uxU+RCMEIfj0TTeBe9VdNWaVuxM2tbpAp5ob4rfMvFajkQ12N/wcPzTJqeZ458NWPXSF86ajn8lSZ2e/CxBiDKt5DRcwxhQymxc=",
+     "bitRate": "64",
+     "expiryTime": 1790431473
+    },
+    "high": {
+     "message": "6G2ZKMHjwIP5OYcRCBdVnVmCCxbTz/m8PmQ2P/+/qKZWnHfGzr0bxs7S2S1tdvHGhZkOjRVQjqaxNijtAFN2gbFpebISc3QA/stC9HaYfR5CGxRz2T24+OGBi8VlV0V5id3ai+dax/De7wAw01mK8d8LyM/CRK2guAQkABOWu48zRqU1szmQuKgNUXbAnNsmt0LvfXvmpvgu8taKga0ZuiBDBqqGJeh8HAmHeANRNEK6BPjoTLwWRBInnpBMxWDyf+ueFkV9P+8qi8LKdzFkpr3J9DtA88wd4uAWT4pOndZHLGBPs/BoB6DZrBdJ8+xrw=",
+     "bitRate": "128",
+     "expiryTime": 1790431473
+    },
+    "auto": {
+     "message": "62W46SzgPI5AWk86XKYKLB69pkSeb4XFG4G/diC1u8wbOku4whoyza2h62UmLxaYMDaR36759rSKoCztltW12RWLJ7XgMbGoJoNU+B/gYzOoQRG8hNyTICjP90T4JqgYN9+MwGWpaaTDrAI1fqgxmhIPLCuNlK2HOfQYw/jUZTFHrXjLKn1YlU+Ly7isBpjQUJZNkZT1GRlQCQn1aEstmLI/IfhgSQowsfaMDaGTlx4a9pSQsXgGUlO7GS6x4jr50VGzZiC+mY8qZGH6WudwyfdZionDiOuO8k+QG4RZj4hA==",
+     "bitRate": "",
+     "expiryTime": 1790431473
+    }
+   },
+   "preview_url": {
+    "message": "4W6icIizoaAjJ8ilPOCK5mq0VeSRhMgWJix/kDXplpCtX4ZfVogJ8MOshX0NleEWqWWqWy+/la5UAe0Hz87/nGBAoeCJ3CZlvPuPaZeRkAMBEoJMe6uLb/NPPTGiRLCKPrta+y/EUdnbyOy0IwX2IwDc9PrcDUi3A4qeQ/SM+Q==",
+    "expiryTime": 1790431473
+   },
+   "release_date": "2013-04-06",
+   "loudness": {
+    "integrated": "-8.0 LUFS",
+    "truePeak": "+1.3 dBTP",
+    "lra": "5.8 LU",
+    "threshold": "-18 LUFS"
+   },
+   "stream_type": "rtmp",
+   "track_format": {
+    "mp3": {
+     "normal": "0",
+     "medium": "0",
+     "high": "0",
+     "extreme": "0",
+     "auto": "0"
+    },
+    "mp4_aac": {
+     "normal": "-5",
+     "medium": "1",
+     "high": "1",
+     "extreme": "1",
+     "auto": "1"
+    }
+   },
+   "total_favourite_count": 1997969,
+   "is_dolby": 0,
+   "artist": [
+    {
+     "artist_id": "27",
+     "seokey": "mithoon",
+     "name": "Mithoon"
+    },
+    {
+     "artist_id": "52767",
+     "seokey": "arijit-singh",
+     "name": "Arijit Singh"
+    }
+   ]
+  },
+  {
+   "track_id": "944306",
+   "seokey": "chauhunmainyanaa",
+   "albumseokey": "aashiqui-2",
+   "track_title": "Chahun Main Ya Naa",
+   "album_id": "92317",
+   "album_title": "Aashiqui 2",
+   "language": "Hindi",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_s_1712905431.jpg",
+   "artwork_web": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+   "artwork_large": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_l_1712905431.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+   "duration": "304",
+   "isrc": "INS181303033",
+   "popularity": "180685771~68463585",
+   "play_ct": "68M+",
+   "parental_warning": 0,
+   "is_premium": 1,
+   "premium_content": "0",
+   "rest_lev": "0",
+   "vendor_rest_lev": "0",
+   "download_enabled": 0,
+   "urls": {
+    "medium": {
+     "message": "6CGIvqB0qabqziTs22BiKYdOcSZ+8fsHu/quOUGpqusLnzTzbt2ldFC0wCW+ZGQ6WyR4hTu+M2OXgQ1PCX62ZoHM7L8fKrEXV/LlcfOewJD3jdSV2v6aWI+TozPCzShaLpxJ/hw4gTtJ94Wpd+YQFKdz/Ulkh6lP30aeDXzQE+J5w6Hv5G4ZNK4rvnK/cF+/BdrpoiN8/pO7BwWfpX8RHtqn09lUI9mmlJElpUWfMcnZANjiBcWQF8gV5dJ+/XmL9x3gMVB/L1D/802wgQF3ccW1EmekRXofbfpLPduu5ynNEfeQQYTb8h9Z9X8KR5G4U=",
+     "bitRate": "64",
+     "expiryTime": 1790431473
+    },
+    "high": {
+     "message": "3xsS14XtKx11D8bfFELYoEJO5Dpox1W8gcui8JP/cHx/BQMPUxoRjNxlBoSSU6w72QCp35m6nAE/343ov2D5WUCrk69GauRBSwLQ5I1pJUCqCLr7aPzNX7jGTD+V0g7qbhuo4Qgw84nska4tgdx7jy9FKL5XMslpM3xfM7ul2vVMOrpN518Qr/r/YeuP1bw+78lycrvZgCsu/93Uf3qNzfzfu9bd+1Cf2DOC8gYXnZ3VY8qiolGhI4eenGqMdy6RvNdUPgx9V6HKjRuRODsjUSLl2AP2zO5kYeLrdnNusGD11uim403Fe0Lxlr61pE=",
+     "bitRate": "128",
+     "expiryTime": 1790431473
+    },
+    "auto": {
+     "message": "4IP1DLOOOTgawoD2V2VndAb1NLROFEgW0Q77JjO9b9bfPdriFFZbPxd36zQoeTvxqSstkX0uh8WEYebuZBAOvl5RfBoK/aCkOBBTSQ+XE8wfMXhWezF+GzGPQmWdVRiP+VRkNnNi05lZahQI14aKXzwqEAqPu2NdP3nUD63yCrm9rl5BEdq+FW9p7ysJJkfJMtY/NO6f8TJetvBvbdocDZa4j9k+dJKr6Fo/rRMw9LGAXndUucm1l0Upa5+6JCUts31LK3EK9t28BfMwcO2erCLQjIYKdoaG72qHyUIpXQ==",
+     "bitRate": "",
+     "expiryTime": 1790431473
+    }
+   },
+   "preview_url": {
+    "message": "5WE2QqiGr34IiI7OnsGbomzGHXq/AWFpKvOmDdbzc4yCDw6Mm+Y/VSKZzWzC0+hXWbQs2pApHMMEM+9SIH1CzJjRK9fG0EtFNneIbKDoOrBFP/mW2dSDFzV5SCtD1eI7O6ja+/N1kQLnlgQbVsBx6/+JbXUmf/2z9f9AYTFE/Yw==",
+    "expiryTime": 1790431473
+   },
+   "release_date": "2013-04-06",
+   "loudness": {
+    "integrated": "-9.2 LUFS",
+    "truePeak": "+2.6 dBTP",
+    "lra": "7.4 LU",
+    "threshold": "-19 LUFS"
+   },
+   "stream_type": "rtmp",
+   "track_format": {
+    "mp3": {
+     "normal": "0",
+     "medium": "0",
+     "high": "0",
+     "extreme": "0",
+     "auto": "0"
+    },
+    "mp4_aac": {
+     "normal": "-5",
+     "medium": "1",
+     "high": "1",
+     "extreme": "1",
+     "auto": "1"
+    }
+   },
+   "total_favourite_count": 910553,
+   "is_dolby": 0,
+   "artist": [
+    {
+     "artist_id": "47556",
+     "seokey": "palak-muchhal",
+     "name": "Palak Muchhal"
+    },
+    {
+     "artist_id": "52767",
+     "seokey": "arijit-singh",
+     "name": "Arijit Singh"
+    }
+   ]
+  },
+  {
+   "track_id": "944447",
+   "seokey": "sunnrahahai-1",
+   "albumseokey": "aashiqui-2",
+   "track_title": "Sunn Raha Hai",
+   "album_id": "92317",
+   "album_title": "Aashiqui 2",
+   "language": "Hindi",
+   "artwork": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_s_1712905431.jpg",
+   "artwork_web": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+   "artwork_large": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_l_1712905431.jpg",
+   "atw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+   "duration": "314",
+   "isrc": "INS181303039",
+   "popularity": "180685771~42739426",
+   "play_ct": "42M+",
+   "parental_warning": 0,
+   "is_premium": 1,
+   "premium_content": "0",
+   "rest_lev": "0",
+   "vendor_rest_lev": "0",
+   "download_enabled": 0,
+   "urls": {
+    "medium": {
+     "message": "4RFusfwZenSJemRVQM4kZF59h9ubbpDad3ZqwAwBbKbHym6PgRc1tXrywO01KrUj1yq+2tZJi2otmRqnnBU+CQZeBhfdHTaCk9yRzvBdd3Lx4fd5lui8Y251T5tJMn9GVC6fm4OzEeWFq8WnZeHc5IbjrtmCecvtunTgp25ydPci6NhjtJrtn8AXK+TCAuHmJH2Fcd2dhpXsdI5wXK91qmj1jyl/CfGPPV+yBnyWgFVdEUSCJ73gn8fBJAss2V9rSm3AoyMw1bJetgaWjE35tXGY99Slt4A3EDOJIQISk+LRTmTIfDRG6P7S/7wBVmw=",
+     "bitRate": "64",
+     "expiryTime": 1790431473
+    },
+    "high": {
+     "message": "5iIcCrrZjNmBZNQ6eft9tdxiw9wIxVKmGgvs9STNmGn3kMbgrMK26Z90g0EVzvsKvIEyNnXbAqZFhG8k+493tjhKvN203H6l7PmbPTNiqrDnosladfSZEtcSNo8uj6vfcdWs5AmdZrlEi+MzqFeaB8jWG0BU+7bs0XMbU4ZwiHMPsdoOfsj6HWjBGRRDYxhPmUgGZGsbuYg1cvUN054ggmVn598kqzlYcFFH+TQMrl+/FIdRE9lkgbYRQYvT5NXU7QExVVJYs5EoeHmsnMNJHW5Ohk8tBXIfzC9vzLhm2N6zR7XiKrERQnlmzsKbx2u4=",
+     "bitRate": "128",
+     "expiryTime": 1790431473
+    },
+    "auto": {
+     "message": "5ClXj2EaAAfCBIOW3P2JkLQZ5onjX7BE2f++xaIRdcVROWGCQrT+ql3gufsVxGGqI0j1NkGTOp6kpFEX/rWvBa8CDK49Q7bpAVavwZP/S4cI1qFge3zt/iAr4B15syzWeJthoVu+o4rkgW1xGn508J7MoQki5yxT/v+0KWBxmBTSEum4lUafuXcD/g/PROTPlvBdwrm+O3cSPjTa5T42kvXCq7sXU9XKhpLwMRPRWXOMF1Uxp4pjdwvmXNlTpalVzCjTUlE0uiloy3h2RclXflJo0DqkcYAKHTNCZO10F+w==",
+     "bitRate": "",
+     "expiryTime": 1790431473
+    }
+   },
+   "preview_url": {
+    "message": "4usClmzMLYB3T7AmGSAFcDC0XDId1iMoV9QtyAN7PHv71N64wzwjDuSC5WehB0obcykaIuxojgEqv8N4zoHiHRMUaLtpV/bY90L4et04xqR7QG6FGqF453o1ObT5skZLektSuanVHb5Cc69Ft8bl5gm2a9S84rWaiesNpnqdtA==",
+    "expiryTime": 1790431473
+   },
+   "release_date": "2013-04-06",
+   "loudness": {
+    "integrated": "-7.0 LUFS",
+    "truePeak": "+1.2 dBTP",
+    "lra": "4.1 LU",
+    "threshold": "-17 LUFS"
+   },
+   "stream_type": "rtmp",
+   "track_format": {
+    "mp3": {
+     "normal": "0",
+     "medium": "0",
+     "high": "0",
+     "extreme": "0",
+     "auto": "0"
+    },
+    "mp4_aac": {
+     "normal": "-5",
+     "medium": "1",
+     "high": "1",
+     "extreme": "1",
+     "auto": "1"
+    }
+   },
+   "total_favourite_count": 626084,
+   "is_dolby": 0,
+   "artist": [
+    {
+     "artist_id": "4",
+     "seokey": "shreya-ghoshal",
+     "name": "Shreya Ghoshal"
+    }
+   ]
+  }
+ ],
+ "count": "11",
+ "status": 1,
+ "release_year": "2013",
+ "favorite_count": "307018",
+ "album": {
+  "seokey": "aashiqui-2",
+  "title": "Aashiqui 2",
+  "language": "Hindi",
+  "album_id": "92317",
+  "year": 2013,
+  "release_date": "2013-04-06",
+  "trackcount": "11",
+  "atw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+  "artwork": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_s_1712905431.jpg",
+  "al_play_ct": "483M+",
+  "parental_warning": 0,
+  "duration": "3038",
+  "recordlevel": "T-Series",
+  "vendor_name": "T-Series",
+  "artist": [
+   {
+    "artist_id": "52767",
+    "seokey": "arijit-singh",
+    "name": "Arijit Singh"
+   },
+   {
+    "artist_id": "47564",
+    "seokey": "ankit-tiwari",
+    "name": "Ankit Tiwari"
+   },
+   {
+    "artist_id": "47556",
+    "seokey": "palak-muchhal",
+    "name": "Palak Muchhal"
+   },
+   {
+    "artist_id": "4",
+    "seokey": "shreya-ghoshal",
+    "name": "Shreya Ghoshal"
+   },
+   {
+    "artist_id": "29",
+    "seokey": "tulsi-kumar",
+    "name": "Tulsi Kumar"
+   },
+   {
+    "artist_id": "110",
+    "seokey": "kk",
+    "name": "K.K."
+   },
+   {
+    "artist_id": "3768",
+    "seokey": "mustafa-zahid",
+    "name": "Mustafa Zahid"
+   },
+   {
+    "artist_id": "27",
+    "seokey": "mithoon",
+    "name": "Mithoon"
+   }
+  ],
+  "primaryartist": [
+   {
+    "artist_id": "27",
+    "seokey": "mithoon",
+    "name": "Mithoon"
+   },
+   {
+    "artist_id": "111896",
+    "seokey": "jeet-gannguli",
+    "name": "Jeet Gannguli"
+   },
+   {
+    "artist_id": "47564",
+    "seokey": "ankit-tiwari",
+    "name": "Ankit Tiwari"
+   }
+  ]
+ },
+ "composers": [
+  {
+   "e_id": "27",
+   "name": "Mithoon",
+   "seokey": "mithoon",
+   "e_type": "composer"
+  },
+  {
+   "e_id": "111896",
+   "name": "Jeet Gannguli",
+   "seokey": "jeet-gannguli",
+   "e_type": "composer"
+  },
+  {
+   "e_id": "47564",
+   "name": "Ankit Tiwari",
+   "seokey": "ankit-tiwari",
+   "e_type": "composer"
+  }
+ ],
+ "atw": "https://a10.gaanacdn.com/gn_img/albums/d41WjnWPLq/41Wjz1LOWP/size_m_1712905431.jpg",
+ "artist_detail": [
+  {
+   "artist_id": "52767",
+   "seokey": "arijit-singh",
+   "name": "Arijit Singh",
+   "role": "Singer"
+  },
+  {
+   "artist_id": "47564",
+   "seokey": "ankit-tiwari",
+   "name": "Ankit Tiwari",
+   "role": "Singer|Composer"
+  },
+  {
+   "artist_id": "47556",
+   "seokey": "palak-muchhal",
+   "name": "Palak Muchhal",
+   "role": "Singer"
+  }
+ ],
+ "parental_warning": 0
+}

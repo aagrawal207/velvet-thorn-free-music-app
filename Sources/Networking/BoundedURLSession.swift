@@ -13,27 +13,27 @@ extension URLSession {
         guard (1...(64 * 1024 * 1024)).contains(maximumBytes) else { throw BoundedResponseError.invalidLimit }
 
         do {
-            let (bytes, response) = try await self.bytes(for: request, delegate: delegate)
+            let (body, response) = try await self.chunkedBody(for: request, delegate: delegate)
             return try await withTaskCancellationHandler {
                 var reachedEOF = false
-                // Leaving AsyncBytes iteration does not stop a request whose body is still arriving or stalled.
-                defer { if !reachedEOF { bytes.task.cancel() } }
+                // Leaving the chunk loop does not stop a request whose body is still arriving or stalled.
+                defer { if !reachedEOF { body.cancel() } }
                 try Task.checkCancellation()
                 let expectedLength = response.expectedContentLength
                 guard expectedLength <= Int64(maximumBytes) else { throw BoundedResponseError.tooLarge }
 
                 var data = Data()
                 data.reserveCapacity(Int(max(0, expectedLength)))
-                for try await byte in bytes {
+                for try await chunk in body {
                     try Task.checkCancellation()
-                    guard data.count < maximumBytes else { throw BoundedResponseError.tooLarge }
-                    data.append(byte)
+                    guard chunk.count <= maximumBytes - data.count else { throw BoundedResponseError.tooLarge }
+                    data.append(chunk)
                 }
                 try Task.checkCancellation()
                 reachedEOF = true
                 return (data, response)
             } onCancel: {
-                bytes.task.cancel()
+                body.cancel()
             }
         } catch {
             if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {

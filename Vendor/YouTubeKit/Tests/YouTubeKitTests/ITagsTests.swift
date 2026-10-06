@@ -28,5 +28,15 @@ final class ITagsTests: XCTestCase {
         let itag = ITag(2239)
         XCTAssertNil(itag)
     }
+
+    /// Gana Bajana patch: the 256 kbps audio tiers a signed-in account can receive must survive `Stream(format:)`.
+    func testPremiumAudioTiersAreKnownDashAudio() {
+        for (code, rate) in [(141, 256), (774, 256), (251, 160), (140, 128)] {
+            guard let itag = ITag(code) else { return XCTFail("itag \(code) must be known") }
+            XCTAssertEqual(itag.audioBitrate, rate)
+            XCTAssertNil(itag.videoResolution)
+            XCTAssertTrue(itag.isDash)
+        }
+    }
     
 }

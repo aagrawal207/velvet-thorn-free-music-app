@@ -56,7 +56,8 @@ final class WatchPhonePublicationTests: XCTestCase {
             WatchTestSupport.snapshot(sequence: 9, title: "New title"),
             WatchTestSupport.snapshot(sequence: 10, artist: "New artist"),
             WatchTestSupport.snapshot(sequence: 11, trackID: "new-song"),
-            WatchTestSupport.snapshot(sequence: 12, libraryError: "Open Breezy on iPhone to recover your library."),
+            WatchTestSupport.snapshot(sequence: 12, libraryError: "Open Velvet Thorn on iPhone to recover your library."),
+            WatchTestSupport.snapshot(sequence: 13, accent: .violet),
             WatchTestSupport.snapshot(sequence: 14, empty: true)
         ]
         for snapshot in changes {

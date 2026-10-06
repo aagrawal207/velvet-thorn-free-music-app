@@ -266,11 +266,14 @@ final class CacheRetentionPolicyTests: XCTestCase {
                 foreground = try await resolver.refreshQuality(track: b)
                 XCTAssertEqual(try Data(contentsOf: fallback.url), wave)
             } else {
-                // Removing AAC exposes fresh selection; unlike refreshQuality, this path does not reset an Opus cooldown.
+                // Removing AAC exposes fresh selection; the complete download prepares Opus without resetting a cooldown,
+                // while a forced first play streams the AAC.
                 await resolver.discardCached(b)
                 XCTAssertFalse(FileManager.default.fileExists(atPath: fallback.url.path))
                 await resolver.retainCached([b.id])
-                foreground = try await resolver.resolve(track: b, forceRefresh: true)
+                let restarted = try await resolver.resolve(track: b, forceRefresh: true)
+                XCTAssertEqual(restarted.url, OpusTestSupport.aacURL, "The forced first play streams the AAC at once")
+                foreground = try await resolver.download(b)
             }
             XCTAssertTrue(foreground.url.isFileURL)
             XCTAssertEqual(foreground.quality?.codec, .opus)

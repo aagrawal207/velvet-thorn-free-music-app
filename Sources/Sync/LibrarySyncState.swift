@@ -21,8 +21,9 @@ struct LibrarySyncRevision: Codable, Hashable, Comparable, Sendable {
 enum LibrarySyncCollection: String, Codable, Sendable {
     case preference, reaction, playlist, playlistName, playlistUpdated, playlistTrack, playlistTrackMetadata, playlistPosition
     case follow, followMetadata, release, releaseSeen, event, recent, search, searchSelection, mix, language, lyrics
+    case lifetimeSession
 
-    var isHistory: Bool { self == .event || self == .recent || self == .mix }
+    var isHistory: Bool { self == .event || self == .recent || self == .mix || self == .lifetimeSession }
     var isSearchHistory: Bool { self == .search || self == .searchSelection }
     var isPlaylistChild: Bool {
         self == .playlistName || self == .playlistUpdated || self == .playlistTrack || self == .playlistTrackMetadata || self == .playlistPosition
@@ -73,10 +74,16 @@ struct LibrarySyncSearchBoundary: Codable, Equatable, Comparable, Sendable {
 enum LibrarySyncReaction: Codable, Equatable, Sendable {
     case liked(Track)
     case disliked(DislikedSong)
+    case superLiked(Track)
+
+    /// Sorted-key encoding starts with the case name, so a prefix check finds the tier without decoding every value.
+    static func isSuperLikedValue(_ data: Data) -> Bool {
+        data.starts(with: Data("{\"superLiked\"".utf8))
+    }
 }
 
 struct LibrarySyncState: Codable, Equatable, Sendable {
-    static let currentVersion = 2
+    static let currentVersion = 4
     var version = currentVersion
     var clock: LibrarySyncRevision?
     var historyReset: LibrarySyncRevision?
@@ -124,7 +131,7 @@ struct LibrarySyncState: Codable, Equatable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         version = try values.decode(Int.self, forKey: .version)
         guard version <= Self.currentVersion else { throw LibrarySyncError.newerVersion }
-        guard version == 1 || version == Self.currentVersion else { throw LibrarySyncError.unsupportedVersion }
+        guard (1...Self.currentVersion).contains(version) else { throw LibrarySyncError.unsupportedVersion }
         clock = try values.decodeIfPresent(LibrarySyncRevision.self, forKey: .clock)
         historyReset = try values.decodeIfPresent(LibrarySyncRevision.self, forKey: .historyReset)
         historyRetirement = try values.decodeIfPresent(LibrarySyncRevision.self, forKey: .historyRetirement)
@@ -140,6 +147,12 @@ struct LibrarySyncState: Codable, Equatable, Sendable {
         }
         if version == 1, searchSelectionFloor != nil || registers.keys.contains(where: { $0.collection == .searchSelection }) {
             throw LibrarySyncError.invalidData("search selection format version")
+        }
+        if version < 3, registers.keys.contains(where: { $0.collection == .lifetimeSession }) {
+            throw LibrarySyncError.invalidData("lifetime journal version")
+        }
+        if version < 4, registers.contains(where: { $0.key.collection == .reaction && $0.value.value.map(LibrarySyncReaction.isSuperLikedValue) == true }) {
+            throw LibrarySyncError.invalidData("super like journal version")
         }
         // Schema migration keeps every original revision; reading a replica is not a new user edit.
         version = Self.currentVersion
@@ -159,7 +172,7 @@ struct LibrarySyncState: Codable, Equatable, Sendable {
 }
 
 struct LibrarySyncReplica: Codable, Equatable, Sendable {
-    static let currentVersion = 2
+    static let currentVersion = 4
     var version = currentVersion
     var replicaID: UUID
     var state: LibrarySyncState
@@ -172,11 +185,17 @@ extension LibrarySyncReplica {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         let storedVersion = try values.decode(Int.self, forKey: .version)
         guard storedVersion <= Self.currentVersion else { throw LibrarySyncError.newerVersion }
-        guard storedVersion == 1 || storedVersion == Self.currentVersion else { throw LibrarySyncError.unsupportedVersion }
+        guard (1...Self.currentVersion).contains(storedVersion) else { throw LibrarySyncError.unsupportedVersion }
         replicaID = try values.decode(UUID.self, forKey: .replicaID)
         state = try values.decode(LibrarySyncState.self, forKey: .state)
         if storedVersion == 1, state.searchSelectionFloor != nil || state.registers.keys.contains(where: { $0.collection == .searchSelection }) {
             throw LibrarySyncError.invalidData("search selection replica version")
+        }
+        if storedVersion < 3, state.registers.keys.contains(where: { $0.collection == .lifetimeSession }) {
+            throw LibrarySyncError.invalidData("lifetime replica version")
+        }
+        if storedVersion < 4, state.registers.contains(where: { $0.key.collection == .reaction && $0.value.value.map(LibrarySyncReaction.isSuperLikedValue) == true }) {
+            throw LibrarySyncError.invalidData("super like replica version")
         }
         version = Self.currentVersion
     }
@@ -191,11 +210,11 @@ enum LibrarySyncError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .newerVersion:
-            "An iCloud library uses a newer format. Update Breezy before syncing. The saved files have been kept."
+            "An iCloud library uses a newer format. Update Velvet Thorn before syncing. The saved files have been kept."
         case .unsupportedVersion:
             "An iCloud library uses an unsupported format. The saved files have been kept."
         case .tooLarge:
-            "The iCloud library exceeds Breezy’s safe sync size limit. No cloud files were replaced."
+            "The iCloud library exceeds Velvet Thorn’s safe sync size limit. No cloud files were replaced."
         case .unavailable:
             "iCloud Drive is unavailable. Check your Apple Account and iCloud Drive settings, then retry."
         case .cancelled:
@@ -209,7 +228,7 @@ enum LibrarySyncError: LocalizedError, Equatable {
         case .invalidData(let detail):
             "An iCloud library contains invalid \(detail). The saved files have been kept."
         case .localStorage(let detail):
-            "Breezy couldn’t save the synced library on this device. \(detail)"
+            "Velvet Thorn couldn’t save the synced library on this device. \(detail)"
         }
     }
 }
@@ -243,7 +262,7 @@ enum LibrarySyncCodec {
         guard data.count <= maximumFileBytes else { throw LibrarySyncError.tooLarge }
         let version = try decode(LibraryPersistence.VersionHeader.self, from: data).version
         guard version <= LibrarySyncReplica.currentVersion else { throw LibrarySyncError.newerVersion }
-        guard version == 1 || version == LibrarySyncReplica.currentVersion else { throw LibrarySyncError.unsupportedVersion }
+        guard (1...LibrarySyncReplica.currentVersion).contains(version) else { throw LibrarySyncError.unsupportedVersion }
         let replica = try decode(LibrarySyncReplica.self, from: data)
         guard replica.replicaID == expectedReplicaID else { throw LibrarySyncError.invalidData("replica identity") }
         try LibrarySyncValidation.validate(replica.state, now: now)

@@ -3,10 +3,9 @@ import Foundation
 
 struct MixWidgetOptionsProvider: DynamicOptionsProvider {
     func results() async throws -> IntentItemCollection<String> {
-        IntentItemCollection(sections: [IntentItemSection(items: [
-            IntentItem(GeneratedPlaylistKind.dailyMix.rawValue, title: "Daily Mix"),
-            IntentItem(GeneratedPlaylistKind.discoverWeekly.rawValue, title: "Discover Weekly")
-        ])])
+        IntentItemCollection(sections: [IntentItemSection(items: MixWidgetOptions.kinds.map { kind in
+            IntentItem(kind.rawValue, title: LocalizedStringResource(stringLiteral: kind.widgetTitle))
+        })])
     }
 
     func defaultResult() async -> String? { GeneratedPlaylistKind.dailyMix.rawValue }
@@ -20,7 +19,7 @@ struct MixWidgetConfigurationIntent: WidgetConfigurationIntent {
     @Parameter(title: "Mix", optionsProvider: MixWidgetOptionsProvider())
     var selection: String?
 
-    var mixKind: GeneratedPlaylistKind { selection.flatMap(GeneratedPlaylistKind.init(rawValue:)) ?? .dailyMix }
+    var mixKind: GeneratedPlaylistKind { MixWidgetOptions.kind(for: selection) }
 
     static var parameterSummary: some ParameterSummary {
         Summary("Show \(\.$selection)")

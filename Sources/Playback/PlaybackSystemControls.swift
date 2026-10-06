@@ -16,6 +16,8 @@ final class PlaybackSystemControls {
     private var artwork: MPMediaItemArtwork?
     private var transitionTask: UIBackgroundTaskIdentifier = .invalid
     private var transitionToken = UUID()
+    private var listeningTask: UIBackgroundTaskIdentifier = .invalid
+    private var listeningToken = UUID()
     private let log = Logger(subsystem: "com.agraabhi.ganabajana", category: "AudioSession")
 
     init(owner: PlayerController) {
@@ -26,13 +28,13 @@ final class PlaybackSystemControls {
     }
 
     func configureSession() {
-        do { try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: []) }
+        do { try PlaybackAudioRoute.session.apply(to: AVAudioSession.sharedInstance()) }
         catch { log.error("event=session_configuration_failed") }
     }
 
     func activateSession() throws {
         let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playback, mode: .default, options: [])
+        try PlaybackAudioRoute.session.apply(to: session)
         try session.setActive(true)
     }
 
@@ -44,6 +46,7 @@ final class PlaybackSystemControls {
 
     func tearDown() {
         endTransition()
+        endListeningCheckpoint()
         artworkTask?.cancel()
         artworkTask = nil
         notifications.forEach { NotificationCenter.default.removeObserver($0) }
@@ -79,6 +82,7 @@ final class PlaybackSystemControls {
         commands.playCommand.isEnabled = track != nil
         commands.pauseCommand.isEnabled = track != nil
         commands.togglePlayPauseCommand.isEnabled = track != nil
+        commands.stopCommand.isEnabled = track != nil
         commands.nextTrackCommand.isEnabled = count > 0
         commands.previousTrackCommand.isEnabled = count > 0
         commands.changePlaybackPositionCommand.isEnabled = track != nil && duration > 0
@@ -106,6 +110,52 @@ final class PlaybackSystemControls {
         if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
         if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
         center.nowPlayingInfo = info
+    }
+
+    static func liveNowPlayingInfo(station: LiveRadioStation, playing: Bool) -> [String: Any] {
+        [MPMediaItemPropertyTitle: station.name,
+         MPMediaItemPropertyArtist: "Live Radio",
+         MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
+         MPNowPlayingInfoPropertyIsLiveStream: true,
+         MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0,
+         MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0]
+    }
+
+    func updateLive(station: LiveRadioStation, playing: Bool) {
+        artworkTask?.cancel()
+        artworkTask = nil
+        artworkURL = nil
+        artworkTrackID = nil
+        artwork = nil
+        let commands = MPRemoteCommandCenter.shared()
+        commands.playCommand.isEnabled = true
+        commands.pauseCommand.isEnabled = true
+        commands.togglePlayPauseCommand.isEnabled = true
+        commands.stopCommand.isEnabled = true
+        commands.nextTrackCommand.isEnabled = false
+        commands.previousTrackCommand.isEnabled = false
+        commands.changePlaybackPositionCommand.isEnabled = false
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = Self.liveNowPlayingInfo(station: station, playing: playing)
+    }
+
+    func beginListeningCheckpoint() {
+        guard listeningTask == .invalid else { return }
+        let token = UUID()
+        listeningToken = token
+        listeningTask = UIApplication.shared.beginBackgroundTask(withName: "Save listening checkpoint") { @Sendable [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.listeningToken == token, self.listeningTask != .invalid else { return }
+                self.owner?.handleListeningCheckpointExpiration()
+            }
+        }
+    }
+
+    func endListeningCheckpoint() {
+        guard listeningTask != .invalid else { return }
+        let task = listeningTask
+        listeningTask = .invalid
+        listeningToken = UUID()
+        UIApplication.shared.endBackgroundTask(task)
     }
 
     private func loadArtwork(for track: Track) {
@@ -148,16 +198,17 @@ final class PlaybackSystemControls {
         configuration.urlCredentialStorage = nil
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
-        let (bytes, response) = try await session.bytes(from: url)
+        let (body, response) = try await session.chunkedBody(from: url)
+        defer { body.cancel() }
         guard let http = response as? HTTPURLResponse, http.statusCode == 200,
               http.mimeType?.hasPrefix("image/") == true, response.expectedContentLength <= 5_000_000 else {
             throw MusicServiceError.invalidResponse
         }
         var data = Data()
-        for try await byte in bytes {
+        for try await chunk in body {
             try Task.checkCancellation()
-            guard data.count < 5_000_000 else { throw MusicServiceError.invalidResponse }
-            data.append(byte)
+            guard chunk.count <= 5_000_000 - data.count else { throw MusicServiceError.invalidResponse }
+            data.append(chunk)
         }
         return data
     }
@@ -176,9 +227,14 @@ final class PlaybackSystemControls {
             }
         })
         notifications.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) {
-            @Sendable [weak owner] notification in
+            @Sendable [weak owner, log = self.log] notification in
             let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
             MainActor.assumeIsolated {
+                let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType)
+                let kind = PlaybackAudioRoute.kind(for: outputs)
+                let external = owner?.isExternalPlaybackActive == true ? 1 : 0
+                log.info("event=route_change kind=\(kind.rawValue, privacy: .public) reason=\(reason ?? 0) external=\(external)")
+                // Only losing the device pauses; a new AirPlay route keeps the player's clock running, so stall recovery stays idle.
                 if reason == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue { owner?.handleRouteDetached() }
             }
         })
@@ -198,15 +254,19 @@ final class PlaybackSystemControls {
     private func registerCommands(owner: PlayerController) {
         let center = MPRemoteCommandCenter.shared()
         register(center.playCommand) { @Sendable [weak owner] _ in
-            Task { @MainActor [weak owner] in owner?.resumePlayback() }
+            Task { @MainActor [weak owner] in Self.performTransport(.play, owner: owner) }
             return .success
         }
         register(center.pauseCommand) { @Sendable [weak owner] _ in
-            Task { @MainActor [weak owner] in owner?.pause() }
+            Task { @MainActor [weak owner] in Self.performTransport(.pause, owner: owner) }
+            return .success
+        }
+        register(center.stopCommand) { @Sendable [weak owner] _ in
+            Task { @MainActor [weak owner] in Self.performTransport(.stop, owner: owner) }
             return .success
         }
         register(center.togglePlayPauseCommand) { @Sendable [weak owner] _ in
-            Task { @MainActor [weak owner] in owner?.togglePlayback() }
+            Task { @MainActor [weak owner] in Self.performTransport(.toggle, owner: owner) }
             return .success
         }
         register(center.nextTrackCommand) { @Sendable [weak owner] _ in
@@ -227,5 +287,64 @@ final class PlaybackSystemControls {
 
     private func register(_ command: MPRemoteCommand, handler: @escaping @Sendable (MPRemoteCommandEvent) -> MPRemoteCommandHandlerStatus) {
         commands.append((command, command.addTarget(handler: handler)))
+    }
+
+    enum TransportAction { case play, pause, toggle, stop }
+
+    static func performTransport(_ action: TransportAction, owner: PlayerController?) {
+        switch action {
+        case .play: owner?.resumePlayback()
+        case .pause: owner?.pause()
+        case .toggle: owner?.togglePlayback()
+        case .stop: owner?.stopPlayback()
+        }
+    }
+}
+
+/// Audio-only routing: AirPlay receivers get the rendered audio, never the item URL, which they cannot fetch
+/// for `file://` copies, device-bound signed URLs or Opus-in-MP4.
+enum PlaybackAudioRoute {
+    struct SessionConfiguration: Equatable {
+        let category: AVAudioSession.Category
+        let mode: AVAudioSession.Mode
+        let policy: AVAudioSession.RouteSharingPolicy
+        let options: AVAudioSession.CategoryOptions
+
+        func apply(to session: AVAudioSession) throws {
+            try session.setCategory(category, mode: mode, policy: policy, options: options)
+        }
+    }
+
+    /// Long-form audio rejects mixing options, so `options` must stay empty while `policy` is `.longFormAudio`.
+    static var session: SessionConfiguration {
+        SessionConfiguration(category: .playback, mode: .default, policy: .longFormAudio, options: [])
+    }
+
+    enum Kind: String, CaseIterable {
+        case airplay, bluetooth, car, builtin, other
+    }
+
+    /// Every app player comes from here; a default AVPlayer would hand its URL to an Apple TV instead.
+    @MainActor
+    static func makePlayer() -> AVPlayer {
+        let player = AVPlayer()
+        player.allowsExternalPlayback = false
+        return player
+    }
+
+    /// The most specific output wins when a route has several, so AirPlay beside the speaker reports airplay.
+    static func kind(for outputs: [AVAudioSession.Port]) -> Kind {
+        let kinds = Set(outputs.map(kind(for:)))
+        return [Kind.airplay, .car, .bluetooth, .builtin].first(where: kinds.contains) ?? .other
+    }
+
+    static func kind(for port: AVAudioSession.Port) -> Kind {
+        switch port {
+        case .airPlay: .airplay
+        case .bluetoothA2DP, .bluetoothLE, .bluetoothHFP: .bluetooth
+        case .carAudio: .car
+        case .builtInSpeaker, .builtInReceiver: .builtin
+        default: .other
+        }
     }
 }

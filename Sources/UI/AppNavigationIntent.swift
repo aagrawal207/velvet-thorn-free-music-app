@@ -39,9 +39,10 @@ struct AppNavigationLink<Destination: View, Label: View>: View {
 
     var body: some View {
         // A native selection binding covers activation and Back outside the root's typed collection path.
-        NavigationLink(destination: destination, isActive: selection) { label }
-            .onChange(of: resetGeneration) { _, _ in
-                guard isActive else { return }
+        NavigationLink(destination: destination.miniPlayerClearanceProbe(), isActive: selection) { label }
+            .onChange(of: resetGeneration) { old, _ in
+                // Activation itself moves the value off nil; only a later root reset should pop.
+                guard isActive, old != nil else { return }
                 var transaction = Transaction(animation: nil)
                 transaction.disablesAnimations = true
                 $isActive.transaction(transaction).wrappedValue = false
@@ -49,11 +50,14 @@ struct AppNavigationLink<Destination: View, Label: View>: View {
             }
     }
 
+    /// Inactive links read nothing from the model: every card and row is a link, and observing the selected tab
+    /// made each tab switch re-evaluate every link in the app.
     private var resetGeneration: UUID? {
-        switch activationTab ?? model.selectedTab {
-        case .search: model.searchRootGeneration
-        case .library: model.libraryRootGeneration
-        default: nil
+        guard isActive, let activationTab else { return nil }
+        switch activationTab {
+        case .search: return model.searchRootGeneration
+        case .library: return model.libraryRootGeneration
+        default: return nil
         }
     }
 

@@ -11,31 +11,35 @@
   "versionLocalizationId": "508731a4-a244-4991-acaa-9dce56243aad",
   "appInfoLocalizationId": "2c021bb1-6f25-4115-ac51-278720f7e3ba",
   "version": "1.0.0",
-  "localBuildNumber": "5",
+  "localBuildNumber": "11",
   "versionState": "PREPARE_FOR_SUBMISSION",
   "releaseType": "AFTER_APPROVAL",
-  "buildId": "42a08cec-1e27-4ec2-afad-4e3e88af27e3",
+  "buildId": "eed48919-97be-46a8-a3ca-b742f502d782",
+  "buildNumber": "11",
   "buildProcessingState": "VALID",
   "buildAudienceType": "APP_STORE_ELIGIBLE",
-  "buildAttached": true,
-  "uploadId": "42a08cec-1e27-4ec2-afad-4e3e88af27e3",
-  "uploadFileId": "6a72d07e-cd2b-48e4-98b0-123a5f495543",
+  "buildAttached": false,
+  "appStoreAttachedBuildNumber": "6",
+  "appStoreAttachedBuildId": "e36b7e87-31d1-4ad6-b0bc-1ca428043353",
+  "uploadId": "eed48919-97be-46a8-a3ca-b742f502d782",
+  "uploadFileId": "30e05a11-3a79-42a3-b7a1-60a7184ae140",
   "reviewDetailId": "d4b2f115-ac13-46c4-8c98-848b3fdefce0",
   "reviewContactVerified": true,
   "reviewNotesCharacters": 3914,
+  "reviewNotesNeedRefreshForBuild11": true,
   "reviewNotesReceipt": "artifacts/AppStore-1.0.0-5/review-1790309749262953000/summary.json",
   "demoAccountRequired": false,
   "submissionId": "43569019-e4a2-4875-9fa1-c79b72716763",
   "submissionState": "READY_FOR_REVIEW",
   "submissionItemCount": 0,
   "submitted": false,
-  "setupStatus": "REVIEW_ATTEMPT_BLOCKED_REQUIRED_DECLARATIONS",
+  "setupStatus": "BUILD_11_READY_FOR_INTERNAL_TESTFLIGHT_REVIEW_NOT_SUBMITTED",
   "reviewAttemptReceipt": "artifacts/AppStore-1.0.0-5/submit-1790220849624895000/summary.json",
   "ipa": {
-    "path": "artifacts/AppStore-1.0.0-5/Breezy-1.0.0-5.ipa",
-    "bytes": 15358007,
-    "sha256": "8593026f58d070a74df1cf93e48a54b9678e270e796baa48c0ca79de7746b4a0",
-    "md5": "7017f372367b022a009116c7b56320b0",
+    "path": "artifacts/AppStore-1.0.0-11/Breezy-1.0.0-11.ipa",
+    "bytes": 20713556,
+    "sha256": "ed078358584f0e3561e72bd4041fb4bad2f5a780e1128ab41f24df8a61c67573",
+    "md5": "33e47f65c6975495441037342384b710",
     "appleValidation": "PASSED",
     "remoteFileChecksumMatches": true
   },
@@ -72,15 +76,18 @@
     "debugBuildLabel": "5",
     "sourceState": "POST_BUILD_5_WORKING_TREE_INCLUDING_R10",
     "requiresMatchingNewBuildBeforeReview": true,
+    "requiresRecaptureBeforeReview": true,
     "screenOrder": ["Home", "Player", "Album", "Artist", "Recap", "Liked songs"],
     "contentSource": "Live catalog and actual saved listening; no seeded media or history"
   },
   "iapReadyToSubmit": 5,
   "iapManifest": "docs/app-store/IAP_MANIFEST.json",
   "publicPagesRevision": "e84b3f6fba4d81425f5609196dc12fd59506a4ef",
-  "deliveryReadback": "artifacts/AppStore-1.0.0-5/readback-1790220802087226000/summary.json",
-  "readback": "artifacts/StoreScreenshots-20260924/readback-1790286580768511000/summary.json",
-  "finalRecordAudit": "artifacts/AppStore-1.0.0-5/final-record-audit.json",
+  "deliveryReadback": "artifacts/AppStore-1.0.0-11/summary.json",
+  "readback": "artifacts/AppStore-1.0.0-11/summary.json",
+  "previousStoreReadback": "artifacts/StoreScreenshots-20260924/readback-1790286580768511000/summary.json",
+  "finalRecordAudit": null,
+  "deliveryAudit": "artifacts/AppStore-1.0.0-11/summary.json",
   "reviewQuestionComparison": "artifacts/AppStore-1.0.0-5/questionnaire-comparison-1790252213014504000/summary.json",
   "ageRatingPreparation": {
     "manifest": "docs/app-store/AGE_RATING_ANSWERS.json",
@@ -125,11 +132,28 @@
   },
   "previousDelivery": {
     "version": "1.0.0",
-    "buildNumber": "4",
-    "buildId": "0e257a65-ec5d-47ac-ba00-d39e470caab6",
-    "artifactDirectory": "artifacts/AppStore-1.0.0-4/",
-    "readback": "artifacts/AppStore-1.0.0-4/final-readback-1790209733641079000/summary.json"
+    "buildNumber": "6",
+    "buildId": "e36b7e87-31d1-4ad6-b0bc-1ca428043353",
+    "artifactDirectory": "artifacts/AppStore-1.0.0-6/",
+    "readback": "artifacts/AppStore-1.0.0-6/summary.json"
   },
+  "olderDeliveries": [
+    {
+    "version": "1.0.0",
+    "buildNumber": "5",
+    "buildId": "42a08cec-1e27-4ec2-afad-4e3e88af27e3",
+    "artifactDirectory": "artifacts/AppStore-1.0.0-5/",
+    "readback": "artifacts/AppStore-1.0.0-5/readback-1790220802087226000/summary.json",
+    "finalRecordAudit": "artifacts/AppStore-1.0.0-5/final-record-audit.json"
+    },
+    {
+      "version": "1.0.0",
+      "buildNumber": "4",
+      "buildId": "0e257a65-ec5d-47ac-ba00-d39e470caab6",
+      "artifactDirectory": "artifacts/AppStore-1.0.0-4/",
+      "readback": "artifacts/AppStore-1.0.0-4/final-readback-1790209733641079000/summary.json"
+    }
+  ],
   "earlierDelivery": {
     "version": "1.0.0",
     "buildNumber": "3",
@@ -140,5 +164,24 @@
   "submissionHolds": [
     "CONTENT_PROVIDER_AUTHORIZATION",
     "FFMPEG_RECIPIENT_SOURCE_AND_RELINK_DELIVERY"
-  ]
+  ],
+  "testflight": {
+    "buildId": "eed48919-97be-46a8-a3ca-b742f502d782",
+    "buildNumber": "11",
+    "internalBuildState": "READY_FOR_BETA_TESTING",
+    "externalBuildState": "READY_FOR_BETA_SUBMISSION",
+    "expirationDate": "2026-12-29T13:34:58-08:00",
+    "groups": [{"id": "9d8db968-fe22-494a-9ed6-3fb622eeecc4", "name": "Friends", "type": "internal", "hasAccessToAllBuilds": true}],
+    "groupMembershipReadback": "artifacts/AppStore-1.0.0-11/beta-groups.json",
+    "historicalBuild6Readiness": "artifacts/AppStore-1.0.0-6/testflight-readiness.json",
+    "reviewContactFieldsMissing": ["contactFirstName", "contactLastName", "contactEmail", "contactPhone"],
+    "reviewContactLastChecked": "2026-09-27",
+    "whatToTestMissing": false,
+    "testNotesLocale": "en-US",
+    "testNotesLocalizationId": "cf8e5ae6-bbad-4701-8a60-b07ec0bbc5c5",
+    "testNotesReadback": "artifacts/AppStore-1.0.0-11/test-notes-readback.json",
+    "betaReviewSubmitted": false,
+    "testerInvitationsSentByThisTask": false
+  },
+  "latestUploadVerifiedAt": "2026-09-30T21:38:10.392851+00:00"
 }

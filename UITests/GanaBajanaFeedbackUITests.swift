@@ -148,7 +148,7 @@ final class GanaBajanaFeedbackUITests: XCTestCase {
         let options = ui.app.buttons["track.options.\(AppUIFixture.tumHiHo)"]
         try ui.reveal(options)
         try ui.tap(options)
-        try ui.tap(ui.app.buttons["Add to queue"])
+        try ui.tap(ui.app.buttons["Add to Queue"])
 
         try ui.expectLabel(ui.app.staticTexts["message.text"], "Added to queue")
         XCTAssertEqual(ui.app.staticTexts.matching(identifier: "message.text").count, 1)

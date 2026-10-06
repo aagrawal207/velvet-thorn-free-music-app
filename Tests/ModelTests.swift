@@ -15,6 +15,35 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(track.shareURL?.host, "music.youtube.com")
     }
 
+    func testMusicSourceKeepsBareYouTubeIDsAndPrefixesOtherProviders() throws {
+        XCTAssertEqual(MusicSource.allCases.map(\.idPrefix), ["", "saavn:", "gaana:"])
+        let youTubeID = "fsiPzT50ZiM"
+        XCTAssertEqual(MusicSource.source(of: youTubeID), .youTubeMusic)
+        XCTAssertEqual(MusicSource.providerID(of: youTubeID), youTubeID)
+        XCTAssertEqual(MusicSource.youTubeMusic.trackID(forProviderID: youTubeID), youTubeID)
+        // Only the colon form is a prefix; a bare ID that happens to start with a provider name stays YouTube's.
+        XCTAssertEqual(MusicSource.source(of: "saavn123456"), .youTubeMusic)
+        XCTAssertEqual(MusicSource.providerID(of: "gaana_abcde"), "gaana_abcde")
+        XCTAssertEqual(MusicSource.source(of: ""), .youTubeMusic)
+        XCTAssertEqual(MusicSource.providerID(of: "saavn:"), "")
+        for (source, providerID) in [(MusicSource.jioSaavn, "K1v2Y3wx"), (.gaana, "12345678")] {
+            let trackID = source.trackID(forProviderID: providerID)
+            XCTAssertEqual(trackID, "\(source.rawValue):\(providerID)")
+            XCTAssertEqual(MusicSource.source(of: trackID), source)
+            XCTAssertEqual(MusicSource.providerID(of: trackID), providerID)
+            let track = Track(id: trackID, title: "Song", artists: ["Artist"])
+            XCTAssertEqual(track.source, source)
+            XCTAssertEqual(track.providerID, providerID)
+            XCTAssertEqual(try JSONDecoder().decode(Track.self, from: JSONEncoder().encode(track)).id, trackID)
+        }
+        let youTube = Track(id: youTubeID, title: "Song")
+        XCTAssertEqual(youTube.source, .youTubeMusic)
+        XCTAssertEqual(youTube.providerID, youTubeID)
+        XCTAssertEqual(try JSONDecoder().decode([MusicSource].self, from: Data(#"["gaana","youtube","saavn"]"#.utf8)),
+                       [.gaana, .youTubeMusic, .jioSaavn])
+        XCTAssertThrowsError(try JSONDecoder().decode(MusicSource.self, from: Data("\"spotify\"".utf8)))
+    }
+
     func testLegacyStoredTracksDecodeIntoCreditsAndEncodeCreditsOnly() throws {
         let legacy = Data("""
         {"id":"fsiPzT50ZiM","title":"Tum Hi Ho","artists":["Arijit Singh","Mithoon"],"artistID":"UCDxKh1gFWeYsqePvgVzmPoQ","albumTitle":"Aashiqui 2","language":"hindi"}

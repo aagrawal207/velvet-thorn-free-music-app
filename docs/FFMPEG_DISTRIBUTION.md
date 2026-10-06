@@ -31,8 +31,10 @@ The app loads `FFmpegBridge.framework` dynamically through `@rpath`. Its private
 The verified current archive, identified by `corresponding_source.file` in [BUILD-PROVENANCE.json](../Vendor/FFmpegBridge/BUILD-PROVENANCE.json), is:
 
 ```text
-artifacts/FFmpegBuild/FFmpegBridge-9.0.2-source-933effa8f979bfc29d20e967628542fb5f8897f0c2f747c2733f82648455c68f.tar.xz
+artifacts/FFmpegBuild/FFmpegBridge-9.0.2-source-7611a2169ae337a8acc66375227b23b73636a5c3f85518f74f1902a4a3180ce2.tar.xz
 ```
+
+That archive belongs to the five-slice package built on 3 October 2026 for the Mac app (two Mac Catalyst slices added; the iPhone device binary is byte-identical to the published build, and the simulator binary differs only in its ad hoc signature). Its build script differs from the published 9.0.2-patch2 release, so a Mac distribution needs that archive published first; the publication above still matches the iPhone binary only. The earlier three-slice archive `…933effa8…` remains in `artifacts/FFmpegBuild/`.
 
 `corresponding_source.sha256` matches the digest in that filename. The same provenance records `prepared_source.tree_sha256`, required patches, toolchain/recipe identity, and output hashes. Source repackaging is complete.
 

@@ -541,6 +541,8 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
             }
 
             XCTAssertEqual(model.reloadSavedLibrary(), savesHistory ? .reloaded : .historyBoundary)
+            // The player outlives this test; a later timer checkpoint must not assert against a deleted file.
+            model.player.onSnapshotChanged = persist
             XCTAssertTrue(model.library.hasLoadedDocument)
             XCTAssertFalse(model.library.requiresReload)
             XCTAssertNil(model.library.errorMessage)
@@ -651,17 +653,17 @@ final class AppModelLibraryRecoveryTests: XCTestCase {
         let file = context.directory.appendingPathComponent(LibraryPersistence.fileName)
         let original = try Data(contentsOf: file)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? [String: Any])
-        XCTAssertEqual(object["version"] as? Int, 3)
+        XCTAssertEqual(object["version"] as? Int, LibraryPersistence.currentVersion)
         let journal = try XCTUnwrap(object["syncState"] as? [String: Any])
-        XCTAssertEqual(journal["version"] as? Int, 2)
+        XCTAssertEqual(journal["version"] as? Int, LibrarySyncState.currentVersion)
         let reset = context.library.searchHistoryResetRevision
         var malformed = object
         malformed["recentSearchSelections"] = "not a destination list"
         var futureStore = object
-        futureStore["version"] = 4
+        futureStore["version"] = LibraryPersistence.currentVersion + 1
         var futureJournal = object
         var nextJournal = journal
-        nextJournal["version"] = 3
+        nextJournal["version"] = LibrarySyncState.currentVersion + 1
         futureJournal["syncState"] = nextJournal
 
         for invalid in [malformed, futureStore, futureJournal] {

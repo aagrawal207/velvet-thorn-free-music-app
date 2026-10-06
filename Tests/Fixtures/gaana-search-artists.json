@@ -1,0 +1,63 @@
+{
+ "topFacet": "Mix",
+ "gr": [
+  {
+   "ty": "Artist",
+   "topSc": 631,
+   "va": "1",
+   "stxt": "Artists",
+   "gd": [
+    {
+     "iid": "52767",
+     "id": 52767,
+     "ti": "Arijit Singh",
+     "aw": "https://a10.gaanacdn.com/gn_img/artists/Dk9KNk23Bx/k9KNqJJbBx/size_m_1739172212.jpg",
+     "sti": "Artist",
+     "lang": [
+      "Hindi",
+      "Bengali"
+     ],
+     "seo": "arijit-singh",
+     "ty": "Artist",
+     "language": "Hindi",
+     "pw": 0
+    },
+    {
+     "iid": "8551701",
+     "id": 8551701,
+     "ti": "Arijit Singh RR",
+     "aw": "https://a10.gaanacdn.com/gn_img/artists/R7vKX6WmrP/vKXr7zNxWm/size_m.jpg",
+     "sti": "Artist",
+     "lang": [
+      "Hindi"
+     ],
+     "seo": "arijit-singh-rr",
+     "ty": "Artist",
+     "language": "Hindi",
+     "pw": 0
+    },
+    {
+     "iid": "1337016",
+     "id": 1337016,
+     "ti": "Arjit Pratap Singh",
+     "aw": "https://a10.gaanacdn.com/gn_img/artists/oAJbDlbnL8/AJbDeRQBKn/size_m.jpg",
+     "sti": "Artist",
+     "lang": [
+      "Bhojpuri"
+     ],
+     "seo": "arjit-pratap-singh",
+     "ty": "Artist",
+     "language": "Bhojpuri",
+     "pw": 0
+    }
+   ]
+  }
+ ],
+ "srId": "trimmed",
+ "algo": "NEWSEARCH",
+ "action": 0,
+ "q": "arijit singh",
+ "originalQuery": "arijit singh",
+ "abFlag": 26,
+ "tabs": []
+}

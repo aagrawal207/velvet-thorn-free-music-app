@@ -3,13 +3,22 @@ import UIKit
 
 @MainActor
 final class CarPlayNowPlayingControls: NSObject, CPNowPlayingTemplateObserver {
-    enum Control: Sendable { case shuffle, repeatMode, favorite }
+    enum Control: Sendable { case shuffle, repeatMode, favorite, superLike }
+
+    /// One snapshot-derived button: the symbol, label and selection CarPlay displays for a control.
+    struct ButtonState: Equatable, Sendable {
+        let control: Control
+        let symbol: String
+        let label: String
+        let isSelected: Bool
+    }
 
     private var snapshot: CompanionSnapshot?
     private var generation = UUID()
     private var request: (@MainActor @Sendable (CompanionRequest, CompanionSnapshot) -> Void)?
     private var upNext: (@MainActor @Sendable () -> Void)?
     private(set) var buttons: [CPNowPlayingButton] = []
+    private(set) var buttonStates: [ButtonState] = []
 
     init(request: @escaping @MainActor @Sendable (CompanionRequest, CompanionSnapshot) -> Void,
          upNext: @escaping @MainActor @Sendable () -> Void) {
@@ -30,8 +39,8 @@ final class CarPlayNowPlayingControls: NSObject, CPNowPlayingTemplateObserver {
         let old = previous?.nowPlaying
         let new = snapshot?.nowPlaying
         if previous?.sessionID != snapshot?.sessionID || old?.trackID != new?.trackID
-            || old?.isFavorite != new?.isFavorite || old?.shuffleEnabled != new?.shuffleEnabled
-            || old?.repeatMode != new?.repeatMode {
+            || old?.isFavorite != new?.isFavorite || old?.isSuperLiked != new?.isSuperLiked
+            || old?.shuffleEnabled != new?.shuffleEnabled || old?.repeatMode != new?.repeatMode {
             rebuildButtons()
         }
     }
@@ -42,6 +51,7 @@ final class CarPlayNowPlayingControls: NSObject, CPNowPlayingTemplateObserver {
         switch control {
         case .shuffle: action = .setShuffle(!playing.shuffleEnabled)
         case .favorite: action = .setFavorite(!playing.isFavorite)
+        case .superLike: action = .setSuperLiked(!playing.isSuperLiked)
         case .repeatMode:
             switch playing.repeatMode {
             case .off: action = .setRepeatMode(.all)
@@ -65,31 +75,41 @@ final class CarPlayNowPlayingControls: NSObject, CPNowPlayingTemplateObserver {
         Task { @MainActor [weak self] in self?.upNext?() }
     }
 
+    /// Order is fixed at shuffle, repeat, favorite, super like; CarPlay allows five extra buttons.
+    static func buttonStates(for playing: CompanionNowPlaying?) -> [ButtonState] {
+        let mode = playing?.repeatMode ?? .off
+        let favorite = playing?.isFavorite == true
+        let superLiked = playing?.isSuperLiked == true
+        return [
+            ButtonState(control: .shuffle, symbol: "shuffle", label: "Shuffle", isSelected: playing?.shuffleEnabled == true),
+            ButtonState(control: .repeatMode, symbol: mode == .one ? "repeat.1" : "repeat",
+                        label: mode == .one ? "Repeat one" : (mode == .all ? "Repeat all" : "Repeat off"), isSelected: mode != .off),
+            ButtonState(control: .favorite, symbol: superLiked ? "bolt.heart.fill" : (favorite ? "heart.fill" : "heart"),
+                        label: favorite ? "Remove favorite" : "Favorite", isSelected: favorite),
+            ButtonState(control: .superLike, symbol: superLiked ? "bolt.heart.fill" : "bolt.heart",
+                        label: superLiked ? "Change to favorite" : "Super like", isSelected: superLiked),
+        ]
+    }
+
     private func rebuildButtons() {
         generation = UUID()
-        let playing = snapshot?.nowPlaying
-        let mode = playing?.repeatMode ?? .off
-        buttons = [
-            button(.shuffle, symbol: "shuffle", label: "Shuffle", selected: playing?.shuffleEnabled == true),
-            button(.repeatMode, symbol: mode == .one ? "repeat.1" : "repeat",
-                   label: mode == .one ? "Repeat one" : (mode == .all ? "Repeat all" : "Repeat off"), selected: mode != .off),
-            button(.favorite, symbol: playing?.isFavorite == true ? "heart.fill" : "heart",
-                   label: playing?.isFavorite == true ? "Remove favorite" : "Favorite", selected: playing?.isFavorite == true)
-        ]
+        buttonStates = Self.buttonStates(for: snapshot?.nowPlaying)
+        buttons = buttonStates.map { button($0) }
         CPNowPlayingTemplate.shared.updateNowPlayingButtons(buttons)
     }
 
-    private func button(_ control: Control, symbol: String, label: String, selected: Bool) -> CPNowPlayingImageButton {
+    private func button(_ state: ButtonState) -> CPNowPlayingImageButton {
         let token = generation
-        let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 24)) ?? UIImage()
+        let control = state.control
+        let image = UIImage(systemName: state.symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 24)) ?? UIImage()
         let button = CPNowPlayingImageButton(image: image.withRenderingMode(.alwaysTemplate)) { @Sendable [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.generation == token else { return }
                 self.activate(control)
             }
         }
-        button.accessibilityLabel = label
-        button.isSelected = selected
+        button.accessibilityLabel = state.label
+        button.isSelected = state.isSelected
         button.isEnabled = snapshot?.nowPlaying != nil && request != nil
         return button
     }

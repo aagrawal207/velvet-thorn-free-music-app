@@ -5,6 +5,13 @@ actor YouTubeDataAPI {
     struct Metadata: Equatable, Sendable {
         let duration: TimeInterval?
         let language: ArtistSongLanguageResult?
+        /// Upload-level snippet/statistics fields read for Song details; they never replace catalog credits.
+        var description: String? = nil
+        var channelTitle: String? = nil
+        var publishedAt: Date? = nil
+        var viewCount: Int64? = nil
+        /// Retains unsupported recording languages and script subtags for lyric display choices.
+        var audioLanguageCode: String? = nil
     }
 
     struct Configuration: Sendable {
@@ -97,6 +104,15 @@ actor YouTubeDataAPI {
         return try await metadata(for: track.id)?.language
     }
 
+    func lyricLanguageCode(for track: Track) async throws -> String? {
+        try Task.checkCancellation()
+        guard track.source == .youTubeMusic, track.isAudioRecording != false,
+              CatalogText.videoID(track.id) != nil else { return nil }
+        let code = try await metadata(for: track.id)?.audioLanguageCode
+        try Task.checkCancellation()
+        return code
+    }
+
     func prepareForLookup(_ original: Track) async throws -> Track {
         try Task.checkCancellation()
         guard LyricsMatcher.validDuration(original.duration) == nil else {
@@ -118,7 +134,8 @@ actor YouTubeDataAPI {
         return track
     }
 
-    func metadata(for videoID: String) async throws -> Metadata? {
+    /// `refresh` skips the cache read for one lookup and spends one quota unit; the result is cached as usual.
+    func metadata(for videoID: String, refresh: Bool = false) async throws -> Metadata? {
         try Task.checkCancellation()
         guard Self.validKey(apiKey), !bundleIdentifier.isEmpty else { throw RequestError.notConfigured }
         guard CatalogText.videoID(videoID) != nil else { throw RequestError.invalidResponse }
@@ -127,7 +144,7 @@ actor YouTubeDataAPI {
         let date = now()
         cache = cache.filter { $0.value.fetchedAt <= date && $0.value.expiresAt > date }
         access &+= 1
-        if var entry = cache[videoID] {
+        if !refresh, var entry = cache[videoID] {
             entry.access = access
             cache[videoID] = entry
             Self.logger.debug("dataAPICacheHit=1 dataAPICacheMiss=0 dataAPICoalesced=0")
@@ -178,12 +195,16 @@ actor YouTubeDataAPI {
         return result
     }
 
+    /// One `videos.list` call costs one quota unit whatever the parts, so Song details ride on the same request.
+    static let requestedParts = "snippet,contentDetails,statistics"
+    static let requestedFields = "items(id,snippet(defaultAudioLanguage,description,channelTitle,publishedAt),contentDetails(duration),statistics(viewCount))"
+
     private func fetch(_ videoID: String) async throws -> Metadata? {
         let started = now()
         do {
             let url = URL(string: "https://www.googleapis.com/youtube/v3/videos")!.appending(queryItems: [
-                .init(name: "part", value: "snippet,contentDetails"), .init(name: "id", value: videoID),
-                .init(name: "fields", value: "items(id,snippet(defaultAudioLanguage),contentDetails(duration))"),
+                .init(name: "part", value: Self.requestedParts), .init(name: "id", value: videoID),
+                .init(name: "fields", value: Self.requestedFields),
                 .init(name: "prettyPrint", value: "false"),
             ])
             var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 2)
@@ -244,7 +265,26 @@ actor YouTubeDataAPI {
         guard item["id"].string == videoID else { throw RequestError.invalidResponse }
         let duration = item["contentDetails"]["duration"].string.flatMap(CatalogText.iso8601Duration)
         let language = ArtistSongLanguageResult.youTubeAudioLanguage(item["snippet"]["defaultAudioLanguage"].string)
-        return Metadata(duration: duration, language: language)
+        let snippet = item["snippet"]
+        return Metadata(duration: duration, language: language,
+                        description: TrackDetails.trimmedDescription(snippet["description"].string),
+                        channelTitle: CatalogText.clean(snippet["channelTitle"].string).map { String($0.prefix(200)) },
+                        publishedAt: TrackDetails.date(from: snippet["publishedAt"].string),
+                        viewCount: item["statistics"]["viewCount"].int64.flatMap { $0 >= 0 ? $0 : nil },
+                        audioLanguageCode: normalizedAudioLanguageCode(snippet["defaultAudioLanguage"].string))
+    }
+
+    private static func normalizedAudioLanguageCode(_ value: String?) -> String? {
+        guard let value, value.utf8.count <= 64,
+              ArtistSongLanguageResult.youTubeAudioLanguage(value) != nil else { return nil }
+        let parts = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().split(separator: "-")
+        return parts.enumerated().map { index, part in
+            let text = String(part)
+            guard index > 0, part.utf8.allSatisfy({ (97...122).contains($0) }) else { return text }
+            if part.count == 4 { return String(part.prefix(1)).uppercased() + String(part.dropFirst()) }
+            if part.count == 2 { return text.uppercased() }
+            return text
+        }.joined(separator: "-")
     }
 
     static func nextQuotaReset(after date: Date) -> Date {

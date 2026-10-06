@@ -23,6 +23,21 @@ enum LibrarySyncTestData {
     static func rendered(_ state: LibrarySyncState, now: Date = LibrarySyncTestData.now) throws -> LibraryDocument {
         try LibrarySyncProjection.materialize(state, onto: LibraryDocument(), now: now)
     }
+
+    /// Bytes as an older app wrote them: never `superLikedIDs` (v5), and below v4 no `lifetimeListening` or receipts.
+    static func legacyDocumentBytes(_ document: LibraryDocument) throws -> Data {
+        precondition((1..<LibraryPersistence.currentVersion).contains(document.version))
+        var legacy = document
+        if var state = legacy.syncState {
+            state.version = min(state.version, document.version < 4 ? 2 : 3)
+            if document.version < 4 { state.registers = state.registers.filter { $0.key.collection != .lifetimeSession } }
+            legacy.syncState = state
+        }
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: LibraryPersistence.encode(legacy)) as? [String: Any])
+        if document.version < 4 { object.removeValue(forKey: "lifetimeListening") }
+        object.removeValue(forKey: "superLikedIDs")
+        return try JSONSerialization.data(withJSONObject: object, options: .sortedKeys)
+    }
 }
 
 @MainActor
@@ -71,6 +86,8 @@ final class LibrarySyncTestTransport: LibrarySyncTransport {
     var publishError: (any Error)?
     var beforeReadReturns: (@MainActor () async -> Void)?
     var beforePublication: (@MainActor () async -> Void)?
+    var beforeAccountReturns: (@MainActor (Int) async -> Void)?
+    private(set) var accountChecks = 0
     private(set) var reads = 0
     private(set) var publicationAttempts = 0
     private(set) var writes: [(String, UUID, Data)] = []
@@ -80,7 +97,11 @@ final class LibrarySyncTestTransport: LibrarySyncTransport {
     private var changed: (@MainActor @Sendable (LibrarySyncTransportEvent) -> Void)?
 
     init(cloud: LibrarySyncTestCloud) { self.cloud = cloud }
-    func accountIdentifier() async throws -> String? { account }
+    func accountIdentifier() async throws -> String? {
+        accountChecks += 1
+        await beforeAccountReturns?(accountChecks)
+        return account
+    }
     func accountsMatch(_ lhs: String, _ rhs: String) throws -> Bool {
         (accountAliases[lhs] ?? lhs) == (accountAliases[rhs] ?? rhs)
     }
@@ -129,14 +150,16 @@ final class LibrarySyncTestDevice {
     let sync: ICloudLibrarySync
 
     init(id: UUID, directory: URL, cloud: LibrarySyncTestCloud, clock: RecommendationTestClock,
-         debounce: Duration = .milliseconds(10), timeout: Duration = .seconds(10)) {
+         debounce: Duration = .milliseconds(10), timeout: Duration = .seconds(10),
+         retryDelays: [Duration] = [.seconds(5), .seconds(30)]) {
         self.id = id
         self.directory = directory
         library = LibraryStore(directory: directory, now: { clock.now }, writerID: id)
         transport = LibrarySyncTestTransport(cloud: cloud)
         configuration = LibrarySyncTestConfiguration(replicaID: id)
         sync = ICloudLibrarySync(library: library, transport: transport, configuration: configuration,
-                                now: { clock.now }, debounce: debounce, operationTimeout: timeout)
+                                now: { clock.now }, debounce: debounce, operationTimeout: timeout, retryDelays: retryDelays,
+                                uptime: { clock.now.timeIntervalSince1970 })
     }
 
     var fileURL: URL { directory.appendingPathComponent(LibraryPersistence.fileName) }
@@ -151,9 +174,9 @@ final class LibrarySyncTestHarness {
     let clock = RecommendationTestClock(LibrarySyncTestData.now)
 
     func device(_ id: UUID = LibrarySyncTestData.a, debounce: Duration = .milliseconds(10),
-                timeout: Duration = .seconds(10)) -> LibrarySyncTestDevice {
+                timeout: Duration = .seconds(10), retryDelays: [Duration] = [.seconds(5), .seconds(30)]) -> LibrarySyncTestDevice {
         LibrarySyncTestDevice(id: id, directory: root.appendingPathComponent(id.uuidString, isDirectory: true),
-                             cloud: cloud, clock: clock, debounce: debounce, timeout: timeout)
+                             cloud: cloud, clock: clock, debounce: debounce, timeout: timeout, retryDelays: retryDelays)
     }
     func remove() { try? FileManager.default.removeItem(at: root) }
 }

@@ -642,3 +642,27 @@ enum ExperienceRadioError: LocalizedError, Equatable, Sendable {
         }
     }
 }
+
+// MARK: - Station ordering
+
+extension ExperienceRadioEngine {
+    /// Within each group, stations whose families the listener actually plays move to the front in descending
+    /// affinity; every other station keeps its curated order behind them. Station content is unchanged.
+    static func orderedStations(_ stations: [RadioExperience], genreProfile: ListeningGenreProfile?) -> [RadioExperience] {
+        guard let genreProfile, genreProfile.isLearned else { return stations }
+        var result: [RadioExperience] = []
+        for group in RadioExperience.Group.allCases {
+            let members = stations.enumerated().filter { $0.element.group == group }
+            let affinities = members.map { genreProfile.affinity(for: $0.element.genreFamilies) }
+            let lifted = zip(members, affinities).filter { $0.1 > 0 }.sorted {
+                if $0.1 != $1.1 { return $0.1 > $1.1 }
+                return $0.0.offset < $1.0.offset
+            }.map(\.0.element)
+            let rest = zip(members, affinities).filter { $0.1 <= 0 }.map(\.0.element)
+            result += lifted + rest
+        }
+        // Stations outside the known groups, if any ever exist, keep their place at the end.
+        result += stations.filter { station in !result.contains { $0.id == station.id } }
+        return result
+    }
+}

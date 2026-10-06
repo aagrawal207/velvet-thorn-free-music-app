@@ -14,14 +14,14 @@ struct TipJarView: View {
                         .appFont(.title3)
                         .foregroundStyle(AppTheme.accent)
                         .accessibilityHidden(true)
-                    Text("An optional tip helps me keep improving Breezy. Tips are one-time purchases through Apple and unlock no features or music.")
+                    Text("An optional tip helps me keep improving Velvet Thorn. Tips are one-time purchases through Apple and unlock no features or music.")
                         .appFont(.subheadline)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("tipJar.explanation")
                 }
                 .padding(.vertical, 4)
             }
-            .listRowBackground(AppTheme.surface)
+            .settingsSectionRows()
 
             Section {
                 if tips.isLoading {
@@ -35,7 +35,6 @@ struct TipJarView: View {
                 }
                 ForEach(tips.products, id: \.id) { product in
                     tipRow(product)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                 }
                 if let error = tips.loadError {
                     VStack(alignment: .leading, spacing: 4) {
@@ -47,7 +46,7 @@ struct TipJarView: View {
                         Button {
                             Task { await tips.loadProducts() }
                         } label: {
-                            Text("Try again")
+                            Text("Try Again")
                                 .appFont(.subheadline, weight: .medium)
                                 .foregroundStyle(AppTheme.accent)
                                 .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
@@ -67,15 +66,13 @@ struct TipJarView: View {
                         .accessibilityValue(String(tips.tipCount))
                 }
             }
-            .listRowBackground(AppTheme.surface)
+            .settingsSectionRows()
         }
         .listStyle(.insetGrouped)
+        .settingsFormChrome()
+        // Tip rows keep their 52-point comfort height; the list minimum enforces it exactly.
         .environment(\.defaultMinListRowHeight, 52)
-        .tint(AppTheme.accent)
-        .foregroundStyle(AppTheme.primaryText)
-        .scrollContentBackground(.hidden)
-        .background(AppTheme.background)
-        .navigationTitle("Support development")
+        .navigationTitle("Support Development")
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("tipJar.view")
         .task { await tips.loadProducts() }
@@ -102,7 +99,7 @@ struct TipJarView: View {
                 .foregroundStyle(AppTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Button { tips.dismissMessage() } label: {
-                Text("Got it")
+                Text("Got It")
                     .appFont(.subheadline, weight: .medium)
                     .foregroundStyle(AppTheme.accent)
                     .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
@@ -123,7 +120,7 @@ struct TipJarView: View {
     private var purchaseMessage: (title: String, body: String)? {
         switch tips.state {
         case .thanked:
-            return ("Thank you", "Your tip helps me keep improving Breezy.")
+            return ("Thank you", "Your tip helps me keep improving Velvet Thorn.")
         case .failed(let message):
             return ("Couldn't confirm tip", message)
         case .idle, .purchasing, .pending:

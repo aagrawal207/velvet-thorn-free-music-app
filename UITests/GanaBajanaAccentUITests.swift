@@ -52,14 +52,15 @@ final class GanaBajanaAccentUITests: XCTestCase {
         try ui.reveal(ui.element("settings.appIcon"))
         XCTAssertEqual(ui.accessibleText(ui.element("settings.appIcon")), appIcon)
 
+        try ui.openSettingsPage(.about)
         let support = ui.app.buttons["settings.tipJar"]
         try ui.reveal(support, maxSwipes: 24)
         try ui.tap(support)
         try ui.wait("Support development must open in the Settings navigation stack") {
-            ui.app.navigationBars["Support development"].exists
+            ui.app.navigationBars["Support Development"].exists
         }
         ui.capture("accent-mint-support-light-iphone17pro")
-        try ui.tap(ui.app.navigationBars["Support development"].buttons["Settings"])
+        try ui.tap(ui.app.navigationBars["Support Development"].buttons.firstMatch)
         try ui.tap(ui.app.buttons["settings.done"])
         try ui.playSeededPlaylist()
         try ui.openPlayer()
@@ -83,20 +84,22 @@ final class GanaBajanaAccentUITests: XCTestCase {
     }
 
     private func openAccentPicker(_ ui: AppUITestDriver, expectedColor: String) throws {
+        try ui.openSettingsPage(.appearance)
         let link = ui.app.buttons["settings.accent"]
         try ui.reveal(link, maxSwipes: 24)
-        XCTAssertEqual(link.label, "Accent color")
+        XCTAssertEqual(link.label, "Accent Color")
         XCTAssertGreaterThanOrEqual(link.frame.width, 52)
-        XCTAssertGreaterThanOrEqual(link.frame.height, 52)
+        // Settings rows share one 44-point shape; the accent row is no taller than its neighbours.
+        XCTAssertGreaterThanOrEqual(link.frame.height + 1e-6, 44)
         try ui.expectValue(link, expectedColor)
         try ui.tap(link)
-        try ui.wait("Settings must push its Accent color picker") { ui.app.navigationBars["Accent color"].exists }
+        try ui.wait("Settings must push its Accent color picker") { ui.app.navigationBars["Accent Color"].exists }
     }
 
     private func returnToSettings(_ ui: AppUITestDriver, expectedColor: String) throws {
-        try ui.tap(ui.app.navigationBars["Accent color"].buttons["Settings"])
-        try ui.wait("Back must return to Settings") {
-            ui.app.navigationBars["Settings"].exists && !ui.app.navigationBars["Accent color"].exists
+        try ui.tap(ui.app.navigationBars["Accent Color"].buttons.firstMatch)
+        try ui.wait("Back must return to the Appearance page") {
+            ui.app.navigationBars[SettingsPageID.appearance.title].exists && !ui.app.navigationBars["Accent Color"].exists
         }
         let link = ui.app.buttons["settings.accent"]
         try ui.reveal(link, maxSwipes: 24)
@@ -132,7 +135,7 @@ final class GanaBajanaAccentUITests: XCTestCase {
         try ui.requireHittable(button)
         XCTAssertTrue(button.isEnabled)
         XCTAssertGreaterThanOrEqual(button.frame.width, 52)
-        XCTAssertGreaterThanOrEqual(button.frame.height, 52)
+        XCTAssertGreaterThanOrEqual(button.frame.height + 1e-6, 44)
         return (state, button)
     }
 

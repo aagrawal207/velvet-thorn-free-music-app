@@ -151,12 +151,12 @@ struct CarPlayListTemplates {
 
     private func emptyMessage(for location: String) -> (title: String, subtitle: String) {
         switch location {
-        case "favorites": ("No favorites yet", "Favorite songs in Breezy to find them here.")
+        case "favorites": ("No favorites yet", "Favorite songs in Velvet Thorn to find them here.")
         case "recent": ("Nothing played yet", "Songs you listen to will appear here when listening history is on.")
-        case "playlists": ("No playlists yet", "Create a playlist in Breezy to find it here.")
+        case "playlists": ("No playlists yet", "Create a playlist in Velvet Thorn to find it here.")
         case "queue": ("Your queue is empty", "Choose a song from Favorites, Recently played, or Playlists.")
-        case "root": ("Your library is empty", "Save some music in Breezy, then choose Reload.")
-        default: ("No songs yet", "Add songs to this playlist in Breezy, then choose Reload.")
+        case "root": ("Your library is empty", "Save some music in Velvet Thorn, then choose Reload.")
+        default: ("No songs yet", "Add songs to this playlist in Velvet Thorn, then choose Reload.")
         }
     }
 }

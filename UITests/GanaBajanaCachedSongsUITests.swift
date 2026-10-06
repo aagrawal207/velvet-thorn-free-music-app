@@ -130,9 +130,15 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
         try closeSettings(ui)
         try assertNoNetwork(ui)
 
-        try ui.tap(ui.app.buttons["tab.library"].firstMatch)
-        try ui.reveal(ui.app.buttons["library.recents.all"])
-        try ui.tap(ui.app.buttons["library.recents.all"])
+        try ui.selectTab("recap")
+        let recentToggle = ui.app.buttons["recap.recent.toggle"]
+        try ui.reveal(recentToggle, maxSwipes: 24)
+        try ui.expectValue(recentToggle, "Collapsed")
+        XCTAssertFalse(ui.app.buttons["recap.recent.all"].exists)
+        try ui.tap(recentToggle)
+        try ui.expectValue(recentToggle, "Expanded")
+        try ui.reveal(ui.app.buttons["recap.recent.all"])
+        try ui.tap(ui.app.buttons["recap.recent.all"])
         try ui.expectLabel(ui.app.staticTexts["library.recents.count"], "5 songs")
         XCTAssertFalse(ui.element("library.recent.\(Fixture.unknownID)").exists)
 
@@ -141,7 +147,7 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
         try ui.tap(unknown)
         try closeSettings(ui)
         try assertPlaybackQueue(Fixture.playableIDs, current: Fixture.unknownID, shuffled: false, ui: ui)
-        try ui.tap(ui.app.buttons["tab.library"].firstMatch)
+        try ui.selectTab("recap")
         try ui.reveal(ui.element("library.recent.\(Fixture.unknownID)"), direction: .down)
         XCTAssertTrue(ui.app.buttons["track.play.\(Fixture.unknownID)"].label.contains("Cached song"))
         try ui.expectLabel(ui.app.staticTexts["library.recents.count"], "6 songs")
@@ -164,7 +170,7 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
         XCTAssertFalse(ui.app.alerts.firstMatch.exists)
         try cancelSearch(ui)
         try expectCount("4 songs · 3 available locally", ui: ui)
-        try back(from: "Cached songs", to: "Storage", ui: ui)
+        try back(from: "Cached Songs", to: "Storage", ui: ui)
         try ui.reveal(ui.element("storage.library.likes"), maxSwipes: 16)
         XCTAssertTrue(ui.accessibleText(ui.element("storage.library.likes")).contains("5"))
         XCTAssertTrue(ui.accessibleText(ui.element("storage.library.playlists")).contains("1"))
@@ -256,7 +262,7 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
         try expectCount("0 songs · 0 available locally", ui: ui)
         try ui.reveal(ui.element("cachedSongs.empty"))
         XCTAssertTrue(ui.element("cachedSongs.offline").exists)
-        XCTAssertTrue(ui.app.staticTexts["No cached songs yet"].exists)
+        XCTAssertTrue(ui.app.staticTexts["No Cached Songs Yet"].exists)
         XCTAssertFalse(ui.element("cachedSongs.unsupported").exists)
         XCTAssertFalse(ui.app.buttons["cachedSongs.play"].isEnabled)
         XCTAssertFalse(ui.app.buttons["cachedSongs.shuffle"].isEnabled)
@@ -388,7 +394,7 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
         try ui.tap(result)
 
         try openStorage(ui)
-        try ui.expectMetric("storage.searches.count", number: 1, description: "Recently opened")
+        try ui.expectMetric("storage.searches.count", number: 1, description: "Recently Opened")
         XCTAssertFalse(ui.element("storage.searches.legacyCount").exists)
         let clear = ui.app.buttons["storage.clear.searches"]
         try ui.reveal(clear)
@@ -397,11 +403,11 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
         try ui.tap(clear)
         XCTAssertTrue(ui.app.alerts.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Recently opened")).firstMatch.exists)
         try ui.tap(ui.app.alerts.buttons["Cancel"])
-        try ui.expectMetric("storage.searches.count", number: 1, description: "Recently opened")
+        try ui.expectMetric("storage.searches.count", number: 1, description: "Recently Opened")
         try ui.reveal(clear)
         try ui.tap(clear)
         try ui.tap(ui.app.alerts.buttons["Clear"])
-        try ui.expectMetric("storage.searches.count", number: 0, description: "Recently opened")
+        try ui.expectMetric("storage.searches.count", number: 0, description: "Recently Opened")
         try ui.reveal(clear)
         try ui.wait("A successful typed-history clear must show its result and disable Clear") {
             ui.element("storage.result.searches").exists && !clear.isEnabled
@@ -420,7 +426,7 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
 
         try launch(ui, reset: false)
         try openStorage(ui)
-        try ui.expectMetric("storage.searches.count", number: 0, description: "Recently opened")
+        try ui.expectMetric("storage.searches.count", number: 0, description: "Recently Opened")
         try ui.reveal(clear)
         XCTAssertFalse(clear.isEnabled)
         XCTAssertFalse(ui.element("storage.searches.legacyCount").exists)
@@ -441,8 +447,7 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
             + ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         ui.app.launchEnvironment = ["GANABAJANA_TEST_STORE": ui.storeName]
         ui.app.launch()
-        // Native iPad top tabs are plain buttons; the shared driver's launch waits for a phone tab bar.
-        try ui.requireHittable(ui.app.buttons["tab.home"].firstMatch, timeout: 25)
+        try ui.requireHittable(ui.tabButton("home", timeout: 25))
     }
 
     private func openStorage(_ ui: AppUITestDriver) throws {
@@ -451,6 +456,7 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
         try ui.reveal(ui.app.buttons["home.settings"], direction: .down, maxSwipes: 16)
         try ui.tap(ui.app.buttons["home.settings"])
         try ui.requireHittable(ui.app.buttons["settings.done"])
+        try ui.openSettingsPage(.library)
         let storage = ui.app.buttons["settings.storage"]
         try ui.reveal(storage, maxSwipes: 16)
         try ui.tap(storage)
@@ -462,17 +468,17 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
         let link = ui.app.buttons["storage.cachedSongs"]
         try ui.reveal(link, maxSwipes: 16)
         try ui.tap(link)
-        try ui.wait("Storage must open the cached-song browser") { ui.app.navigationBars["Cached songs"].exists }
+        try ui.wait("Storage must open the cached-song browser") { ui.app.navigationBars["Cached Songs"].exists }
     }
 
     private func closeSettings(_ ui: AppUITestDriver) throws {
-        if ui.app.navigationBars["Cached songs"].exists {
+        if ui.app.navigationBars["Cached Songs"].exists {
             try cancelSearch(ui)
-            try back(from: "Cached songs", to: "Storage", ui: ui)
+            try back(from: "Cached Songs", to: "Storage", ui: ui)
         }
-        try back(from: "Storage", to: "Settings", ui: ui)
+        try back(from: "Storage", to: SettingsPageID.library.title, ui: ui)
         try ui.tap(ui.app.buttons["settings.done"])
-        try ui.wait("Closing Storage must return to the app") { !ui.app.navigationBars["Settings"].exists }
+        try ui.wait("Closing Storage must return to the app") { !ui.app.navigationBars[SettingsPageID.library.title].exists }
     }
 
     private func back(from title: String, to parent: String, ui: AppUITestDriver) throws {
@@ -504,7 +510,7 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
     private func cancelSearch(_ ui: AppUITestDriver) throws {
         let field = ui.app.searchFields.firstMatch
         guard field.exists else { return }
-        let cancel = ui.app.navigationBars["Cached songs"].buttons.matching(NSPredicate(
+        let cancel = ui.app.navigationBars["Cached Songs"].buttons.matching(NSPredicate(
             format: "label IN %@", ["Cancel", "Close", "Close Search", "Close search"]
         )).firstMatch
         let query = field.value as? String ?? ""
@@ -522,7 +528,7 @@ final class GanaBajanaCachedSongsUITests: XCTestCase {
 
     private func assertCachedSearchDismissed(_ ui: AppUITestDriver) throws {
         try ui.wait("Playback or native search dismissal must hide the keyboard and restore navigation") {
-            let bar = ui.app.navigationBars["Cached songs"]
+            let bar = ui.app.navigationBars["Cached Songs"]
             let back = bar.buttons["Storage"].exists ? bar.buttons["Storage"] : bar.buttons["Back"]
             return !ui.app.keyboards.firstMatch.exists && back.exists && back.isHittable
         }

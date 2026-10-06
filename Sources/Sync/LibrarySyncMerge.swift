@@ -8,6 +8,10 @@ enum LibrarySyncMerge {
         guard lhs.version == LibrarySyncState.currentVersion, rhs.version == LibrarySyncState.currentVersion else {
             throw LibrarySyncError.unsupportedVersion
         }
+        var lhs = lhs
+        var rhs = rhs
+        try LibraryLifetimeSync.migrateLegacy(&lhs)
+        try LibraryLifetimeSync.migrateLegacy(&rhs)
         var result = lhs
         result.clock = latest(lhs.clock, rhs.clock)
         result.historyReset = latest(lhs.historyReset, rhs.historyReset)
@@ -124,6 +128,10 @@ enum LibrarySyncMerge {
         var winner = try preferred(lhs, rhs, collection: key.collection)
         if let left = lhs.value, let right = rhs.value {
             switch key.collection {
+            case .lifetimeSession:
+                let a = try LibrarySyncCodec.decode(LifetimeListeningContribution.self, from: left)
+                let b = try LibrarySyncCodec.decode(LifetimeListeningContribution.self, from: right)
+                winner.value = try LibrarySyncCodec.encode(a.joined(b))
             case .event:
                 var event = try LibrarySyncCodec.decode(ListeningEvent.self, from: winner.value!)
                 event.listenedSeconds = max(try LibrarySyncCodec.decode(ListeningEvent.self, from: left).listenedSeconds,
