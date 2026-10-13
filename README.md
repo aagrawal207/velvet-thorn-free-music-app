@@ -1,139 +1,126 @@
 # Velvet Thorn
 
-**Velvet Thorn** is a native iPhone and iPad music app for iOS 18+, built with Swift 6, SwiftUI, and AVPlayer. It also runs on Apple silicon Macs as an iPad app (Designed for iPad). It has audio-only playback, personal mixes, radio, and recording-matched lyrics. A native watchOS 11+ companion and CarPlay audio interface control the same player from the paired iPhone. Native Liquid Glass is used on iOS 26+ with older-system fallbacks.
+**A free, open-source music app for iPhone, iPad, Mac and Apple Watch.** You can use it instead of paid streaming apps like Spotify: no subscription, no ads, no account needed. You build it yourself and install it with Xcode.
 
-**Velvet Thorn 1.0.0 (11) was uploaded on 30 September 2026** and is ready for internal TestFlight testing in the existing Friends group. Apple processing is VALID and build-specific What to Test notes are saved. The public iOS draft still has build 6 attached. [TestFlight preparation](docs/APPSTORE_TESTFLIGHT.md) owns current remote facts and remaining external-testing gates. Public App Store submission is not authorized. The implementation uses unofficial YouTube extraction and complete-song caching, plus the unofficial JioSaavn and Gaana catalogs. Provider/content authorization remains unresolved; upload success does not establish rights. [ROADMAP.md](docs/ROADMAP.md) owns decisions and backlog; [provider limitations](docs/PROVIDERS.md#distribution-and-content-rights) records that scope.
+Velvet Thorn is a native Swift 6 / SwiftUI app for iOS 18 and later. It plays audio from YouTube Music, JioSaavn and Gaana, learns what you like on your device, and keeps your library in iCloud if you want it to.
 
-## Identity
+> Velvet Thorn has no connection to Spotify, YouTube, Google, JioSaavn or Gaana, and none of them endorse it. See [Important notes](#important-notes) before using it.
 
-| Use | Value |
-| --- | --- |
-| Selected App Store name | `Breezy - Stream Music & Chill` (29 characters), App Store Connect app `6815025307` |
-| Home Screen name | `Velvet Thorn` (owner's choice, 2 October 2026; the App Store Connect record keeps its name until a rename is authorized) |
-| Bundle identifier | `com.agraabhi.ganabajana` |
-| Project, module, scheme, and repository folder | `GanaBajana` |
-| Saved library | `Application Support/GanaBajana/library.json` |
-| Source repository | [aagrawal207/Breezy](https://github.com/aagrawal207/Breezy), private by the owner's choice |
+## Features
 
-Build 5's R6–R9 delivery remains preserved as historical evidence. Checkpoint `6c34c9e` holds R3–R11; build 6 fingerprints the subsequent uncommitted source through R16. [Verification](docs/VERIFICATION.md) preserves the targeted checks, rerun boundaries and signed delivery evidence.
+- **Search and play** songs, albums, artists and playlists from YouTube Music, JioSaavn and Gaana, with source badges and one shared player.
+- **Personal mixes on your device:** Daily Mixes, Discover Weekly, Moment Mixes and a Home screen you can rearrange.
+- **Song and artist Radio** that stays close to the song or artist you started from, plus **Live Radio** stations from Radio Browser.
+- **Likes and Super Likes:** hold the heart to super like a song. Super liked songs count more in your mixes.
+- **Downloads** for offline listening, an audio cache, and **Export Audio** to tagged M4A files.
+- **Synced lyrics** from LRCLIB and JioSaavn, which can also show on a TV over AirPlay.
+- **Stats:** top songs, artists, genres and languages for the week, month, year and all time, with shareable cards.
+- **Sound:** a 10-band equalizer, volume normalization, crossfade, Automix, gapless playback and a sleep timer.
+- **Optional extras:** skip sponsor segments and intros with SponsorBlock, import your YouTube Music library, and connect a YouTube account for higher-quality audio. All of these are off until you turn them on.
+- **Everywhere:** Home Screen widgets, an Apple Watch remote, Handoff and nearby-device playback between your own devices, a Mac app (Mac Catalyst) and CarPlay (needs Apple approval, see below).
+- **Make it yours:** 20 app icons, seven accent colors, and dark, light or system appearance.
 
-Source is **1.0.0 (11)**, the uncommitted working tree delivered to TestFlight: song/artist Radio, Listen Again, session tuning and the notification-routing fix, following R20's Super Like follow-ups and reliability fixes. Targeted unit, phone/SE/iPad UI and signed release checks are recorded in [Verification](docs/VERIFICATION.md). No Git commit or push was performed. Build-11 and earlier inputs/receipts remain frozen. [Roadmap](docs/ROADMAP.md) owns the durable task list and remaining device acceptance.
+Nothing you do leaves your device unless a feature needs it. There is no Velvet Thorn server. See [PRIVACY.md](PRIVACY.md).
 
-**Build 11 is `VALID` and App Store eligible; build 6 remains attached to the public draft.** Build 11's signed archive/export and Apple validation passed; remote size/checksum match the local IPA. Store screenshots, public pages and review notes retain earlier provenance and need review before submission. [ASC state](docs/app-store/ASC_STATE.json) and [release status](docs/app-store/RELEASE_STATUS.md) own exact IDs and receipts. Review declarations, external-beta setup and recipient FFmpeg delivery remain separate from the completed upload.
+## Install on your iPhone with Xcode
 
-**Historical R5 verification:** 1,285 phone unit passes with 35 live skips, excluding native StoreKit; all 19 targeted non-skipped iPhone UI workflows have passing coverage across runs, plus two iPad checks. Its signed Release build, including Watch and iCloud entitlements, passed deep signature verification. Native two-device iCloud delivery, an AirPlay receiver and sandbox transactions remain unverified. These results and older build-2 artifacts do not verify R6.
+### What you need
 
-## Current features
+- A Mac with **Xcode 27** or later. The app runs on iOS 18 and later.
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen), which creates the Xcode project: `brew install xcodegen`.
+- An **Apple ID**. A free account works. A paid Apple Developer account ($99 a year) adds iCloud sync and avoids the 7-day expiry.
+- An iPhone or iPad with **Developer Mode** turned on (Settings > Privacy & Security > Developer Mode).
 
-R19 adds **Super Likes**: hold the heart (or choose Super Like from a song's menu, More or a Liked Songs swipe) to mark the few songs you love above your likes. Super liked songs weigh three times a like in your taste profile, take one reserved seed for Discover Weekly and Daily Mixes and one reserved pick in each Daily Mix, and have their own filter in Liked Songs and Downloads. Download Liked Songs now offers Off, Super Liked Only or All Liked. A one-time hint teaches the hold after your first like. Your super likes also get a Home shelf, a Storage count, a small bolt badge in song rows, and the same heart on the Watch (hold to super like) and in CarPlay. Discover Weekly and the Daily Mixes regenerate overnight when iOS allows, so a new week is ready before Home opens. Play/pause morphs and pulses while loading, the heart bounces and bursts, and the current-song badge animates while playing; Reduce Motion keeps the state changes without the motion. [Contract](docs/SUPER_LIKES.md).
+### Steps
 
-R18 adds Live Radio, gain-up normalization, explicit YouTube account changes, manual extractor compatibility updates and playback-source display, plus export timing/cover/share fixes. Targeted core/regression, vendor, public KCRW, phone/SE/iPad and unsigned Release checks passed. [Verification](docs/VERIFICATION.md) owns counts and receipts. Account mutations used a fake service; no real account was changed. Extractor updates use Files import; no automatic feed is configured.
+1. **Clone the repository.**
 
-- **Live Radio.** Search > Live Radio finds Radio Browser stations by name, country, language or tags, including NPR discovery. Favorites stay on this device. Live playback has its own controls and preserves the music queue and position for a paused return. Stations have no song history, lyrics, downloads or export. [Live Radio](docs/LIVE_RADIO.md) owns validation and limits.
-- **Normalize Volume.** Source loudness lowers loud songs and can raise quiet songs by up to 6 dB through the shared EQ tap. A 20 ms ramp and channel-linked sample limiter reduce abrupt changes and peaks. Missing metadata stays at unity; live/HLS boost is unsupported. This is not true-peak or final-crossfade limiting. [Volume Normalisation](docs/VOLUME_NORMALISATION.md) owns the signal path.
-- **YouTube Changes.** Settings > Account & Connection and eligible songs' More pages offer separate remote actions. Allow YouTube Changes starts off, binds to this sign-in/device and still requires confirmation for each like, playlist addition or subscription change. Local hearts never write to YouTube. Ambiguous writes are not retried automatically. [Account Write-Back](docs/ACCOUNT_WRITEBACK.md) owns eligibility and account limits.
-- **Extractor Updates.** Settings > Account & Connection imports bounded JSON compatibility rules from Files, checks their hash and requires explicit trust for unsigned sources. Rollback is available. No feed or publisher key is configured; rules cover compatible field aliases and hash-bound transforms, not arbitrary future YouTube repairs. [Extractor Updates](docs/EXTRACTOR_UPDATES.md) owns the format and recovery.
+   ```sh
+   git clone https://github.com/aagrawal207/velvet-thorn-free-music-app.git
+   cd velvet-thorn-free-music-app
+   ```
 
-- **Downloads and export.** Keep songs, albums or playlists outside the purgeable cache, excluded from backup and cache limits. Wi-Fi is the default. Submitted transfers use iOS background downloads; extraction and validation may wait for foreground runtime, and force-quit stops transfers until reopening. **Download Liked Songs** shares one preference between Likes and Settings. Downloads offers **All / Liked / Not Liked**; heart changes update membership without deleting files. Phone light/dark filter checks passed. **Export Audio** produces verified tagged AAC-LC M4A, preserving AAC when possible and otherwise encoding locally. Artwork may be fetched through the existing large-image loader. [Downloads](docs/DOWNLOADS.md), [Background Downloads](docs/BACKGROUND_DOWNLOADS.md) and [Audio Export](docs/AUDIO_EXPORT.md) own limits and coverage.
-- **Moment Mixes.** **Your Moments** uses device-local time and explicit route evidence recurring across three days. Names describe that evidence, not guessed gym visits or commutes. Settings > Discovery > Moment Mixes controls learning; optional motion starts off. Evidence is limited to 2,048 qualified events within 60 days, with history preparation off the main actor. [Moment Mixes](docs/MOMENT_MIXES.md) owns privacy and native-motion checks.
-- **Optional YouTube connection.** An explicit Welcome completion offers **Connect YouTube** or **Not Now** once. Relaunch and completed libraries skip the offer; connecting never starts an import. Home distinguishes starting language defaults from saved settings and learned listening. [Discovery and Onboarding](docs/DISCOVERY_ONBOARDING.md) owns the flow.
-- **Audio quality choice.** **Settings > Playback > Audio quality** keeps a ceiling: Best available, Balanced (up to 160 kbps) or Data saver (up to 64 kbps). It applies to the next song, never forces a network fetch for a cached or downloaded copy, and ranks the 256 kbps tiers first under Best when a signed-in account is offered them. More shows the choice beside the source encoding. [Audio quality](docs/AUDIO_QUALITY.md) records the selection rules.
-- **Equalizer.** **Settings > Playback > Equalizer** offers ten ISO bands from 31 Hz to 16 kHz, eleven presets plus Custom, a preamp with automatic headroom, and live changes without restarting the song. EQ defaults off and shares one per-item tap with normalization gain-up; HLS bypasses it. Tap priming can add a gapless delay, including with EQ off when gain-up needs the tap. [Equalizer](docs/EQUALIZER.md) records the signal path and historical timing.
-- **Song details.** The player's More sheet opens **Song details**: performers, composer, lyricist, producer, label, release date, copyright, plays, views, audio quality, cache state, language, genres and identifiers, read from YouTube's own release notes first and from MusicBrainz for the gaps. [Song details](docs/SONG_DETAILS.md) records sources and bounds.
-- **JioSaavn and Gaana catalogs.** Search asks every enabled source and groups results by source, YouTube Music first; albums, artists, playlists and radio open from any of them, rows carry a small source badge, and songs from JioSaavn (AAC up to 320 kbps) and Gaana (HLS at 128 kbps, with JioSaavn and then YouTube Music as fallbacks) play in the same player. **Settings > Discovery > Catalog sources** switches JioSaavn and Gaana off; saved songs stay playable. Both integrations are unofficial. [JioSaavn](docs/JIOSAAVN.md) and [Gaana](docs/GAANA.md) record endpoints, identity and bounds.
-- **YouTube Music library import.** When signed in, **Settings > Account & connection > Import from YouTube Music** copies liked songs, playlists, followed artists and, optionally, recent history into this device's library. It is read-only, additive and repeatable; nothing changes on the account, and Google can see the requests on it. [Account import](docs/ACCOUNT_IMPORT.md) records the listings and bounds.
-- **Skip non-music sections.** Off by default. When on, the player skips SponsorBlock's community-marked intros, outros, talk and sponsor reads in YouTube uploads, looking markers up by a hashed prefix of the recording id so the service never learns which song is playing. The More sheet counts the skips. [SponsorBlock](docs/SPONSORBLOCK.md) records eligibility and privacy.
-- **Listening genres.** Alongside languages, Velvet Thorn learns which genre families you play from MusicBrainz's genre tags, within a small request budget. Stats shows **Top Genres** for the selected history window; **Settings > Discovery > Listening Genres** shows coverage and More/Automatic/Less adjustments. Home shelves, mixes and radio station order lean slightly toward your genres without excluding anything. [Genre profile](docs/GENRE_PROFILE.md) records the taxonomy and weights.
-- **Recording metadata before classification.** The official YouTube Data API supplies audio-language tags when available; explicit tags and cached results avoid lyrics recognition. Missing metadata keeps the existing bounded fallback. Missing duration can be supplied to lyrics/MusicBrainz lookup copies without changing the saved track or current playback. [YouTube metadata](docs/YOUTUBE_DATA_API.md) records scope, configuration and measured coverage.
-- **Home Screen widgets.** Recently played, Liked songs and Mix come in small, medium and large sizes. Choose Daily Mix or Discover Weekly when editing a Mix widget. Taps open saved music through Velvet Thorn's existing player, including compatible cached audio offline. Widgets use a bounded local metadata/artwork copy; history off hides recent songs. [Widget contracts](docs/WIDGETS.md) cover refresh, privacy, routes and tests.
-- **Home that you arrange.** Recently played comes first by default. **Settings > Discovery > Customize Home** saves section order and visibility. Daily Mix, Discover Weekly, followed-artist releases, and dated weekly chart picks appear when data is available. Compact artwork corners and mix titles below the art keep the layout simple.
-- **Search and recently opened music.** Blank Search starts with separate Radio and Live Radio rows, up to three of your playlists and typed Recently opened; Liked songs and Downloads live in Library, while cache management is in Settings. Up to 20 explicitly opened songs, artists, albums, playlists or mixes are saved as typed destinations; submitting query text does not add history. Live stations do not become song Search selections. Filters appear once a request starts for the current query. Reselecting Search returns from native destinations, keeps the warmed results/query, and focuses with one scroll, respecting Reduce Motion.
-- **Search inside your library.** Liked songs and playlists filter local titles, credited artists and album names case/diacritic-insensitively. Play and Shuffle capture the matching songs; filtered removal uses recording identity, and reordering resumes after leaving search. Find music returns to the Search root.
-- **Listening languages.** The Listening Languages page, reached from Stats or Settings, shows counted plays from the last 30 days across five recording languages, including Unclassified in the totals. Stats share cards use the selected history window instead. Optional **More**, **Automatic** and **Less** guide discovery without changing statistics or excluding unknown-language music. Active-app checks can fetch recording metadata and matched lyrics after listening; history off pauses new learning. [Listening-led discovery](docs/LISTENING_DISCOVERY.md) owns the evidence, bounds and test mapping.
-- **Song and artist Radio.** Start Radio from a song menu, Player More, an artist page or **Search > Radio**. The original song or artist anchors future recommendations; there is no setup form. **Tune Radio** changes familiarity and optional language for future additions without moving queued songs. **Listen Again** keeps up to 20 recent radios on this device while listening history is enabled. Refills begin before the queue runs out; empty or failed results keep the current music and offer retry. [Song and Artist Radio](docs/SEED_RADIO.md) owns selection, privacy and limits.
-- **Artist pages with sources.** “This is [artist]” opens on popular songs sorted by provider play count, with unknown counts last. **Languages** opens optional filters and correction controls; it becomes **Browse by language** once at least two recording languages are identified. Background results and corrections keep the chosen filter, including an empty one. Uncertain songs remain in All/Unclassified, and artist nationality is never language proof. Monthly audience figures retain the provider's metric and wording. Artist pages add **Featuring [artist]** for songs where the artist is a featured or secondary credit, found through search and sorted by the same counts. A song released as an album track and again as a single or reissue appears once, preferring the album release; live, remix, acoustic and labelled language versions stay separate.
-- **A one-handed player.** Full-screen Now Playing keeps previous, play, and next fixed on the artwork backdrop. The heart sits in the heading beside the title and artist (filled in the accent colour when liked), the progress bar runs the full width with linear seeking, and tapping the right time label switches song length/time left. That choice persists; there is no time-label Settings row. The artist line opens the artist directly or the album and artists chooser; native AirPlay is left, Lyrics and Queue right; shuffle and repeat live in Queue. Swiping up over the artwork opens Lyrics by default (Queue, More options or Off in **Settings > Playback**). Returning from the background shows the screen you left; the player opens from the mini-player. The mini-player shows progress across its capsule background. Its 64-point minimum grows with Dynamic Type. Content scrolls beneath its glass and the tab bar, and every tab root and pushed page still scrolls its last row clear of it. Volume uses system controls.
-- **Share a song.** More has one **Share song** entry that opens a card preview. **Share** sends the image with a song-link message; **Share link only** sends just the URL. Song menus use the same preview when they have a presenter, with link-only fallback for other callers. [Player More](docs/PLAYER_MORE.md) records the order and sharing contract; recipient-app rendering remains unverified on hardware.
-- **AirPlay and TV Lyrics.** Main and standby players render audio on the phone. The owner reports constant physical testing and actual TV audio AirPlay working great, closing audio acceptance as an owner report. **TV Lyrics** is a separate opt-in phone/mirrored or external-screen presentation using the selected document and source credit. Phone UI checks passed; actual TV lyrics, native idle-timer behavior and receiver latency remain unverified. [AirPlay](docs/AIRPLAY.md) and [TV Lyrics](docs/TV_LYRICS.md) record the distinction.
-- **Listening controls.** Crossfade defaults to 0 seconds and Automix defaults off, grouped together in Settings. Existing saved choices are preserved. Gapless playback, Autoplay, volume normalization and a sleep timer remain available. Multi-artist choices open immediately; optional artist pictures load afterward without delaying selection. Autoplay filters disliked songs and duplicate song versions. When a song's radio runs dry it borrows another queue song's radio and retries once; if nothing is found, the Queue sheet says why and offers **Try more songs**.
-- **Save the remaining queue.** **Queue > Save remaining songs** captures the current and upcoming visible order when the naming sheet opens. Recording IDs are deduplicated only in the saved playlist. One atomic save preserves queue occurrences, playback position, shuffle and repeat; a failed save keeps the draft for retry.
-- **Listening preferences.** **Settings > Playback > Shuffle order** defaults to **Fewer repeats** for new/missing preferences, favoring less-recently played songs in the next shuffle. Every saved Random choice is preserved; the compatibility marker never infers a migration. **Discovery balance > More familiar / Balanced / More new** affects new Home recommendations and future mixes. Current playback keeps its selection. Preferences persist and sync independently; history off makes shuffle effectively random without erasing the saved choice. [Settings](docs/SETTINGS.md) owns defaults; [Listening policies](docs/LISTENING_DISCOVERY.md) owns weighting.
-- **Cached and offline listening.** **Settings > Library & iCloud > Storage & cached songs > Cached songs** shows cache availability and per-song removal. Library no longer has a cache-management entry. The offline bar opens **On this device**, combining downloads and playable cached copies, while Likes' On this device filter uses the same availability. Known-offline Search uses saved metadata. Playback can skip missing queue entries in order; reconnection does not start paused playback. Cached audio remains purgeable; downloads do not.
-- **Source audio details.** More shows the encoding and actual byte provider, including **via JioSaavn** or **via YouTube Music** for fallback audio. Unknown legacy cache provenance stays explicit; no signed URL is used to guess it. Cache, downloads and background recovery retain each encoding's source. **Reload Best Available Audio** is available when online; eligible Opus on iOS 26.5+ is prepared locally with AAC fallback. [Audio Quality](docs/AUDIO_QUALITY.md) owns provenance and selection.
-- **Published lyric choices.** LRCLIB remains primary with recording-linked catalog fallback. Bounded variant discovery adds strictly matched JioSaavn text. Phone and TV share the selected document, timestamps and source credit. Saved corrections take priority over supplied language and raw Data API audio-language tags. Gurmukhi appears only when published text exists; nothing is generated or translated. There is no direct Genius or Musixmatch integration. [Lyric variants](docs/LYRICS_VARIANTS.md) owns matching and limits.
-- **Album descriptions when available.** **About this album** starts at three lines with **Read more** / **Show less**. It uses Wikipedia prose already supplied in the selected YouTube Music album header, retaining the article link and supplied license. Conservative album and artist/composer checks omit uncertain matches. There is no automatic Wikipedia fetch or added account requirement.
-- **Artwork-led collection pages.** Album covers grow to 360 points; circular artist pictures use 90% of that responsive size. Album, mix and playlist rows show known song lengths, with count and complete running time at the bottom. Album and artist pages share the player's artwork-blended backdrop, which tints the whole page with the cover's own colours like the lock screen while keeping text readable.
-- **iCloud sync.** Sync defaults on when this device has no saved sync setting; saved Off stays off. **Settings > Library & iCloud > iCloud sync** shows a green enabled icon, activity status and manual retry. Likes, playlists, follows, history, typed Search selections, preferences and saved metadata merge through iCloud Drive. Playback, sign-in, tips, derived caches and media stay on each device. Sync is event-driven with a 750-ms debounce, roughly five-second listening checkpoints, transient retries after 5/30 seconds and a 300-second event-triggered cooldown after exhaustion. Stale local preparation is detected before it becomes a storage-error banner. The reported device popup and native two-device delivery remain unconfirmed. [Sync contracts](docs/ICLOUD_SYNC.md) own exact scheduling and recovery limits.
-- **Provider song totals.** Available catalog play counts stay attached to the selected recording, including validated album-audio counterparts. Upload views and weekly charts have different scopes and are not displayed as song totals. Unknown counts stay hidden; rounded and saved metadata remain snapshots. [Count semantics](docs/PROVIDERS.md#song-play-counts) records the sources and limits.
-- **A saved library and Stats.** Library writes and async checkpoints publish after durability. **All Time** uses lifetime receipts for time and plays; rankings and charts still use retained detail, normally 400 days. Earlier deleted plays cannot be recovered. Exact receipts are capped at 200,000 per history generation; shared journal/file limits may bind earlier. History Off retains totals; Clear Listening History clears them. The Stats Card preserves this distinction. [Lifetime Statistics](docs/LIFETIME_STATISTICS.md) and [Library and Stats](docs/LIBRARY_AND_RECAP.md) own counting and capacity. [Scrolling performance](docs/SCROLLING_PERFORMANCE.md) retains R16 measurements, not a new R17 performance claim.
-- **Apple Watch controls.** The native watchOS 11+ companion offers Now Playing controls, favorites, recently played, playlists, and queue browsing. Primary transport controls sit above progress. Selecting a song plays it on the paired iPhone. The iPhone owns playback and its audio route; the Watch has no standalone audio playback. Cached or disconnected state is labeled **Last seen on iPhone** with playback actions disabled.
-- **Native CarPlay audio.** Favorites, Recently played, Playlists, Queue, and the system Now Playing screen share the iPhone player and library. The custom CarPlay app requires the opt-in `GanaBajanaCarPlay` scheme, Apple capability approval for the App ID, and a matching provisioning profile. Approval and signing remain unverified.
-- **Appearance choices and Settings pages.** Settings offers 20 original icons in three groups: **Leafnote** (default) with Paper, Sky, Blossom, Midnight, Violet, Sunset and Mono; Thorn with Sonnet, Edge, Frost, Noir, Venom, Dusk and Blush; and Drift, Moonleaf, Ripple and Tide. A retired icon resolves to Leafnote; the App icon row is hidden where alternate icons are unsupported. Seven accent palettes and dark/light/system appearance remain. WP26's six pages are implemented: Playback, Library & iCloud, Appearance, Discovery, Account & connection and About Velvet Thorn, reached from a short summary/root list. Rows are 44 points with explanations in topic footers. **Discovery > Following** closes Settings and scrolls Library to Following. Native switches retain full-row targets despite their smaller visuals. [Settings](docs/SETTINGS.md) owns layout and verification scope.
-- **iPhone, iPad, and Mac layout.** Content columns widen to 1000 points in regular width, Home carousels bleed to the window edges, and the mini-player and banners cap at 640 points centered. Hardware keyboards do not hide the mini-player. iPad supports all four orientations and multitasking; multiple iPad windows share one navigation state.
-- **Storage controls and optional tips.** Settings shows actual cache and library usage and lets the listener clear unused audio/artwork. Search offers individual removal and Clear all for Recently opened. Five one-time consumable tips unlock no features or music.
+2. **Find your Team ID.** In Xcode > Settings > Accounts, add your Apple ID, select it and click **Manage Certificates** > **+** > **Apple Development** if you don't have a certificate yet. Then print your 10-character Team ID:
 
-The audio cache defaults to **1 GiB or 200 logical songs**, with five size choices. Usage includes every committed encoding and active preparation bytes. Complete audio has no TTL; durable listening recency/frequency guide eviction within the byte/song limits, with in-use files protected. Ordinary playback uses the best compatible cached or downloaded variant; iOS can purge the cache tier but not downloads, and music with neither needs a connection. Downloads are the managed permanent tier described above; there is still no guaranteed source bitrate. See [cache policy and audio quality](docs/PROVIDERS.md#audio-cache-and-quality).
+   ```sh
+   security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject | sed -E 's/.*OU ?= ?([A-Z0-9]{10}).*/\1/'
+   ```
 
-Language inference keeps original punctuation, contractions, and line breaks in overlapping 40-word windows, with one bounded context retry for an otherwise valid ambiguous core. Foreign-segment vetoes and lexical anchors remain required. The earlier four live language cases passed, including Kanye West's **All Falls Down (feat. Syleena Johnson)**, Radiohead's **No Surprises**, Hindi/transliteration, and the exact MusicBrainz work contract. MusicBrainz can conditionally fetch an exact linked work whose embedded language fields are missing or empty; these results establish neither catalog-wide accuracy nor incremental live recovery from that extra request. [Recording languages](docs/SONG_LANGUAGES.md) records the evidence.
+   With a paid account you can also read it at [developer.apple.com/account](https://developer.apple.com/account) > Membership.
 
-Provider requests go directly from the device; there is no Velvet Thorn app backend. The paired Watch receives recording metadata and library rows without audio, media URLs or account cookies. Optional YouTube credentials stay in device-only Keychain storage and serve scoped playback lookups, opt-in import and separately confirmed account changes. Radio Browser and selected broadcasters receive radio requests. No extractor feed is configured. Remote extraction stays off by default. Providers receive request/network data, and backups can include saved app data. [Privacy](PRIVACY.md) describes those boundaries.
+3. **Point the project at your team.** Pick a bundle ID prefix that is unique to you, for example `com.yourname.velvetthorn`.
 
-## Development
+   ```sh
+   # Free Apple account (no iCloud sync):
+   tools/configure-signing.sh YOURTEAMID com.yourname.velvetthorn --no-icloud
 
-Developed with **Xcode 27**, **Swift 6**, and **XcodeGen**. From the repository root:
+   # Paid Apple Developer account (keeps iCloud sync):
+   tools/configure-signing.sh YOURTEAMID com.yourname.velvetthorn
+   ```
 
-Configure official metadata with `python3 tools/configure-youtube-data-api.py`. The helper stores the app/API-restricted client key in `Resources/YouTubeDataAPI.local.plist`, which is ignored by Git. Regenerate the project after creating the file. Unit and fixture hosts use injected providers; the explicit live API test reads the bundled credential. [Configuration and limits](docs/YOUTUBE_DATA_API.md#local-configuration-and-release) explain the native client and development-only ytmusicapi probe.
+   The script sets your team and replaces the original bundle ID, App Group and iCloud container everywhere they appear.
+
+4. **Generate and open the project.**
+
+   ```sh
+   xcodegen generate
+   open GanaBajana.xcodeproj
+   ```
+
+5. **Run it.** Connect your iPhone, choose the **GanaBajana** scheme and your device at the top of Xcode, then press **Run** (⌘R). The first time, iOS asks you to trust the developer: open Settings > General > VPN & Device Management, select your Apple ID and tap Trust.
+
+The project, module and scheme are still called `GanaBajana`, the app's original working name. The app on your Home Screen is called Velvet Thorn.
+
+### Free account limits
+
+- The app stops opening after **7 days**. Connect your phone and press Run again; your library stays in place.
+- Free accounts can run **3 apps** of your own on a device at a time.
+- **iCloud sync** needs a paid account. With `--no-icloud`, Settings shows sync as unavailable, and everything else works.
+
+### Apple Watch, Mac and CarPlay
+
+- **Apple Watch:** the Watch app is embedded in the iPhone app. When your Watch is paired, it installs from the Watch app on your iPhone (or run the **GanaBajanaWatch** scheme). The Watch is a remote; music plays on the iPhone.
+- **Mac:** choose the **GanaBajana** scheme with **My Mac (Mac Catalyst)** as the destination. Requires macOS 15 or later.
+- **CarPlay:** Apple only grants the CarPlay audio entitlement to approved developers. If you have it, use the **GanaBajanaCarPlay** scheme. The normal scheme builds without CarPlay.
+
+### Optional: better language detection
+
+Velvet Thorn can ask the official YouTube Data API for a song's audio language. This is optional; without it the app falls back to lyrics and MusicBrainz. Create an API key in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) with the YouTube Data API v3 enabled, then run:
 
 ```sh
+python3 tools/configure-youtube-data-api.py
 xcodegen generate
-open GanaBajana.xcodeproj
 ```
 
-Use the dedicated GanaBajana QA iPhone 17 Pro, SE 3, iPad Pro 13 and paired Watch SE 3 simulators. `project.yml` configures both apps and test targets, phone/iPad device families and all four iPad orientations. Mac Catalyst is unavailable because FFmpegBridge ships iOS slices only. The coordinator owns project generation and build/test execution. [Verification](docs/VERIFICATION.md) records targeted phone/iPad workflows and the unsigned Designed for iPad Mac build. The owner reports ongoing physical testing and accepts TV audio; a full device matrix and Mac run are not established.
+The key is stored in `Resources/YouTubeDataAPI.local.plist`, which Git ignores. Details are in [docs/YOUTUBE_DATA_API.md](docs/YOUTUBE_DATA_API.md).
 
-For normal automatic signing, use **`GanaBajana` or `GanaBajanaWatch`**. The phone's Debug/Release builds use `Signing/iCloud.entitlements` for `iCloud.com.agraabhi.ganabajana` and the widget App Group `group.com.agraabhi.ganabajana`, without Apple's managed CarPlay capability. The embedded `BreezyWidgets` target uses `Signing/Widgets.entitlements` for that group only. Choose **`GanaBajanaCarPlay` only after Apple approves the App ID's capability and the provisioning profile includes it**. Its file includes iCloud, the App Group and CarPlay; the Watch requests none of these. See [widget contracts](docs/WIDGETS.md) and [CarPlay signing](docs/CARPLAY.md#audio-entitlement).
+## Troubleshooting
 
-| Scheme | Purpose |
+| Problem | Fix |
 | --- | --- |
-| `GanaBajana` | Debug development, unit tests, and fixture UI tests; Debug Run uses `Resources/TipJar.storekit` |
-| `GanaBajanaWatch` | Embedded native companion, Watch unit/UI targets, and the opt-in paired transport test |
-| `GanaBajanaCarPlay` | Opt-in CarPlay signing: Run/Test use `Debug-CarPlay`; Archive uses `Release-CarPlay` |
-| `GanaBajanaLive` | Opt-in live provider checks, including experience radio, lyrics fallback, and encrypted DNS/TLS |
-| `GanaBajanaLiveUI` | Opt-in live playback UI workflow |
+| "No profiles for 'com.agraabhi.ganabajana' were found" or the bundle ID is unavailable | Run `tools/configure-signing.sh` (step 3), then `xcodegen generate` again. |
+| "Personal development teams do not support the iCloud capability" | Run the script again with the same team and prefix plus `--no-icloud`, then `xcodegen generate`. To switch to a different prefix, run `git checkout .` first. |
+| Xcode says the YouTubeKit or FFmpegBridge package is missing | Close and reopen the project so Xcode refreshes its package graph. |
+| `xcodegen: command not found` | `brew install xcodegen` |
+| "Untrusted Developer" on the iPhone | Settings > General > VPN & Device Management > your Apple ID > Trust. |
+| The app stopped opening after a week | Free accounts sign for 7 days. Run it from Xcode again. |
 
-`tools/verify.sh` supports `unit`, `ui`, `watch-unit`, `watch-ui`, `live`, `live-ui`, and `release`, regenerating the project and keeping outputs under `artifacts/`. Live mode includes `AlbumDescriptionLiveTests`. `SKIP_NATIVE_STOREKIT=1` explicitly excludes native StoreKit from phone unit/UI runs; the default is 0. The paired-Watch connectivity test has a separate opt-in and [fixture launch order](docs/WATCH.md#paired-simulator-watchconnectivity). Headless rotation uses the explicit scene-geometry opt-in described in [architecture](docs/ARCHITECTURE.md#verification-ownership).
+## Important notes
 
-Release tooling checks identity, device support, signatures, notices, absent fixtures, App Groups and phone-only API configuration. Both Release configurations exclude `TipJar.storekit`. Delivered artifacts, input hashes and receipts remain frozen under `artifacts/AppStore-1.0.0-6/`, alongside earlier deliveries. They do not describe local build-8 source. The coordinator owns release records; [Verification](docs/VERIFICATION.md) records execution details.
+- **Unofficial sources.** Playback, search and downloads use unofficial, undocumented YouTube Music, JioSaavn and Gaana interfaces. They can change or break at any time, and using them may go against those services' terms. You are responsible for how you use this app and for respecting the rights of the people who make the music.
+- **For personal use.** Velvet Thorn is not on the App Store, and the features that rely on these sources would not be accepted there. Do not redistribute music you download with it.
+- **Your data stays with you.** Your library, history and mixes live on your device and, if you turn it on, in your own iCloud Drive. Optional YouTube sign-in is stored in the device Keychain and is used only for the features you enable. See [PRIVACY.md](PRIVACY.md) and [docs/PROVIDERS.md](docs/PROVIDERS.md).
 
-The app dynamically links the minimal [FFmpegBridge](Vendor/FFmpegBridge/README.md) XCFramework for local WebM-to-MP4 packet copy, with no re-encoding or network/decoder stack. Homebrew `ffmpeg` only generates fixtures. Framework rebuilding, source repackaging, and package verification are complete; public recipient-source/relink delivery remains unresolved in [FFmpeg distribution](docs/FFMPEG_DISTRIBUTION.md).
-
-If Xcode reports a missing local YouTubeKit package after project regeneration, close and reopen the project to refresh its package graph before investigating package configuration.
-
-## Documentation
+## For developers
 
 - [Architecture and API contracts](docs/ARCHITECTURE.md)
-- [Live Radio](docs/LIVE_RADIO.md), [Volume Normalisation](docs/VOLUME_NORMALISATION.md), [YouTube Changes](docs/ACCOUNT_WRITEBACK.md), [Extractor Updates](docs/EXTRACTOR_UPDATES.md), and [Audio Export](docs/AUDIO_EXPORT.md)
-- [Scrolling performance: architecture, measurements and privacy contracts](docs/SCROLLING_PERFORMANCE.md)
-- [Reopened TestFlight preparation and current remote state](docs/APPSTORE_TESTFLIGHT.md)
-- [Roadmap: decisions, rounds, backlog](docs/ROADMAP.md)
-- [Library and Stats](docs/LIBRARY_AND_RECAP.md), [Settings pages](docs/SETTINGS.md), [Player More and song sharing](docs/PLAYER_MORE.md), and [AirPlay routing and receiver limits](docs/AIRPLAY.md)
-- [Player shell](docs/PLAYER_SHELL.md) and [liked heart](docs/PLAYER_HEART.md); [Song details](docs/SONG_DETAILS.md); [downloads and export](docs/DOWNLOADS.md); [audio quality](docs/AUDIO_QUALITY.md); [equalizer](docs/EQUALIZER.md); [account import](docs/ACCOUNT_IMPORT.md); [JioSaavn](docs/JIOSAAVN.md) and [Gaana](docs/GAANA.md); [SponsorBlock](docs/SPONSORBLOCK.md); [genre profile](docs/GENRE_PROFILE.md); [Recap and Library review](docs/RECAP_AND_LIBRARY_REVIEW.md); [playlist browse fix](docs/PLAYLIST_BROWSE_FIX.md)
-- [iCloud sync, merge rules and recovery](docs/ICLOUD_SYNC.md)
-- [Providers, data handling, and attribution](docs/PROVIDERS.md)
-- [Apple Watch controls and connectivity](docs/WATCH.md)
-- [Native CarPlay audio and entitlement requirements](docs/CARPLAY.md)
-- [Home Screen widgets and shared-data contracts](docs/WIDGETS.md)
-- [Album descriptions, identity checks, and attribution](docs/ALBUM_DESCRIPTIONS.md)
-- [Recording-language browsing and evidence](docs/SONG_LANGUAGES.md)
-- [Official recording metadata, configuration and limits](docs/YOUTUBE_DATA_API.md)
-- [Listening-led discovery, local retention, metrics and tests](docs/LISTENING_DISCOVERY.md)
-- [Public music-app research and next product choices](docs/PRODUCT_RESEARCH.md)
-- [Initial release status and local artifacts](docs/app-store/RELEASE_STATUS.md)
-- [Selected name and historical candidate lookup](docs/app-store/NAMING.md)
-- [Store listing](docs/app-store/STORE_LISTING.md), [IAP manifest](docs/app-store/IAP_MANIFEST.json), and [review notes](docs/app-store/REVIEW_NOTES.md)
-- [Screenshot plan](docs/app-store/SCREENSHOTS.md) and [App Privacy assessment](docs/app-store/PRIVACY_REVIEW.md)
-- [Osho/Bruce review-question comparison and prepared Velvet Thorn answers](docs/app-store/REVIEW_QUESTIONS.md)
-- [Support](SUPPORT.md), [privacy policy](PRIVACY.md), and [public-page integration](docs/app-store/PUBLIC_PAGES.md)
-- [Acknowledgements](Resources/Acknowledgements.txt): YouTubeKit's MIT notice and FFmpeg/FFmpegBridge's LGPL notice; [FFmpeg source and relinking record](docs/FFMPEG_DISTRIBUTION.md)
+- [Roadmap](docs/ROADMAP.md) and [verification records](docs/VERIFICATION.md)
+- [Providers, data handling and attribution](docs/PROVIDERS.md)
+- Feature notes in [docs/](docs/), for example [Seed Radio](docs/SEED_RADIO.md), [iCloud sync](docs/ICLOUD_SYNC.md), [Downloads](docs/DOWNLOADS.md), [Equalizer](docs/EQUALIZER.md), [Watch](docs/WATCH.md), [CarPlay](docs/CARPLAY.md) and [Widgets](docs/WIDGETS.md)
+- [AGENTS.md](AGENTS.md) holds the full set of code and persistence rules used during development.
 
-The [Support](https://gist.github.com/aagrawal207/95acc71ba167fb754c435de17d256e59#file-support-md) and [Privacy](https://gist.github.com/aagrawal207/95acc71ba167fb754c435de17d256e59#file-privacy-md) copies were updated and byte-verified on 24 September 2026 UTC with R6/R7/R8/R9 behavior; they predate R12/R13 and are not being republished under the local-only decision, while root [PRIVACY.md](PRIVACY.md) describes the current build. Settings, store metadata and `MusicBrainzContactURL` use these public targets. [PUBLIC_PAGES.md](docs/app-store/PUBLIC_PAGES.md) preserves the current revision and historical copies. Content authorization and FFmpeg recipient delivery remain open and dormant.
+`project.yml` is the source of truth for the Xcode project; edit it rather than the generated `.xcodeproj`. `tools/verify.sh` runs the unit, UI, Watch, live-provider and release checks and writes output to `artifacts/`, which Git ignores.
+
+## License
+
+Velvet Thorn is released under the [MIT License](LICENSE). Bundled third-party code keeps its own license: [YouTubeKit](Vendor/YouTubeKit/LICENSE) (MIT) and [FFmpeg/FFmpegBridge](Vendor/FFmpegBridge/LICENSE.md) (LGPL 2.1). See [Acknowledgements](Resources/Acknowledgements.txt). The license covers this code only, not any music, lyrics or artwork the app plays or shows.
